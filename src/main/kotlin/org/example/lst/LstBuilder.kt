@@ -1,10 +1,13 @@
 package org.example.lst
 
+import org.apache.maven.model.io.xpp3.MavenXpp3Reader
+import org.codehaus.plexus.util.xml.Xpp3Dom
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.SourceFile
 import org.openrewrite.groovy.GroovyParser
 import org.openrewrite.java.JavaParser
+import org.openrewrite.java.marker.JavaVersion
 import org.openrewrite.json.JsonParser
 import org.openrewrite.kotlin.KotlinParser
 import org.openrewrite.properties.PropertiesParser
@@ -15,6 +18,7 @@ import org.example.config.ToolConfig
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.UUID
 import java.util.logging.Logger
 import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
@@ -60,6 +64,10 @@ class LstBuilder(
         // ── 3-stage classpath resolution ──────────────────────────────────────
         val classpath = resolveClasspath(projectDir)
 
+        // ── Detect Java source/target version from build descriptor ───────────
+        val javaVersionMarker = buildJavaVersionMarker(projectDir)
+        log.info("Java version marker: source=${javaVersionMarker.sourceCompatibility}, target=${javaVersionMarker.targetCompatibility}")
+
         // ── Collect files by extension ────────────────────────────────────────
         val filesByExt = collectFiles(projectDir, effectiveExtensions, parseConfig.excludePaths)
         val totalFiles = filesByExt.values.sumOf { it.size }
@@ -74,7 +82,9 @@ class LstBuilder(
                 .fromJavaVersion()
                 .classpath(classpath)
                 .build()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            parser.parse(files, projectDir, ctx).forEach {
+                allSources.add(it.withMarkers(it.markers.add(javaVersionMarker)))
+            }
         }
 
         filesByExt[".kt"]?.let { files ->
@@ -116,6 +126,114 @@ class LstBuilder(
 
         log.info("LST build complete: ${allSources.size} SourceFile(s)")
         return allSources
+    }
+
+    // ─── Java version detection ───────────────────────────────────────────────
+
+    private fun buildJavaVersionMarker(projectDir: Path): JavaVersion {
+        val createdBy = System.getProperty("java.runtime.version") ?: System.getProperty("java.version") ?: ""
+        val vmVendor = System.getProperty("java.vm.vendor") ?: ""
+        val (source, target) = detectJavaVersion(projectDir)
+        return JavaVersion(UUID.randomUUID(), createdBy, vmVendor, source, target)
+    }
+
+    private fun detectJavaVersion(projectDir: Path): Pair<String, String> {
+        val jvmMajor = normalizeJvmVersion(System.getProperty("java.version") ?: "")
+        val fallback = Pair(jvmMajor, jvmMajor)
+
+        if (projectDir.resolve("pom.xml").toFile().exists()) {
+            return detectMavenJavaVersion(projectDir) ?: fallback
+        }
+
+        val buildFile = projectDir.resolve("build.gradle.kts").takeIf { it.toFile().exists() }
+            ?: projectDir.resolve("build.gradle").takeIf { it.toFile().exists() }
+        if (buildFile != null) {
+            return detectGradleJavaVersion(buildFile) ?: fallback
+        }
+
+        return fallback
+    }
+
+    /**
+     * Extracts Java source/target version from Maven's maven-compiler-plugin.
+     * Priority: plugin <release> > plugin <source>/<target> > project properties.
+     */
+    private fun detectMavenJavaVersion(projectDir: Path): Pair<String, String>? {
+        return try {
+            val model = MavenXpp3Reader().read(projectDir.resolve("pom.xml").toFile().inputStream())
+
+            // Priority 1: maven-compiler-plugin <configuration>
+            val compilerPlugin = model.build?.plugins?.find { it.artifactId == "maven-compiler-plugin" }
+            val dom = compilerPlugin?.configuration as? Xpp3Dom
+            if (dom != null) {
+                val release = dom.getChild("release")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
+                if (release != null) return Pair(release, release)
+
+                val source = dom.getChild("source")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
+                val target = dom.getChild("target")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
+                if (source != null || target != null) return Pair(source ?: target ?: "", target ?: source ?: "")
+            }
+
+            // Priority 2: project <properties>
+            val props = model.properties
+            val propsRelease = props["maven.compiler.release"]?.toString()?.takeIf { it.isNotBlank() }
+            if (propsRelease != null) return Pair(propsRelease, propsRelease)
+
+            val propsSource = props["maven.compiler.source"]?.toString()?.takeIf { it.isNotBlank() }
+            val propsTarget = props["maven.compiler.target"]?.toString()?.takeIf { it.isNotBlank() }
+            if (propsSource != null || propsTarget != null) {
+                return Pair(propsSource ?: propsTarget ?: "", propsTarget ?: propsSource ?: "")
+            }
+
+            null
+        } catch (e: Exception) {
+            log.warning("Failed to detect Java version from pom.xml: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Extracts Java source/target version from a Gradle build file via regex.
+     * Handles Groovy DSL (`sourceCompatibility = '17'`) and Kotlin DSL
+     * (`sourceCompatibility = JavaVersion.VERSION_17`, `jvmToolchain(21)`,
+     * `java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }`).
+     */
+    private fun detectGradleJavaVersion(buildFile: Path): Pair<String, String>? {
+        return try {
+            val text = buildFile.toFile().readText()
+
+            // sourceCompatibility / targetCompatibility in various forms
+            val sourcePattern = Regex("""sourceCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_)?['"]?(\d+)['"]?""")
+            val targetPattern = Regex("""targetCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_)?['"]?(\d+)['"]?""")
+            // jvmToolchain(21) — Kotlin/Gradle toolchain shorthand
+            val jvmToolchainPattern = Regex("""jvmToolchain\s*\(\s*(\d+)\s*\)""")
+            // java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+            val javaToolchainPattern = Regex("""JavaLanguageVersion\.of\s*\(\s*(\d+)\s*\)""")
+            // compileJava.options.release = 17 or options.release.set(17)
+            val releasePattern = Regex("""[.\s]release\s*[=.(]\s*(\d+)""")
+
+            val source = sourcePattern.find(text)?.groupValues?.get(1)
+            val target = targetPattern.find(text)?.groupValues?.get(1)
+            val toolchain = jvmToolchainPattern.find(text)?.groupValues?.get(1)
+                ?: javaToolchainPattern.find(text)?.groupValues?.get(1)
+            val release = releasePattern.find(text)?.groupValues?.get(1)
+
+            when {
+                release != null -> Pair(release, release)
+                source != null || target != null -> Pair(source ?: target ?: "", target ?: source ?: "")
+                toolchain != null -> Pair(toolchain, toolchain)
+                else -> null
+            }
+        } catch (e: Exception) {
+            log.warning("Failed to detect Java version from Gradle build file: ${e.message}")
+            null
+        }
+    }
+
+    /** Converts JVM version strings like "1.8.0_xxx" → "8", "21.0.1" → "21". */
+    private fun normalizeJvmVersion(version: String): String {
+        val v = if (version.startsWith("1.")) version.removePrefix("1.") else version
+        return v.substringBefore(".")
     }
 
     // ─── Classpath resolution (3 stages) ─────────────────────────────────────
