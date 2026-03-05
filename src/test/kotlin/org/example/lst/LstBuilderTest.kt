@@ -292,4 +292,114 @@ class LstBuilderTest {
         // Should still parse the file even without a resolved classpath
         assertEquals(1, sources.size, "Java file should be parsed even without classpath (Stage 3 fallback)")
     }
+
+    // ─── Compile-on-demand (Stage 1 enhancement) ─────────────────────────────
+
+    @Test
+    fun `tryCompile is called when stage 1 succeeds but no class directories exist`() {
+        var tryCompileCalled = false
+        val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
+
+        val trackingBuildTool = object : BuildToolStage() {
+            override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
+            override fun tryCompile(projectDir: Path): Boolean {
+                tryCompileCalled = true
+                return false
+            }
+        }
+
+        projectDir.resolve("Hello.java").writeText("class Hello {}")
+        lstBuilder(buildTool = trackingBuildTool).build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".java"),
+        )
+
+        assertTrue(tryCompileCalled, "tryCompile should be called when Stage 1 succeeds but class dirs are absent")
+    }
+
+    @Test
+    fun `tryCompile is NOT called when class directories already exist`() {
+        var tryCompileCalled = false
+        val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
+
+        // Pre-create a class directory so the tool sees it as already compiled
+        projectDir.resolve("target/classes").createDirectories()
+
+        val trackingBuildTool = object : BuildToolStage() {
+            override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
+            override fun tryCompile(projectDir: Path): Boolean {
+                tryCompileCalled = true
+                return false
+            }
+        }
+
+        projectDir.resolve("Hello.java").writeText("class Hello {}")
+        lstBuilder(buildTool = trackingBuildTool).build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".java"),
+        )
+
+        assertTrue(!tryCompileCalled, "tryCompile should NOT be called when class directories already exist")
+    }
+
+    @Test
+    fun `tryCompile failure is non-fatal and parsing continues`() {
+        val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
+
+        val failingCompileTool = object : BuildToolStage() {
+            override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
+            override fun tryCompile(projectDir: Path): Boolean = false  // compilation fails
+        }
+
+        projectDir.resolve("Hello.java").writeText("class Hello {}")
+        val sources = lstBuilder(buildTool = failingCompileTool).build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".java"),
+        )
+
+        assertEquals(1, sources.size, "Parsing should succeed even when tryCompile returns false")
+    }
+
+    @Test
+    fun `class dirs produced by tryCompile are included in classpath`() {
+        val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
+
+        // Simulate a build tool that produces target/classes when tryCompile is called
+        val compilingBuildTool = object : BuildToolStage() {
+            override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
+            override fun tryCompile(projectDir: Path): Boolean {
+                projectDir.resolve("target/classes").createDirectories()
+                return true
+            }
+        }
+
+        projectDir.resolve("Hello.java").writeText("class Hello {}")
+        // No exception and file is parsed — class dir created by compile is picked up
+        val sources = lstBuilder(buildTool = compilingBuildTool).build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".java"),
+        )
+
+        assertEquals(1, sources.size, "Parsing should succeed after tryCompile creates class directories")
+    }
+
+    @Test
+    fun `tryCompile is NOT called when stage 1 returns null`() {
+        var tryCompileCalled = false
+
+        val nullReturningBuildTool = object : BuildToolStage() {
+            override fun extractClasspath(projectDir: Path): List<Path>? = null
+            override fun tryCompile(projectDir: Path): Boolean {
+                tryCompileCalled = true
+                return false
+            }
+        }
+
+        lstBuilder(buildTool = nullReturningBuildTool).build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".java"),
+        )
+
+        assertTrue(!tryCompileCalled, "tryCompile should NOT be called when Stage 1 returns null")
+    }
 }

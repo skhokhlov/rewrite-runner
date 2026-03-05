@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class BuildToolStageTest {
@@ -85,6 +86,71 @@ class BuildToolStageTest {
         // Maven is preferred; just verify no exception
         val result = runCatching { stage.extractClasspath(projectDir) }
         assertTrue_compat(result.isSuccess, "Should not throw when both pom.xml and build.gradle exist")
+    }
+
+    // ─── tryCompile tests ─────────────────────────────────────────────────────
+
+    @Test
+    fun `tryCompile returns false when no build file exists`() {
+        val result = stage.tryCompile(projectDir)
+        assertFalse(result, "Should return false when project has no recognized build file")
+    }
+
+    @Test
+    fun `tryCompile returns false without throwing when Maven not available`() {
+        projectDir.resolve("pom.xml").writeText(
+            """
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <groupId>com.example</groupId>
+                <artifactId>test</artifactId>
+                <version>1.0</version>
+            </project>
+            """.trimIndent()
+        )
+        // No mvnw wrapper → falls back to 'mvn'; may not be on PATH in CI
+        // Contract: never throws, returns false on failure
+        val result = runCatching { stage.tryCompile(projectDir) }
+        assertTrue_compat(result.isSuccess, "tryCompile should not throw for a Maven project")
+    }
+
+    @Test
+    fun `tryCompile returns false without throwing when Gradle not available`() {
+        projectDir.resolve("build.gradle.kts").writeText("// empty")
+        // No gradlew wrapper → falls back to 'gradle'; may not be on PATH in CI
+        val result = runCatching { stage.tryCompile(projectDir) }
+        assertTrue_compat(result.isSuccess, "tryCompile should not throw for a Gradle KTS project")
+    }
+
+    @Test
+    fun `tryCompile prefers Maven when both pom_xml and build_gradle exist`() {
+        projectDir.resolve("pom.xml").writeText("<project/>")
+        projectDir.resolve("build.gradle").writeText("// empty")
+        // Maven is preferred (same precedence as extractClasspath); must not throw
+        val result = runCatching { stage.tryCompile(projectDir) }
+        assertTrue_compat(result.isSuccess, "tryCompile should not throw when both pom.xml and build.gradle exist")
+    }
+
+    @Test
+    fun `tryCompile uses mvnw wrapper when present`() {
+        projectDir.resolve("pom.xml").writeText("<project/>")
+        // Create a fake mvnw that exits 1 — still must not throw
+        val mvnw = projectDir.resolve("mvnw").toFile()
+        mvnw.writeText("#!/bin/sh\nexit 1\n")
+        mvnw.setExecutable(true)
+        val result = runCatching { stage.tryCompile(projectDir) }
+        assertTrue_compat(result.isSuccess, "tryCompile should not throw when mvnw exits non-zero")
+    }
+
+    @Test
+    fun `tryCompile uses gradlew wrapper when present`() {
+        projectDir.resolve("build.gradle").writeText("// empty")
+        // Create a fake gradlew that exits 1 — still must not throw
+        val gradlew = projectDir.resolve("gradlew").toFile()
+        gradlew.writeText("#!/bin/sh\nexit 1\n")
+        gradlew.setExecutable(true)
+        val result = runCatching { stage.tryCompile(projectDir) }
+        assertTrue_compat(result.isSuccess, "tryCompile should not throw when gradlew exits non-zero")
     }
 
     private fun assertTrue_compat(value: Boolean, message: String) {

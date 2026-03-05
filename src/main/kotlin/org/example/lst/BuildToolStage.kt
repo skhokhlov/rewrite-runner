@@ -100,6 +100,59 @@ open class BuildToolStage {
         }
     }
 
+    // ─── Compilation ─────────────────────────────────────────────────────────
+
+    /**
+     * Attempts to compile the project using its build tool.
+     * Returns true if compilation succeeded, false on any failure.
+     * Never throws — failure is logged as a warning and the pipeline continues.
+     */
+    open fun tryCompile(projectDir: Path): Boolean {
+        return when {
+            projectDir.resolve("pom.xml").exists() -> tryMavenCompile(projectDir)
+            hasBuildGradle(projectDir) -> tryGradleCompile(projectDir)
+            else -> false
+        }
+    }
+
+    private fun tryMavenCompile(projectDir: Path): Boolean {
+        val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
+        return try {
+            val result = runProcess(projectDir, listOf(mvnCmd, "compile", "-q")) ?: return false
+            if (result == 0) {
+                log.info("Maven compilation succeeded")
+                true
+            } else {
+                log.warning("Maven compilation failed with exit code $result")
+                false
+            }
+        } catch (e: Exception) {
+            log.warning("Maven compilation threw an exception: ${e.message}")
+            false
+        }
+    }
+
+    private fun tryGradleCompile(projectDir: Path): Boolean {
+        val gradleCmd = when {
+            projectDir.resolve("gradlew").exists() -> "./gradlew"
+            projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
+            else -> "gradle"
+        }
+        return try {
+            val result = runProcess(projectDir, listOf(gradleCmd, "classes", "-q")) ?: return false
+            if (result == 0) {
+                log.info("Gradle compilation succeeded")
+                true
+            } else {
+                log.warning("Gradle compilation failed with exit code $result")
+                false
+            }
+        } catch (e: Exception) {
+            log.warning("Gradle compilation threw an exception: ${e.message}")
+            false
+        }
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private fun hasBuildGradle(dir: Path): Boolean =
