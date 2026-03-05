@@ -261,7 +261,14 @@ class LstBuilder(
         log.info("Stage 1: attempting build-tool classpath extraction")
         val stage1 = buildToolStage.extractClasspath(projectDir)
         if (stage1 != null) {
-            val classDirs = projectClassDirs(projectDir)
+            // If there are no pre-compiled class directories, try compiling now so that
+            // intra-project type references resolve instead of becoming JavaType.Unknown.
+            var classDirs = projectClassDirs(projectDir)
+            if (classDirs.isEmpty()) {
+                log.info("No compiled class directories found — attempting compilation")
+                buildToolStage.tryCompile(projectDir)
+                classDirs = projectClassDirs(projectDir)
+            }
             if (classDirs.isNotEmpty()) {
                 log.info("Appending ${classDirs.size} project class dir(s) to classpath")
             }
