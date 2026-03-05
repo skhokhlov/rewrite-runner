@@ -1,5 +1,6 @@
 package org.example.config
 
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -89,6 +90,7 @@ class ToolConfigTest {
 
     @Test
     fun `interpolates env var in repository username`() {
+        assumeTrue(!System.getenv("USER").isNullOrEmpty(), "Skipped: USER env var not set")
         val configFile = tempDir.resolve("runner.yml")
         configFile.writeText(
             """
