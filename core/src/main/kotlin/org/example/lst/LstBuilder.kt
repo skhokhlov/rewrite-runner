@@ -50,6 +50,23 @@ class LstBuilder(
         ".git", "build", "target", "node_modules", ".gradle", ".idea", "out", "dist",
     )
 
+    /**
+     * Parse all source files in [projectDir] into OpenRewrite SourceFile trees.
+     *
+     * Runs the 3-stage classpath resolution pipeline, then dispatches each collected file
+     * to the appropriate language parser based on its extension.
+     *
+     * @param projectDir Root of the project to parse. Must be an existing directory.
+     * @param parseConfig Extension inclusion/exclusion and glob-exclusion settings from the
+     *   tool config file. CLI flags ([includeExtensionsCli], [excludeExtensionsCli]) take
+     *   precedence when non-empty.
+     * @param includeExtensionsCli File extensions to include, as specified via CLI or the
+     *   library [org.example.OpenRewriteRunner.Builder]. Overrides [parseConfig] when non-empty.
+     * @param excludeExtensionsCli File extensions to skip. Overrides [parseConfig] when non-empty.
+     * @param ctx OpenRewrite execution context. Defaults to an [org.openrewrite.InMemoryExecutionContext]
+     *   that logs parse warnings without aborting.
+     * @return The list of all parsed [org.openrewrite.SourceFile]s, one per source file found.
+     */
     fun build(
         projectDir: Path,
         parseConfig: ParseConfig = toolConfig.parse,

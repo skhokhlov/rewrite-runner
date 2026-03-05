@@ -28,14 +28,31 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 
 **Entry point**: `Main.kt` → `CommandLine(RunCommand()).execute(*args)`. `RunCommand` is the **root command** (not a subcommand) — all options are passed directly without a "run" prefix.
 
-**Execution pipeline in `RunCommand.call()`**:
+**Execution pipeline** (orchestrated by `OpenRewriteRunner.run()`, delegated to by `RunCommand.call()`):
 1. Load tool config (`ToolConfig`)
 2. Resolve recipe JARs from Maven coordinates (`RecipeArtifactResolver`)
 3. Load recipe from JARs + optional `rewrite.yaml` (`RecipeLoader`)
 4. Build LST — parse source files into OpenRewrite's tree representation (`LstBuilder`)
 5. Run the recipe (`RecipeRunner`)
-6. Optionally write changes to disk (unless `--dry-run`)
-7. Format output (`ResultFormatter`)
+6. Optionally write changes to disk (unless `--dry-run` / `dryRun = true`)
+7. Return `RunResult`; `RunCommand.call()` then formats output via `ResultFormatter`
+
+## Library API
+
+**`OpenRewriteRunner`** (`org.example`) — programmatic entry point; use `OpenRewriteRunner.builder()` to configure and `.build().run()` to execute. Returns a `RunResult`.
+
+**`RunResult`** (`org.example`) — holds `results: List<Result>`, `changedFiles: List<Path>`, `projectDir: Path`, and convenience properties `hasChanges`, `changeCount`.
+
+**`RunCommand.call()`** now delegates entirely to `OpenRewriteRunner`, then passes `runResult.results` to `ResultFormatter` for CLI output. All orchestration logic lives in `OpenRewriteRunner.run()`.
+
+**Builder options** mirror CLI flags 1:1 (see `OpenRewriteRunner.Builder` KDoc and README Library Usage section for the full table).
+
+**KotlinDoc** is present on all public classes and methods in: `OpenRewriteRunner`, `RunResult`, `RecipeArtifactResolver`, `RecipeLoader`, `RecipeRunner`, `LstBuilder`, `ToolConfig`, `ParseConfig`, `RepositoryConfig`, `ResultFormatter`, `OutputMode`.
+
+**Build artifacts**:
+- `core/build/libs/core-1.0-SNAPSHOT.jar` — library JAR (no embedded deps)
+- `core/build/libs/core-1.0-SNAPSHOT-sources.jar` — sources JAR
+- `cli/build/libs/cli-1.0-SNAPSHOT-all.jar` — fat JAR for CLI use
 
 **3-stage LST building** (`lst/` package):
 - **Stage 1** (`BuildToolStage`): Subprocess Maven/Gradle to extract compile classpath. Falls through on failure.
@@ -85,11 +102,13 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 
 ## Directory Structure
 
+The project is split into two Gradle submodules:
+
 ```
-src/
+core/src/
 ├── main/kotlin/org/example/
-│   ├── Main.kt                         # Entry point
-│   ├── cli/RunCommand.kt               # Picocli command (root, not subcommand)
+│   ├── OpenRewriteRunner.kt            # Library facade — builder API, orchestrates the full pipeline
+│   ├── RunResult.kt                    # Return type for OpenRewriteRunner.run()
 │   ├── config/ToolConfig.kt            # YAML config + env var interpolation
 │   ├── lst/
 │   │   ├── LstBuilder.kt               # Orchestrates 3-stage pipeline + multi-language parsing
@@ -103,17 +122,7 @@ src/
 │       └── RecipeRunner.kt             # Execute recipe, return Results
 │
 └── test/kotlin/org/example/
-    ├── cli/RunCommandTest.kt
     ├── config/ToolConfigTest.kt
-    ├── integration/
-    │   ├── BaseIntegrationTest.kt      # runCli() helper, temp dir setup
-    │   ├── JavaProjectIntegrationTest.kt
-    │   ├── KotlinProjectIntegrationTest.kt
-    │   ├── YamlProjectIntegrationTest.kt
-    │   ├── JsonProjectIntegrationTest.kt
-    │   ├── XmlProjectIntegrationTest.kt
-    │   ├── PropertiesProjectIntegrationTest.kt
-    │   └── MultiLanguageProjectIntegrationTest.kt
     ├── lst/
     │   ├── LstBuilderTest.kt
     │   ├── BuildToolStageTest.kt
@@ -121,6 +130,23 @@ src/
     │   ├── DirectParseStageTest.kt
     │   └── JavaVersionDetectionTest.kt
     └── output/ResultFormatterTest.kt
+
+cli/src/
+├── main/kotlin/org/example/
+│   ├── Main.kt                         # Entry point
+│   └── cli/RunCommand.kt               # Picocli command (root, not subcommand); delegates to OpenRewriteRunner
+│
+└── test/kotlin/org/example/
+    ├── cli/RunCommandTest.kt
+    └── integration/
+        ├── BaseIntegrationTest.kt      # runCli() helper, temp dir setup
+        ├── JavaProjectIntegrationTest.kt
+        ├── KotlinProjectIntegrationTest.kt
+        ├── YamlProjectIntegrationTest.kt
+        ├── JsonProjectIntegrationTest.kt
+        ├── XmlProjectIntegrationTest.kt
+        ├── PropertiesProjectIntegrationTest.kt
+        └── MultiLanguageProjectIntegrationTest.kt
 ```
 
 ## Important Implementation Notes

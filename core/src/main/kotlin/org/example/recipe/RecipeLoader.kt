@@ -11,6 +11,14 @@ import java.util.Properties
 import java.util.logging.Logger
 import kotlin.io.path.exists
 
+/**
+ * Loads OpenRewrite recipes from recipe JARs and/or a `rewrite.yaml` declarative config.
+ *
+ * Internally builds an OpenRewrite [org.openrewrite.config.Environment] that scans the
+ * provided JARs (and, when no JARs are given, the tool's own classpath) for recipes,
+ * styles, and categories. The [load] method returns the activated [org.openrewrite.Recipe]
+ * ready for execution by [RecipeRunner].
+ */
 class RecipeLoader {
     private val log = Logger.getLogger(RecipeLoader::class.java.name)
 

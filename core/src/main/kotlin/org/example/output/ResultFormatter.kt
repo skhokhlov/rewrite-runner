@@ -8,8 +8,27 @@ import java.io.PrintStream
 import java.io.PrintWriter
 import java.nio.file.Path
 
+/**
+ * The three output modes supported by [ResultFormatter].
+ *
+ * - [DIFF]: Print a unified diff for each changed file to stdout.
+ * - [FILES]: Print one changed file path per line to stdout.
+ * - [REPORT]: Write a structured JSON file (`openrewrite-report.json`) to the report directory.
+ */
 enum class OutputMode { DIFF, FILES, REPORT }
 
+/**
+ * Formats the OpenRewrite [org.openrewrite.Result] changeset in one of three modes.
+ *
+ * @param outputMode Controls the output format. See [OutputMode] for details.
+ * @param out Destination for textual output. Defaults to [System.out].
+ *
+ * The secondary constructor accepts a picocli [java.io.PrintWriter] for CLI integration.
+ * Library consumers that do not need formatted output can ignore this class entirely and
+ * work with [org.example.RunResult.results] directly.
+ *
+ * @see OutputMode
+ */
 class ResultFormatter(
     private val outputMode: OutputMode = OutputMode.DIFF,
     private val out: PrintStream = System.out,
@@ -23,6 +42,14 @@ class ResultFormatter(
         }, true))
     private val json = ObjectMapper().registerKotlinModule()
 
+    /**
+     * Write formatted output for the given [results].
+     *
+     * @param results The changeset from a recipe run. May be empty.
+     * @param reportDir Directory where `openrewrite-report.json` is written when
+     *   [outputMode] is [OutputMode.REPORT]. Defaults to the current directory.
+     *   Ignored for [OutputMode.DIFF] and [OutputMode.FILES].
+     */
     fun format(results: List<Result>, reportDir: Path? = null) {
         when (outputMode) {
             OutputMode.DIFF -> printDiffs(results)
