@@ -63,4 +63,5 @@ tasks.shadowJar {
 
 tasks.test {
     useJUnitPlatform()
+    jvmArgs("-Xmx2g")
 }

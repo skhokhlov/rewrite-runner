@@ -61,31 +61,26 @@ class ResultFormatter(
 
     // ─── report ───────────────────────────────────────────────────────────────
 
-    private data class ResultEntry(
-        val filePath: String?,
-        val diff: String,
-        val isNewFile: Boolean,
-        val isDeletedFile: Boolean,
-    )
-
-    private data class Report(
-        val results: List<ResultEntry>,
-        val totalChanged: Int,
-    )
-
     private fun writeReport(results: List<Result>, reportDir: Path) {
-        val entries = results.map { r ->
-            ResultEntry(
-                filePath = (r.after?.sourcePath ?: r.before?.sourcePath)?.toString(),
-                diff = r.diff(),
-                isNewFile = r.before == null,
-                isDeletedFile = r.after == null,
-            )
-        }
-
-        val report = Report(entries, results.size)
         val reportFile = reportDir.resolve("openrewrite-report.json").toFile()
-        json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
+        // Stream entries one-by-one so diff strings can be GC'd as we go,
+        // rather than holding every diff in memory before the file is written.
+        json.factory.createGenerator(reportFile.writer()).use { gen ->
+            gen.useDefaultPrettyPrinter()
+            gen.writeStartObject()
+            gen.writeNumberField("totalChanged", results.size)
+            gen.writeArrayFieldStart("results")
+            for (r in results) {
+                gen.writeStartObject()
+                gen.writeObjectField("filePath", (r.after?.sourcePath ?: r.before?.sourcePath)?.toString())
+                gen.writeBooleanField("isNewFile", r.before == null)
+                gen.writeBooleanField("isDeletedFile", r.after == null)
+                gen.writeStringField("diff", r.diff())
+                gen.writeEndObject()
+            }
+            gen.writeEndArray()
+            gen.writeEndObject()
+        }
         out.println("Report written to: ${reportFile.absolutePath}")
     }
 }
