@@ -129,6 +129,9 @@ class RunCommand : Callable<Int> {
             log.info("Recipe loaded: ${recipe.name}")
 
             // 4. Build LST (3-stage pipeline)
+            // OpenRewrite requires all source files in memory simultaneously to support
+            // cross-file analysis. For large projects set -Xmx accordingly, e.g.:
+            //   java -Xmx6g -jar openrewrite-runner-all.jar …
             log.info("Building LST for project: $projectDir")
             val lstBuilder = LstBuilder(
                 cacheDir = effectiveCacheDir,
