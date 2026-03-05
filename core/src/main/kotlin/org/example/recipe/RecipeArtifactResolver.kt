@@ -18,6 +18,17 @@ import org.example.config.RepositoryConfig
 import java.nio.file.Path
 import java.util.logging.Logger
 
+/**
+ * Resolves Maven coordinates to local JAR file paths using Eclipse Aether (Maven Resolver).
+ *
+ * Downloads the requested artifact and its transitive runtime dependencies, caching them
+ * in a local Maven repository under [cacheDir]. Maven Central is always included as a
+ * remote repository; additional repositories can be supplied via [extraRepositories].
+ *
+ * @param cacheDir Root directory for the local Maven repository cache. Created if absent.
+ * @param extraRepositories Additional remote Maven repositories to query after Maven Central.
+ *   Credentials (username/password) from [RepositoryConfig] are applied when present.
+ */
 class RecipeArtifactResolver(
     private val cacheDir: Path,
     private val extraRepositories: List<RepositoryConfig> = emptyList(),

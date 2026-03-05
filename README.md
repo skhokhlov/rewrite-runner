@@ -43,6 +43,88 @@ java -jar openrewrite-runner-all.jar \
   --output diff
 ```
 
+## Library Usage
+
+`openrewrite-runner` can be used as a library from Java and Kotlin code without the CLI layer. Use the plain JAR (not the `-all` fat JAR) as a dependency.
+
+### Adding as a dependency (local JAR)
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation(files("libs/openrewrite-runner-1.0-SNAPSHOT.jar"))
+}
+```
+
+### Kotlin usage
+
+```kotlin
+import org.example.OpenRewriteRunner
+import java.nio.file.Paths
+
+fun main() {
+    val result = OpenRewriteRunner.builder()
+        .projectDir(Paths.get("/path/to/project"))
+        .activeRecipe("org.openrewrite.java.format.AutoFormat")
+        .dryRun(true)
+        .build()
+        .run()
+
+    println("Changed ${result.changeCount} file(s)")
+    result.results.forEach { r -> println(r.diff()) }
+}
+```
+
+### Java usage
+
+```java
+import org.example.OpenRewriteRunner;
+import org.example.RunResult;
+import java.nio.file.Paths;
+
+public class Example {
+    public static void main(String[] args) {
+        RunResult result = OpenRewriteRunner.builder()
+            .projectDir(Paths.get("/path/to/project"))
+            .activeRecipe("org.openrewrite.java.format.AutoFormat")
+            .recipeArtifact("org.openrewrite.recipe:rewrite-static-analysis:LATEST")
+            .dryRun(true)
+            .build()
+            .run();
+
+        System.out.println("Changed " + result.getChangeCount() + " file(s)");
+        result.getResults().forEach(r -> System.out.println(r.diff()));
+    }
+}
+```
+
+### Formatting results
+
+If you want formatted output (diff, file list, or JSON report), use `ResultFormatter` directly:
+
+```kotlin
+import org.example.output.OutputMode
+import org.example.output.ResultFormatter
+
+val result = runner.run()
+ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
+```
+
+### Builder reference
+
+| Method | Type | Default | Description |
+|--------|------|---------|-------------|
+| `projectDir(Path)` | required | `.` (cwd) | Project root to analyse |
+| `activeRecipe(String)` | required | — | Fully-qualified recipe name |
+| `recipeArtifact(String)` | optional (repeatable) | — | Maven coordinate of a recipe JAR |
+| `recipeArtifacts(List<String>)` | optional | — | Set all recipe artifact coordinates at once |
+| `rewriteConfig(Path)` | optional | `<projectDir>/rewrite.yaml` | Custom `rewrite.yaml` path |
+| `cacheDir(Path)` | optional | `~/.openscript/cache` | JAR download cache directory |
+| `configFile(Path)` | optional | — | Path to `openrewrite-runner.yml` |
+| `dryRun(Boolean)` | optional | `false` | Analyse without writing to disk |
+| `includeExtensions(List<String>)` | optional | all supported | File extensions to parse |
+| `excludeExtensions(List<String>)` | optional | — | File extensions to skip |
+
 ## CLI Reference
 
 ```
