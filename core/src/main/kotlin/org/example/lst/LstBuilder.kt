@@ -415,10 +415,24 @@ class LstBuilder(
         return stage3 + classDirs
     }
 
-    private fun gatherDeclaredCoordinates(projectDir: Path): List<String> {
-        // Best-effort: re-parse the build descriptor without network access
+    /**
+     * Extract declared dependency coordinates from the project's build descriptor without
+     * triggering any network downloads. Returns `groupId:artifactId:version` strings
+     * suitable for [DirectParseStage.findAvailableJars].
+     *
+     * Previously this called [DependencyResolutionStage.resolveClasspath], which returns
+     * `List<Path>` (local JAR paths). Passing those paths to [DirectParseStage] caused
+     * [DirectParseStage.parseCoord] to always return null (paths contain no `:` triplet),
+     * making Stage 3 a permanent no-op.
+     */
+    internal fun gatherDeclaredCoordinates(projectDir: Path): List<String> {
         return try {
-            depResolutionStage.resolveClasspath(projectDir).map { it.toString() }
+            when {
+                projectDir.resolve("pom.xml").toFile().exists() ->
+                    depResolutionStage.parseMavenDependencies(projectDir)
+                else ->
+                    depResolutionStage.parseGradleDependencies(projectDir)
+            }
         } catch (_: Exception) {
             emptyList()
         }
