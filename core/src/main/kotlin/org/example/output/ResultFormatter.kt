@@ -92,7 +92,7 @@ class ResultFormatter(
         val reportFile = reportDir.resolve("openrewrite-report.json").toFile()
         // Stream entries one-by-one so diff strings can be GC'd as we go,
         // rather than holding every diff in memory before the file is written.
-        json.factory.createGenerator(reportFile.writer()).use { gen ->
+        json.factory.createGenerator(reportFile.writer(Charsets.UTF_8)).use { gen ->
             gen.useDefaultPrettyPrinter()
             gen.writeStartObject()
             gen.writeNumberField("totalChanged", results.size)
