@@ -58,6 +58,10 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
      *   abort the run.
      */
     fun run(): RunResult {
+        require(config.projectDir.toFile().isDirectory) {
+            "projectDir does not exist or is not a directory: ${config.projectDir}"
+        }
+
         // 1. Load tool config
         val toolConfig = ToolConfig.load(config.configFile)
         val effectiveCacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).also {
