@@ -139,6 +139,42 @@ class RunCommandTest {
         assertEquals(rewriteYaml, cmd.rewriteConfig)
     }
 
+    // ─── Output mode validation ───────────────────────────────────────────────
+
+    @Test
+    fun `unknown --output value exits with code 1`() {
+        projectDir.resolve("Hello.java").writeText("class Hello {}")
+
+        val errBaos = ByteArrayOutputStream()
+        val code = cli()
+            .setErr(PrintWriter(errBaos))
+            .execute(
+                "--project-dir", projectDir.toString(),
+                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
+                "--cache-dir", cacheDir.toString(),
+                "--output", "foobar",
+            )
+
+        assertEquals(1, code, "Unknown --output value should exit with code 1, not silently fall back to diff")
+        assertTrue(errBaos.toString().contains("foobar"), "Error message should mention the invalid value")
+    }
+
+    // ─── projectDir validation ────────────────────────────────────────────────
+
+    @Test
+    fun `nonexistent --project-dir exits with code 1`() {
+        val errBaos = ByteArrayOutputStream()
+        val code = cli()
+            .setErr(PrintWriter(errBaos))
+            .execute(
+                "--project-dir", "/tmp/this-directory-does-not-exist-openrewrite-runner-test",
+                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
+                "--cache-dir", cacheDir.toString(),
+            )
+
+        assertEquals(1, code, "Nonexistent project directory should exit with code 1")
+    }
+
     // ─── End-to-end CLI execution ─────────────────────────────────────────────
 
     @Test

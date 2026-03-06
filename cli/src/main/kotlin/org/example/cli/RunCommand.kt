@@ -91,6 +91,18 @@ class RunCommand : Callable<Int> {
     var excludeExtensions: List<String> = emptyList()
 
     override fun call(): Int {
+        // Validate output mode before doing any expensive work (fail fast)
+        val mode = when (outputMode.lowercase()) {
+            "diff" -> OutputMode.DIFF
+            "files" -> OutputMode.FILES
+            "report" -> OutputMode.REPORT
+            else -> {
+                spec.commandLine().err.println("Unknown output mode '$outputMode'. Valid values: diff, files, report.")
+                spec.commandLine().err.flush()
+                return 1
+            }
+        }
+
         return try {
             val builder = OpenRewriteRunner.builder()
                 .projectDir(projectDir)
@@ -105,16 +117,6 @@ class RunCommand : Callable<Int> {
 
             val runResult = builder.build().run()
 
-            // Format output (CLI-only concern)
-            val mode = when (outputMode.lowercase()) {
-                "diff" -> OutputMode.DIFF
-                "files" -> OutputMode.FILES
-                "report" -> OutputMode.REPORT
-                else -> {
-                    System.err.println("Unknown output mode '$outputMode'. Using 'diff'.")
-                    OutputMode.DIFF
-                }
-            }
             ResultFormatter(mode, spec.commandLine().out).format(runResult.results, runResult.projectDir)
 
             0
