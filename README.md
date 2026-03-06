@@ -20,13 +20,13 @@ Requires JDK 21+.
 
 ```bash
 ./gradlew shadowJar
-# Produces: build/libs/openrewrite-runner-1.0-SNAPSHOT-all.jar
+# Produces: cli/build/libs/cli-1.0-SNAPSHOT-all.jar
 ```
 
 ### Run a recipe
 
 ```bash
-java -jar openrewrite-runner-all.jar \
+java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar \
   --project-dir /path/to/your/project \
   --active-recipe org.openrewrite.java.format.AutoFormat \
   --recipe-artifact org.openrewrite.recipe:rewrite-static-analysis:LATEST
@@ -35,7 +35,7 @@ java -jar openrewrite-runner-all.jar \
 ### Dry run (preview changes without writing to disk)
 
 ```bash
-java -jar openrewrite-runner-all.jar \
+java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar \
   --project-dir /path/to/your/project \
   --active-recipe org.openrewrite.java.migrate.UpgradeToJava21 \
   --recipe-artifact org.openrewrite.recipe:rewrite-migrate-java:LATEST \

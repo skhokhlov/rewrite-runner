@@ -41,3 +41,6 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Tool config (may contain credentials) ###
+openrewrite-runner.yml
