@@ -113,8 +113,3 @@ data class ToolConfig(
             }
     }
 }
-
-fun interpolateEnvVars(text: String): String =
-    Regex("""\$\{([^}]+)}""").replace(text) { match ->
-        System.getenv(match.groupValues[1]) ?: match.value
-    }
