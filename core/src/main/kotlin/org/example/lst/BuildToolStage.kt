@@ -47,7 +47,7 @@ open class BuildToolStage {
             val content = outputFile.toFile().readText().trim()
             if (content.isEmpty()) return null
 
-            return content.split(":").map { Path.of(it) }.filter { it.exists() }
+            return content.split(java.io.File.pathSeparator).map { Path.of(it) }.filter { it.exists() }
         } catch (e: Exception) {
             log.warning("Maven classpath extraction threw an exception: ${e.message} — falling through to Stage 2")
             return null
