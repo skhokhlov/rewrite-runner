@@ -81,9 +81,10 @@ class LstBuilder(
         // ── 3-stage classpath resolution ──────────────────────────────────────
         val classpath = resolveClasspath(projectDir)
 
-        // ── Detect Java source/target version from build descriptor ───────────
-        val javaVersionMarker = buildJavaVersionMarker(projectDir)
-        log.info("Java version marker: source=${javaVersionMarker.sourceCompatibility}, target=${javaVersionMarker.targetCompatibility}")
+        // ── Per-file Java version cache (module dir → (source, target)) ──────
+        // Populated lazily as Java files are processed; null means a build file
+        // was found in that directory but carried no explicit Java version setting.
+        val versionCache = mutableMapOf<Path, Pair<String, String>?>()
 
         // ── Collect files by extension ────────────────────────────────────────
         val filesByExt = collectFiles(projectDir, effectiveExtensions, parseConfig.excludePaths)
@@ -99,8 +100,11 @@ class LstBuilder(
                 .fromJavaVersion()
                 .classpath(classpath)
                 .build()
-            parser.parse(files, projectDir, ctx).forEach {
-                allSources.add(it.withMarkers(it.markers.add(javaVersionMarker)))
+            parser.parse(files, projectDir, ctx).forEach { sourceFile ->
+                val absPath = projectDir.resolve(sourceFile.sourcePath)
+                val (source, target) = detectJavaVersionForFile(absPath, projectDir, versionCache)
+                log.fine("Java version for ${sourceFile.sourcePath}: source=$source, target=$target")
+                allSources.add(sourceFile.withMarkers(sourceFile.markers.add(buildJavaVersionMarker(source, target))))
             }
         }
 
@@ -152,6 +156,71 @@ class LstBuilder(
         val vmVendor = System.getProperty("java.vm.vendor") ?: ""
         val (source, target) = detectJavaVersion(projectDir)
         return JavaVersion(UUID.randomUUID(), createdBy, vmVendor, source, target)
+    }
+
+    /** Creates a [JavaVersion] marker with the given source/target version strings. */
+    private fun buildJavaVersionMarker(source: String, target: String): JavaVersion {
+        val createdBy = System.getProperty("java.runtime.version") ?: System.getProperty("java.version") ?: ""
+        val vmVendor = System.getProperty("java.vm.vendor") ?: ""
+        return JavaVersion(UUID.randomUUID(), createdBy, vmVendor, source, target)
+    }
+
+    /**
+     * Detects the Java source/target version for a specific source file by walking
+     * up its directory tree until a build file with an explicit Java version is found.
+     *
+     * Walk-up semantics:
+     * - The **nearest** ancestor directory whose build file carries an explicit Java
+     *   version wins (innermost explicit declaration takes priority).
+     * - If a build file is present but declares **no** explicit version, the walk
+     *   continues upward — this enables submodule → parent inheritance without
+     *   requiring full Maven/Gradle model resolution.
+     * - Stops at [projectDir]; returns the running JVM's major version as fallback.
+     *
+     * Results are cached per directory so each `pom.xml` or `build.gradle` is read
+     * at most once per [build] invocation, regardless of how many Java files reside
+     * under a given module.
+     *
+     * @param absFilePath Absolute path of the Java source file being parsed.
+     * @param projectDir  Root directory of the project (inclusive upper bound).
+     * @param cache       Mutable cache: directory → detected pair, or `null` when a
+     *                    build file was found but contained no explicit Java version.
+     */
+    private fun detectJavaVersionForFile(
+        absFilePath: Path,
+        projectDir: Path,
+        cache: MutableMap<Path, Pair<String, String>?>,
+    ): Pair<String, String> {
+        val jvmMajor = normalizeJvmVersion(System.getProperty("java.version") ?: "")
+        val fallback = Pair(jvmMajor, jvmMajor)
+
+        var dir: Path? = absFilePath.parent
+        while (dir != null && dir.startsWith(projectDir)) {
+            if (dir in cache) {
+                val cached = cache[dir]
+                if (cached != null) return cached
+                // null → build file here but no explicit version; keep walking up
+            } else {
+                val pomFile = dir.resolve("pom.xml")
+                val buildFile = dir.resolve("build.gradle.kts").takeIf { it.toFile().exists() }
+                    ?: dir.resolve("build.gradle").takeIf { it.toFile().exists() }
+                val detected: Pair<String, String>? = when {
+                    pomFile.toFile().exists() -> detectMavenJavaVersion(dir)
+                    buildFile != null         -> detectGradleJavaVersion(buildFile)
+                    else                      -> {
+                        // No build file at this level; skip caching and try parent
+                        if (dir == projectDir) break
+                        dir = dir.parent
+                        continue
+                    }
+                }
+                cache[dir] = detected   // cache null too (build file present, no explicit version)
+                if (detected != null) return detected
+            }
+            if (dir == projectDir) break
+            dir = dir.parent
+        }
+        return fallback
     }
 
     private fun detectJavaVersion(projectDir: Path): Pair<String, String> {
