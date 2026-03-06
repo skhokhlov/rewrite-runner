@@ -174,6 +174,8 @@ class LstBuilder(
     /**
      * Extracts Java source/target version from Maven's maven-compiler-plugin.
      * Priority: plugin <release> > plugin <source>/<target> > project properties.
+     *
+     * Legacy "1.8" format (e.g. `<source>1.8</source>`) is normalised to "8".
      */
     private fun detectMavenJavaVersion(projectDir: Path): Pair<String, String>? {
         return try {
@@ -184,22 +186,36 @@ class LstBuilder(
             val dom = compilerPlugin?.configuration as? Xpp3Dom
             if (dom != null) {
                 val release = dom.getChild("release")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
-                if (release != null) return Pair(release, release)
+                if (release != null) {
+                    val v = normalizeJvmVersion(release)
+                    return Pair(v, v)
+                }
 
                 val source = dom.getChild("source")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
                 val target = dom.getChild("target")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
-                if (source != null || target != null) return Pair(source ?: target ?: "", target ?: source ?: "")
+                if (source != null || target != null) {
+                    return Pair(
+                        normalizeJvmVersion(source ?: target ?: ""),
+                        normalizeJvmVersion(target ?: source ?: ""),
+                    )
+                }
             }
 
             // Priority 2: project <properties>
             val props = model.properties
             val propsRelease = props["maven.compiler.release"]?.toString()?.takeIf { it.isNotBlank() }
-            if (propsRelease != null) return Pair(propsRelease, propsRelease)
+            if (propsRelease != null) {
+                val v = normalizeJvmVersion(propsRelease)
+                return Pair(v, v)
+            }
 
             val propsSource = props["maven.compiler.source"]?.toString()?.takeIf { it.isNotBlank() }
             val propsTarget = props["maven.compiler.target"]?.toString()?.takeIf { it.isNotBlank() }
             if (propsSource != null || propsTarget != null) {
-                return Pair(propsSource ?: propsTarget ?: "", propsTarget ?: propsSource ?: "")
+                return Pair(
+                    normalizeJvmVersion(propsSource ?: propsTarget ?: ""),
+                    normalizeJvmVersion(propsTarget ?: propsSource ?: ""),
+                )
             }
 
             null
@@ -219,9 +235,11 @@ class LstBuilder(
         return try {
             val text = buildFile.toFile().readText()
 
-            // sourceCompatibility / targetCompatibility in various forms
-            val sourcePattern = Regex("""sourceCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_)?['"]?(\d+)['"]?""")
-            val targetPattern = Regex("""targetCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_)?['"]?(\d+)['"]?""")
+            // sourceCompatibility / targetCompatibility in various forms.
+            // Handles quoted strings ('17', '1.8'), JavaVersion constants (VERSION_17,
+            // VERSION_1_8), and the legacy "1.N" format used for Java 8 (maps to "N").
+            val sourcePattern = Regex("""sourceCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_(?:1_)?)?['"]?(?:1\.)?(\d+)['"]?""")
+            val targetPattern = Regex("""targetCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_(?:1_)?)?['"]?(?:1\.)?(\d+)['"]?""")
             // jvmToolchain(21) — Kotlin/Gradle toolchain shorthand
             val jvmToolchainPattern = Regex("""jvmToolchain\s*\(\s*(\d+)\s*\)""")
             // java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }

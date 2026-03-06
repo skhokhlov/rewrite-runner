@@ -201,6 +201,187 @@ class JavaVersionDetectionTest {
         assertEquals(jvmMajor, version.sourceCompatibility)
     }
 
+    // ─── Maven: Java 8 legacy "1.8" format ───────────────────────────────────
+
+    @Test
+    fun `Maven compiler plugin release 8 sets source and target`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <build>
+                <plugins>
+                  <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                      <release>8</release>
+                    </configuration>
+                  </plugin>
+                </plugins>
+              </build>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("8", version.sourceCompatibility)
+        assertEquals("8", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Maven compiler plugin source 1dot8 legacy format is normalized to 8`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <build>
+                <plugins>
+                  <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                      <source>1.8</source>
+                      <target>1.8</target>
+                    </configuration>
+                  </plugin>
+                </plugins>
+              </build>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("8", version.sourceCompatibility, "Legacy '1.8' source must be normalized to '8'")
+        assertEquals("8", version.targetCompatibility, "Legacy '1.8' target must be normalized to '8'")
+    }
+
+    @Test
+    fun `Maven maven compiler source 1dot8 property is normalized to 8`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <properties>
+                <maven.compiler.source>1.8</maven.compiler.source>
+                <maven.compiler.target>1.8</maven.compiler.target>
+              </properties>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("8", version.sourceCompatibility, "Legacy '1.8' property must be normalized to '8'")
+        assertEquals("8", version.targetCompatibility, "Legacy '1.8' property must be normalized to '8'")
+    }
+
+    // ─── Maven: Java 11 ───────────────────────────────────────────────────────
+
+    @Test
+    fun `Maven compiler plugin release element for Java 11`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <build>
+                <plugins>
+                  <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                      <release>11</release>
+                    </configuration>
+                  </plugin>
+                </plugins>
+              </build>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("11", version.sourceCompatibility)
+        assertEquals("11", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Maven maven compiler release property for Java 11`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <properties>
+                <maven.compiler.release>11</maven.compiler.release>
+              </properties>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("11", version.sourceCompatibility)
+        assertEquals("11", version.targetCompatibility)
+    }
+
+    // ─── Maven: Java 21 ───────────────────────────────────────────────────────
+
+    @Test
+    fun `Maven maven compiler release property for Java 21`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <properties>
+                <maven.compiler.release>21</maven.compiler.release>
+              </properties>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("21", version.sourceCompatibility)
+        assertEquals("21", version.targetCompatibility)
+    }
+
+    // ─── Maven: Java 25 ───────────────────────────────────────────────────────
+
+    @Test
+    fun `Maven compiler plugin release element for Java 25`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <build>
+                <plugins>
+                  <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                      <release>25</release>
+                    </configuration>
+                  </plugin>
+                </plugins>
+              </build>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("25", version.sourceCompatibility)
+        assertEquals("25", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Maven maven compiler release property for Java 25`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <properties>
+                <maven.compiler.release>25</maven.compiler.release>
+              </properties>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("25", version.sourceCompatibility)
+        assertEquals("25", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Maven compiler plugin source and target elements for Java 25`() {
+        projectDir.resolve("pom.xml").writeText("""
+            <project>
+              <build>
+                <plugins>
+                  <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                      <source>25</source>
+                      <target>25</target>
+                    </configuration>
+                  </plugin>
+                </plugins>
+              </build>
+            </project>
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("25", version.sourceCompatibility)
+        assertEquals("25", version.targetCompatibility)
+    }
+
     // ─── Gradle ───────────────────────────────────────────────────────────────
 
     @Test
@@ -255,6 +436,179 @@ class JavaVersionDetectionTest {
         val version = buildAndGetJavaVersion()
         assertEquals("17", version.sourceCompatibility)
         assertEquals("17", version.targetCompatibility)
+    }
+
+    // ─── Gradle: Java 8 ──────────────────────────────────────────────────────
+
+    @Test
+    fun `Gradle sourceCompatibility 1dot8 legacy format is normalized to 8`() {
+        projectDir.resolve("build.gradle").writeText("""
+            plugins { id 'java' }
+            sourceCompatibility = '1.8'
+            targetCompatibility = '1.8'
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("8", version.sourceCompatibility, "Legacy '1.8' Gradle format must be normalized to '8'")
+        assertEquals("8", version.targetCompatibility, "Legacy '1.8' Gradle format must be normalized to '8'")
+    }
+
+    @Test
+    fun `Gradle sourceCompatibility VERSION_1_8 constant is normalized to 8`() {
+        projectDir.resolve("build.gradle.kts").writeText("""
+            plugins { java }
+            sourceCompatibility = JavaVersion.VERSION_1_8
+            targetCompatibility = JavaVersion.VERSION_1_8
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("8", version.sourceCompatibility, "JavaVersion.VERSION_1_8 must be normalized to '8'")
+        assertEquals("8", version.targetCompatibility, "JavaVersion.VERSION_1_8 must be normalized to '8'")
+    }
+
+    @Test
+    fun `Gradle jvmToolchain 8 sets source and target`() {
+        projectDir.resolve("build.gradle.kts").writeText("""
+            plugins { kotlin("jvm") }
+            kotlin { jvmToolchain(8) }
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("8", version.sourceCompatibility)
+        assertEquals("8", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Gradle JavaLanguageVersion of 8 sets source and target`() {
+        projectDir.resolve("build.gradle.kts").writeText("""
+            plugins { java }
+            java {
+                toolchain {
+                    languageVersion = JavaLanguageVersion.of(8)
+                }
+            }
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("8", version.sourceCompatibility)
+        assertEquals("8", version.targetCompatibility)
+    }
+
+    // ─── Gradle: Java 11 ─────────────────────────────────────────────────────
+
+    @Test
+    fun `Gradle sourceCompatibility Groovy DSL for Java 11`() {
+        projectDir.resolve("build.gradle").writeText("""
+            plugins { id 'java' }
+            sourceCompatibility = '11'
+            targetCompatibility = '11'
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("11", version.sourceCompatibility)
+        assertEquals("11", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Gradle jvmToolchain for Java 11`() {
+        projectDir.resolve("build.gradle.kts").writeText("""
+            plugins { kotlin("jvm") }
+            kotlin { jvmToolchain(11) }
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("11", version.sourceCompatibility)
+        assertEquals("11", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Gradle JavaLanguageVersion of 11`() {
+        projectDir.resolve("build.gradle.kts").writeText("""
+            plugins { java }
+            java {
+                toolchain {
+                    languageVersion = JavaLanguageVersion.of(11)
+                }
+            }
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("11", version.sourceCompatibility)
+        assertEquals("11", version.targetCompatibility)
+    }
+
+    // ─── Gradle: Java 21 ─────────────────────────────────────────────────────
+
+    @Test
+    fun `Gradle sourceCompatibility Groovy DSL for Java 21`() {
+        projectDir.resolve("build.gradle").writeText("""
+            plugins { id 'java' }
+            sourceCompatibility = '21'
+            targetCompatibility = '21'
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("21", version.sourceCompatibility)
+        assertEquals("21", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Gradle JavaLanguageVersion of 21`() {
+        projectDir.resolve("build.gradle.kts").writeText("""
+            plugins { java }
+            java {
+                toolchain {
+                    languageVersion = JavaLanguageVersion.of(21)
+                }
+            }
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("21", version.sourceCompatibility)
+        assertEquals("21", version.targetCompatibility)
+    }
+
+    // ─── Gradle: Java 25 ─────────────────────────────────────────────────────
+
+    @Test
+    fun `Gradle sourceCompatibility for Java 25`() {
+        projectDir.resolve("build.gradle").writeText("""
+            plugins { id 'java' }
+            sourceCompatibility = '25'
+            targetCompatibility = '25'
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("25", version.sourceCompatibility)
+        assertEquals("25", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Gradle jvmToolchain for Java 25`() {
+        projectDir.resolve("build.gradle.kts").writeText("""
+            plugins { kotlin("jvm") }
+            kotlin { jvmToolchain(25) }
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("25", version.sourceCompatibility)
+        assertEquals("25", version.targetCompatibility)
+    }
+
+    @Test
+    fun `Gradle JavaLanguageVersion of 25`() {
+        projectDir.resolve("build.gradle.kts").writeText("""
+            plugins { java }
+            java {
+                toolchain {
+                    languageVersion = JavaLanguageVersion.of(25)
+                }
+            }
+        """.trimIndent())
+
+        val version = buildAndGetJavaVersion()
+        assertEquals("25", version.sourceCompatibility)
+        assertEquals("25", version.targetCompatibility)
     }
 
     @Test
