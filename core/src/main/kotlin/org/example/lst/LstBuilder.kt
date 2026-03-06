@@ -151,13 +151,6 @@ class LstBuilder(
 
     // ─── Java version detection ───────────────────────────────────────────────
 
-    private fun buildJavaVersionMarker(projectDir: Path): JavaVersion {
-        val createdBy = System.getProperty("java.runtime.version") ?: System.getProperty("java.version") ?: ""
-        val vmVendor = System.getProperty("java.vm.vendor") ?: ""
-        val (source, target) = detectJavaVersion(projectDir)
-        return JavaVersion(UUID.randomUUID(), createdBy, vmVendor, source, target)
-    }
-
     /** Creates a [JavaVersion] marker with the given source/target version strings. */
     private fun buildJavaVersionMarker(source: String, target: String): JavaVersion {
         val createdBy = System.getProperty("java.runtime.version") ?: System.getProperty("java.version") ?: ""
@@ -451,8 +444,8 @@ class LstBuilder(
 
         val result = mutableMapOf<String, MutableList<Path>>()
 
-        Files.walk(projectDir)
-            .filter { path ->
+        Files.walk(projectDir).use { stream ->
+            stream.filter { path ->
                 val relative = projectDir.relativize(path)
 
                 // Skip excluded directories
@@ -467,11 +460,11 @@ class LstBuilder(
 
                 val ext = ".${path.extension}".lowercase()
                 ext in effectiveExtensions
-            }
-            .forEach { path ->
+            }.forEach { path ->
                 val ext = ".${path.extension}".lowercase()
                 result.getOrPut(ext) { mutableListOf() }.add(path)
             }
+        }
 
         return result
     }
