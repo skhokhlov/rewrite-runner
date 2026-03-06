@@ -79,7 +79,10 @@ class RecipeLoader {
         val env = builder.build()
         val recipe = env.activateRecipes(activeRecipeName)
         require(recipe.recipeList.isNotEmpty() || recipe.name == activeRecipeName) {
-            "Recipe '$activeRecipeName' not found. Available recipes can be listed with --list-recipes."
+            "Recipe '$activeRecipeName' not found. Verify the recipe name and that the correct recipe JAR is supplied via --recipe-artifact."
+        }
+        if (recipeClassLoader is URLClassLoader) {
+            recipeClassLoader.close()
         }
         return recipe
     }
