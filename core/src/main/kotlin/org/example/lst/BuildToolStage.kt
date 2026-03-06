@@ -164,11 +164,17 @@ open class BuildToolStage {
         captureStdout: StringBuilder? = null,
         timeoutSeconds: Long = 120,
     ): Int? {
-        val pb = ProcessBuilder(command)
-            .directory(workDir.toFile())
-            .redirectErrorStream(captureStdout == null)
+        val pb = ProcessBuilder(command).directory(workDir.toFile())
 
         if (captureStdout != null) {
+            // Capture stdout; discard stderr so it never fills and blocks the child.
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+        } else {
+            // Output not needed — redirect both streams to DISCARD so the child process
+            // can always write without blocking, regardless of how much it produces.
+            // Previously redirectErrorStream(true) merged the streams but left the merged
+            // pipe unread, causing a deadlock once output exceeded the OS pipe buffer (~64 KB).
+            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
             pb.redirectError(ProcessBuilder.Redirect.DISCARD)
         }
 
@@ -180,6 +186,7 @@ open class BuildToolStage {
         }
 
         if (captureStdout != null) {
+            // Read all stdout before waitFor so the stdout pipe never fills up.
             captureStdout.append(process.inputStream.bufferedReader().readText())
         }
 

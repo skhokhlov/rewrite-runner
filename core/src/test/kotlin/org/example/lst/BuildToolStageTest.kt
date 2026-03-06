@@ -7,6 +7,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class BuildToolStageTest {
 
@@ -151,6 +152,63 @@ class BuildToolStageTest {
         gradlew.setExecutable(true)
         val result = runCatching { stage.tryCompile(projectDir) }
         assertTrue_compat(result.isSuccess, "tryCompile should not throw when gradlew exits non-zero")
+    }
+
+    // ─── Deadlock-prevention tests ────────────────────────────────────────────
+
+    @Test
+    fun `extractClasspath does not hang when Maven wrapper produces large stdout output`() {
+        projectDir.resolve("pom.xml").writeText("<project/>")
+        // Fake mvnw that writes ~200 KB to stdout (well above the typical 64 KB OS pipe buffer)
+        val mvnw = projectDir.resolve("mvnw").toFile()
+        mvnw.writeText(
+            """
+            #!/bin/sh
+            for i in $(seq 1 2000); do
+              printf 'A%.0s' $(seq 1 100)
+              printf '\n'
+            done
+            exit 1
+            """.trimIndent()
+        )
+        mvnw.setExecutable(true)
+
+        val start = System.currentTimeMillis()
+        val result = stage.extractClasspath(projectDir)
+        val elapsed = System.currentTimeMillis() - start
+
+        assertNull(result, "Should return null for non-zero exit code")
+        assertTrue(
+            elapsed < 15_000,
+            "Should complete within 15 seconds without hanging due to full pipe buffer, took ${elapsed}ms"
+        )
+    }
+
+    @Test
+    fun `tryCompile does not hang when Maven wrapper produces large stdout output`() {
+        projectDir.resolve("pom.xml").writeText("<project/>")
+        val mvnw = projectDir.resolve("mvnw").toFile()
+        mvnw.writeText(
+            """
+            #!/bin/sh
+            for i in $(seq 1 2000); do
+              printf 'B%.0s' $(seq 1 100)
+              printf '\n'
+            done
+            exit 1
+            """.trimIndent()
+        )
+        mvnw.setExecutable(true)
+
+        val start = System.currentTimeMillis()
+        val result = stage.tryCompile(projectDir)
+        val elapsed = System.currentTimeMillis() - start
+
+        assertFalse(result, "Should return false for non-zero exit code")
+        assertTrue(
+            elapsed < 15_000,
+            "Should complete within 15 seconds without hanging, took ${elapsed}ms"
+        )
     }
 
     private fun assertTrue_compat(value: Boolean, message: String) {
