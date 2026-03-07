@@ -30,6 +30,8 @@ subprojects {
         mavenCentral()
     }
 
+    apply(plugin = "jacoco")
+
     // ktlintCheck — verifies code style; wired into the standard `check` lifecycle task.
     tasks.register<JavaExec>("ktlintCheck") {
         group = "verification"
@@ -52,7 +54,17 @@ subprojects {
     }
 
     // Wire ktlintCheck into the standard check lifecycle so `./gradlew check` enforces style.
+    // Configure JaCoCo to emit XML + HTML reports and auto-run after every test task.
     afterEvaluate {
         tasks.findByName("check")?.dependsOn("ktlintCheck")
+
+        tasks.withType<JacocoReport>().configureEach {
+            reports {
+                xml.required.set(true)
+                html.required.set(true)
+            }
+        }
+
+        tasks.findByName("test")?.finalizedBy(tasks.named("jacocoTestReport"))
     }
 }
