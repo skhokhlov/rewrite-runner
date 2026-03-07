@@ -83,7 +83,7 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 - JVM toolchain: 21 (set via `kotlin { jvmToolchain(21) }`)
 - OpenRewrite: via `rewrite-recipe-bom:3.10.1`
 - Picocli: `4.7.6`
-- Jackson: `2.18.2`
+- Jackson: `3.0.0`
 - Apache Maven Model: `3.9.12`
 
 ## CLI Options (`RunCommand`)

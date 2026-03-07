@@ -1,7 +1,5 @@
 package org.example.output
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.nio.file.Path
@@ -20,13 +18,17 @@ import org.openrewrite.internal.InMemoryLargeSourceSet
 import org.openrewrite.text.PlainText
 import org.openrewrite.text.PlainTextParser
 import org.openrewrite.text.PlainTextVisitor
+import tools.jackson.databind.json.JsonMapper
+import tools.jackson.module.kotlin.KotlinModule
 
 class ResultFormatterTest {
 
     @TempDir
     lateinit var reportDir: Path
 
-    private val json = ObjectMapper().registerKotlinModule()
+    private val json = JsonMapper.builder()
+        .addModule(KotlinModule.Builder().build())
+        .build()
     private val ctx = InMemoryExecutionContext {}
 
     /**
