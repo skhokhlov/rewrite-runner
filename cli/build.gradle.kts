@@ -14,8 +14,8 @@ dependencies {
     implementation(project(":core"))
 
     // CLI framework
-    implementation("info.picocli:picocli:4.7.6")
-    annotationProcessor("info.picocli:picocli-codegen:4.7.6")
+    implementation("info.picocli:picocli:4.7.7")
+    annotationProcessor("info.picocli:picocli-codegen:4.7.7")
 
     // Tests
     testImplementation(project(":core"))
