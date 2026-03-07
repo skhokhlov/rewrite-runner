@@ -17,7 +17,7 @@ java {
 dependencies {
     // OpenRewrite BOM + modules
     // rewrite-core is 'api' because callers use Result, SourceFile, Recipe, etc. directly
-    api(platform("org.openrewrite.recipe:rewrite-recipe-bom:3.10.1"))
+    api(platform("org.openrewrite.recipe:rewrite-recipe-bom:3.26.0"))
     api("org.openrewrite:rewrite-core")
     implementation("org.openrewrite:rewrite-java")
     implementation("org.openrewrite:rewrite-java-17")
