@@ -5,7 +5,6 @@ import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
 import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
-import org.eclipse.aether.DefaultRepositorySystemSession
 import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
 import org.eclipse.aether.artifact.DefaultArtifact
@@ -288,12 +287,13 @@ open class DependencyResolutionStage(
 
     private fun newRepositorySystem(): RepositorySystem = RepositorySystemSupplier().get()
 
-    @Suppress("DEPRECATION")
     private fun newSession(system: RepositorySystem): RepositorySystemSession {
         val repoDir = cacheDir.resolve("repository").toFile().also { it.mkdirs() }
         val localRepo = LocalRepository(repoDir)
-        val bootstrap = DefaultRepositorySystemSession()
-        val localRepoManager = system.newLocalRepositoryManager(bootstrap, localRepo)
+        val localRepoManager =
+            system.createSessionBuilder().build().use { bootstrap ->
+                system.newLocalRepositoryManager(bootstrap, localRepo)
+            }
         return system.createSessionBuilder().setLocalRepositoryManager(localRepoManager).build()
     }
 
