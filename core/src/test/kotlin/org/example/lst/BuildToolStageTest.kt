@@ -174,15 +174,16 @@ class BuildToolStageTest {
     @Test
     fun `extractClasspath does not hang when Maven wrapper produces large stdout output`() {
         projectDir.resolve("pom.xml").writeText("<project/>")
-        // Fake mvnw that writes ~200 KB to stdout (well above the typical 64 KB OS pipe buffer)
+        // Fake mvnw that writes ~128 KB to stdout in a single dd call (well above the typical
+        // 64 KB OS pipe buffer) without spawning any subprocesses, so the script itself is fast.
+        // If stdout were not properly discarded the pipe would fill and the child would block,
+        // causing the test to time out at the 120-second process timeout instead of completing
+        // near-instantly.
         val mvnw = projectDir.resolve("mvnw").toFile()
         mvnw.writeText(
             """
             #!/bin/sh
-            for i in $(seq 1 2000); do
-              printf 'A%.0s' $(seq 1 100)
-              printf '\n'
-            done
+            dd if=/dev/zero bs=131072 count=1 2>/dev/null
             exit 1
             """.trimIndent()
         )
@@ -202,14 +203,13 @@ class BuildToolStageTest {
     @Test
     fun `tryCompile does not hang when Maven wrapper produces large stdout output`() {
         projectDir.resolve("pom.xml").writeText("<project/>")
+        // Same fast approach as the extractClasspath test above: single dd call writes 128 KB
+        // without spawning any subprocesses.
         val mvnw = projectDir.resolve("mvnw").toFile()
         mvnw.writeText(
             """
             #!/bin/sh
-            for i in $(seq 1 2000); do
-              printf 'B%.0s' $(seq 1 100)
-              printf '\n'
-            done
+            dd if=/dev/zero bs=131072 count=1 2>/dev/null
             exit 1
             """.trimIndent()
         )
