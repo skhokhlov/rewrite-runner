@@ -169,6 +169,34 @@ cli/src/
 - Subclass `BuildToolStage`/`DependencyResolutionStage` in tests to override behavior without mocks
 - Some integration tests accept "success path OR expected fallback" to handle environment variability (e.g., no Maven installed in CI)
 
+## Commit Message Convention
+
+This project enforces **[Conventional Commits](https://www.conventionalcommits.org/)**. All commit messages **must** follow this format:
+
+```
+<type>(<scope>): <description>
+```
+
+**Required types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`
+
+**Common scopes**: `cli`, `core`, `lst`, `recipe`, `config`, `output`, `deps`
+
+**Rules**:
+- Description must be lowercase and imperative mood ("add feature", not "added feature")
+- No period at the end of the description
+- Breaking changes: append `!` after type/scope and include `BREAKING CHANGE:` footer
+
+**Examples**:
+```
+feat(lst): add Scala source file parser
+fix(cli): correct default output mode when --output is omitted
+test(recipe): add integration test for composite recipe execution
+chore(deps): upgrade OpenRewrite BOM to 3.11.0
+docs: add library usage examples to README
+```
+
+See `CONTRIBUTING.md` for the full convention details.
+
 ## CI/CD
 
 GitHub Actions workflow (`.github/workflows/build.yml`) triggers on push/PR to `main`/`master`:
