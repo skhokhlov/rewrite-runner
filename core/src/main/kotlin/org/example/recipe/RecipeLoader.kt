@@ -79,9 +79,11 @@ class RecipeLoader {
         require(recipe.recipeList.isNotEmpty() || recipe.name == activeRecipeName) {
             "Recipe '$activeRecipeName' not found. Verify the recipe name and that the correct recipe JAR is supplied via --recipe-artifact."
         }
-        if (recipeClassLoader is URLClassLoader) {
-            recipeClassLoader.close()
-        }
+        // Do NOT close recipeClassLoader here.  OpenRewrite visitor classes are loaded
+        // lazily at recipe.run() time; closing the URLClassLoader before the caller runs
+        // the recipe causes NoClassDefFoundError when those classes are first needed.
+        // The loader is a short-lived object tied to a single CLI/library invocation and
+        // will be GC'd once the run completes, so explicit close() is unnecessary.
         return recipe
     }
 }
