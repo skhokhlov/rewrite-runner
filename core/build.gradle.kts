@@ -30,14 +30,14 @@ dependencies {
     implementation("org.openrewrite:rewrite-groovy")
 
     // Maven model (pom.xml parsing in Stage 2)
-    implementation("org.apache.maven:maven-model:3.9.12")
+    implementation("org.apache.maven:maven-model:3.9.13")
 
     // Maven Resolver (JAR download for Stage 2 + recipe artifacts)
     implementation("org.apache.maven.resolver:maven-resolver-api:1.9.22")
     implementation("org.apache.maven.resolver:maven-resolver-impl:1.9.22")
     implementation("org.apache.maven.resolver:maven-resolver-connector-basic:1.9.22")
     implementation("org.apache.maven.resolver:maven-resolver-transport-http:1.9.22")
-    implementation("org.apache.maven:maven-resolver-provider:3.9.12")
+    implementation("org.apache.maven:maven-resolver-provider:3.9.13")
 
     // Config + JSON report
     implementation("tools.jackson.dataformat:jackson-dataformat-yaml:3.0.0")
