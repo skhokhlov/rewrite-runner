@@ -4,6 +4,7 @@ import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import java.util.logging.Level
 import java.util.logging.Logger
 import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
@@ -407,7 +408,7 @@ class LstBuilder(
         val stage2 = try {
             depResolutionStage.resolveClasspath(projectDir)
         } catch (e: Exception) {
-            log.warning("Stage 2 threw an exception: ${e.message}")
+            log.log(Level.WARNING, "Stage 2 threw an exception", e)
             emptyList()
         }
 

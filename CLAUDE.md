@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Build fat JAR
 ./gradlew shadowJar
-# Output: build/libs/openrewrite-runner-1.0-SNAPSHOT-all.jar
+# Output: cli/build/libs/cli-1.0-SNAPSHOT-all.jar
 
 # Run all tests
 ./gradlew test
@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew test --tests "org.example.cli.RunCommandTest.default output mode is diff"
 
 # Run the tool locally
-java -jar build/libs/openrewrite-runner-1.0-SNAPSHOT-all.jar --help
+java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 
 # Lint Kotlin code (ktlint — Google Android code style)
 ./gradlew ktlintCheck
