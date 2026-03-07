@@ -1,15 +1,15 @@
 package org.example.recipe
 
-import org.openrewrite.Recipe
-import org.openrewrite.config.ClasspathScanningLoader
-import org.openrewrite.config.Environment
-import org.openrewrite.config.YamlResourceLoader
 import java.io.FileInputStream
 import java.net.URLClassLoader
 import java.nio.file.Path
 import java.util.Properties
 import java.util.logging.Logger
 import kotlin.io.path.exists
+import org.openrewrite.Recipe
+import org.openrewrite.config.ClasspathScanningLoader
+import org.openrewrite.config.Environment
+import org.openrewrite.config.YamlResourceLoader
 
 /**
  * Loads OpenRewrite recipes from recipe JARs and/or a `rewrite.yaml` declarative config.
@@ -26,11 +26,7 @@ class RecipeLoader {
      * Build an OpenRewrite [Environment] from the given recipe JARs and optional rewrite.yaml.
      * Returns the activated [Recipe] ready for execution.
      */
-    fun load(
-        recipeJars: List<Path>,
-        activeRecipeName: String,
-        rewriteYaml: Path?,
-    ): Recipe {
+    fun load(recipeJars: List<Path>, activeRecipeName: String, rewriteYaml: Path?): Recipe {
         val props = Properties()
         val parentLoader = Thread.currentThread().contextClassLoader
 
@@ -38,7 +34,7 @@ class RecipeLoader {
         val recipeClassLoader = if (recipeJars.isNotEmpty()) {
             URLClassLoader(
                 recipeJars.map { it.toUri().toURL() }.toTypedArray(),
-                parentLoader,
+                parentLoader
             )
         } else {
             parentLoader
@@ -72,7 +68,9 @@ class RecipeLoader {
         if (rewriteYaml != null && rewriteYaml.exists()) {
             log.info("Loading rewrite.yaml: $rewriteYaml")
             FileInputStream(rewriteYaml.toFile()).use { stream ->
-                builder.load(YamlResourceLoader(stream, rewriteYaml.toUri(), props, recipeClassLoader))
+                builder.load(
+                    YamlResourceLoader(stream, rewriteYaml.toUri(), props, recipeClassLoader)
+                )
             }
         }
 

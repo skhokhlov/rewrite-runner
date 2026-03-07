@@ -2,11 +2,11 @@ package org.example.output
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
-import org.openrewrite.Result
 import java.io.OutputStream
 import java.io.PrintStream
 import java.io.PrintWriter
 import java.nio.file.Path
+import org.openrewrite.Result
 
 /**
  * The three output modes supported by [ResultFormatter].
@@ -31,15 +31,27 @@ enum class OutputMode { DIFF, FILES, REPORT }
  */
 class ResultFormatter(
     private val outputMode: OutputMode = OutputMode.DIFF,
-    private val out: PrintStream = System.out,
+    private val out: PrintStream = System.out
 ) {
     /** Secondary constructor accepting a picocli-style PrintWriter. */
     constructor(outputMode: OutputMode, writer: PrintWriter) :
-        this(outputMode, PrintStream(object : OutputStream() {
-            override fun write(b: Int) { writer.write(b) }
-            override fun write(b: ByteArray, off: Int, len: Int) { writer.write(String(b, off, len)) }
-            override fun flush() { writer.flush() }
-        }, true))
+        this(
+            outputMode,
+            PrintStream(
+                object : OutputStream() {
+                    override fun write(b: Int) {
+                        writer.write(b)
+                    }
+                    override fun write(b: ByteArray, off: Int, len: Int) {
+                        writer.write(String(b, off, len))
+                    }
+                    override fun flush() {
+                        writer.flush()
+                    }
+                },
+                true
+            )
+        )
     private val json = ObjectMapper().registerKotlinModule()
 
     /**
@@ -99,7 +111,10 @@ class ResultFormatter(
             gen.writeArrayFieldStart("results")
             for (r in results) {
                 gen.writeStartObject()
-                gen.writeObjectField("filePath", (r.after?.sourcePath ?: r.before?.sourcePath)?.toString())
+                gen.writeObjectField(
+                    "filePath",
+                    (r.after?.sourcePath ?: r.before?.sourcePath)?.toString()
+                )
                 gen.writeBooleanField("isNewFile", r.before == null)
                 gen.writeBooleanField("isDeletedFile", r.after == null)
                 gen.writeStringField("diff", r.diff())

@@ -1,12 +1,12 @@
 package org.example.integration
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Integration tests for JSON projects.
@@ -17,6 +17,7 @@ import kotlin.test.assertTrue
 class JsonProjectIntegrationTest : BaseIntegrationTest() {
 
     @TempDir lateinit var projectDir: Path
+
     @TempDir lateinit var cacheDir: Path
 
     // ─── FindAndReplace (guaranteed change) ───────────────────────────────────
@@ -40,7 +41,7 @@ class JsonProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".json",
+            "--include-extensions", ".json"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -62,7 +63,7 @@ class JsonProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".json",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(original, jsonFile.readText(), "--dry-run must not write json changes")
@@ -93,7 +94,7 @@ class JsonProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".json",
+            "--include-extensions", ".json"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -113,7 +114,7 @@ class JsonProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".json",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -135,7 +136,7 @@ class JsonProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".json",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")

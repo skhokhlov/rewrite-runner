@@ -1,11 +1,11 @@
 package org.example.integration
 
-import org.example.cli.RunCommand
-import picocli.CommandLine
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.nio.file.Path
 import kotlin.io.path.writeText
+import org.example.cli.RunCommand
+import picocli.CommandLine
 
 /**
  * Base class for CLI integration tests.
@@ -37,7 +37,7 @@ abstract class BaseIntegrationTest {
     protected fun Path.writeFindAndReplaceRecipe(
         name: String = "com.example.integration.FindAndReplace",
         find: String,
-        replace: String,
+        replace: String
     ) {
         resolve("rewrite.yaml").writeText(
             """

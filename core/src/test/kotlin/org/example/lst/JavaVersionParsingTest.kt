@@ -1,14 +1,14 @@
 package org.example.lst
 
-import org.example.config.ToolConfig
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
-import org.openrewrite.java.marker.JavaVersion
 import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.example.config.ToolConfig
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import org.openrewrite.java.marker.JavaVersion
 
 /**
  * Verifies that [LstBuilder] can successfully parse Java source files using
@@ -41,7 +41,7 @@ class JavaVersionParsingTest {
     private fun lstBuilder(): LstBuilder {
         val noOpDepStage = object : DependencyResolutionStage(
             cacheDir = projectDir.resolve("cache"),
-            extraRepositories = emptyList(),
+            extraRepositories = emptyList()
         ) {
             override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
         }
@@ -49,18 +49,20 @@ class JavaVersionParsingTest {
             cacheDir = projectDir.resolve("cache"),
             toolConfig = ToolConfig(),
             buildToolStage = failingBuildTool,
-            depResolutionStage = noOpDepStage,
+            depResolutionStage = noOpDepStage
         )
     }
 
     private fun writePom(version: String) {
-        projectDir.resolve("pom.xml").writeText("""
+        projectDir.resolve("pom.xml").writeText(
+            """
             <project>
               <properties>
                 <maven.compiler.release>$version</maven.compiler.release>
               </properties>
             </project>
-        """.trimIndent())
+            """.trimIndent()
+        )
     }
 
     /**
@@ -70,8 +72,11 @@ class JavaVersionParsingTest {
     private fun buildAndInspect(fileName: String): JavaVersion {
         val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
         val javaFile = sources.singleOrNull { it.sourcePath.toString().endsWith(fileName) }
-        assertNotNull(javaFile, "Expected '$fileName' to be in parsed sources but it was absent — " +
-                "the file may have been silently dropped due to a parse failure")
+        assertNotNull(
+            javaFile,
+            "Expected '$fileName' to be in parsed sources but it was absent — " +
+                "the file may have been silently dropped due to a parse failure"
+        )
         val marker = javaFile.markers.findFirst(JavaVersion::class.java).orElse(null)
         assertNotNull(marker, "JavaVersion marker must be attached to parsed Java source file")
         return marker
@@ -86,7 +91,8 @@ class JavaVersionParsingTest {
     @Test
     fun `Java 8 lambda expressions method references and streams parse correctly`() {
         writePom("8")
-        projectDir.resolve("Java8Syntax.java").writeText("""
+        projectDir.resolve("Java8Syntax.java").writeText(
+            """
             import java.util.Arrays;
             import java.util.List;
             import java.util.Optional;
@@ -140,10 +146,15 @@ class JavaVersionParsingTest {
                     System.out.println(g.greetLoudly("world"));
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val version = buildAndInspect("Java8Syntax.java")
-        assertEquals("8", version.sourceCompatibility, "JavaVersion marker must reflect Java 8 target")
+        assertEquals(
+            "8",
+            version.sourceCompatibility,
+            "JavaVersion marker must reflect Java 8 target"
+        )
         assertEquals("8", version.targetCompatibility)
     }
 
@@ -157,7 +168,8 @@ class JavaVersionParsingTest {
     @Test
     fun `Java 11 var local variables and new String API parse correctly`() {
         writePom("11")
-        projectDir.resolve("Java11Syntax.java").writeText("""
+        projectDir.resolve("Java11Syntax.java").writeText(
+            """
             import java.util.List;
             import java.util.Map;
 
@@ -186,10 +198,15 @@ class JavaVersionParsingTest {
                     System.out.println(stripped + " " + isBlank + " " + lines + " " + repeated);
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val version = buildAndInspect("Java11Syntax.java")
-        assertEquals("11", version.sourceCompatibility, "JavaVersion marker must reflect Java 11 target")
+        assertEquals(
+            "11",
+            version.sourceCompatibility,
+            "JavaVersion marker must reflect Java 11 target"
+        )
         assertEquals("11", version.targetCompatibility)
     }
 
@@ -203,9 +220,10 @@ class JavaVersionParsingTest {
     @Test
     fun `Java 17 records sealed interfaces text blocks and instanceof patterns parse correctly`() {
         writePom("17")
-        // Use $TQ to embed Java text-block triple-quotes inside Kotlin triple-quoted strings.
-        val TQ = "\"\"\""
-        projectDir.resolve("Java17Syntax.java").writeText("""
+        // Use $tq to embed Java text-block triple-quotes inside Kotlin triple-quoted strings.
+        val tq = "\"\"\""
+        projectDir.resolve("Java17Syntax.java").writeText(
+            """
             public class Java17Syntax {
 
                 // Records (JEP 395, standard in Java 16; LTS debut in Java 17)
@@ -244,12 +262,12 @@ class JavaVersionParsingTest {
                     System.out.println("distance: " + p.distance());
 
                     // Text block (JEP 378, standard in Java 15; LTS debut in Java 17)
-                    String json = $TQ
+                    String json = $tq
                             {
                               "name": "Alice",
                               "role": "developer"
                             }
-                            $TQ;
+                            $tq;
                     System.out.println(json);
 
                     Shape[] shapes = { new Circle(5), new Rectangle(3, 4), new Triangle(6, 8) };
@@ -258,10 +276,15 @@ class JavaVersionParsingTest {
                     }
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val version = buildAndInspect("Java17Syntax.java")
-        assertEquals("17", version.sourceCompatibility, "JavaVersion marker must reflect Java 17 target")
+        assertEquals(
+            "17",
+            version.sourceCompatibility,
+            "JavaVersion marker must reflect Java 17 target"
+        )
         assertEquals("17", version.targetCompatibility)
     }
 
@@ -275,7 +298,8 @@ class JavaVersionParsingTest {
     @Test
     fun `Java 21 switch expressions with type patterns and record patterns parse correctly`() {
         writePom("21")
-        projectDir.resolve("Java21Syntax.java").writeText("""
+        projectDir.resolve("Java21Syntax.java").writeText(
+            """
             public class Java21Syntax {
 
                 sealed interface Shape permits Circle, Rectangle, Triangle {}
@@ -327,10 +351,15 @@ class JavaVersionParsingTest {
                     try { vt.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val version = buildAndInspect("Java21Syntax.java")
-        assertEquals("21", version.sourceCompatibility, "JavaVersion marker must reflect Java 21 target")
+        assertEquals(
+            "21",
+            version.sourceCompatibility,
+            "JavaVersion marker must reflect Java 21 target"
+        )
         assertEquals("21", version.targetCompatibility)
     }
 
@@ -349,7 +378,8 @@ class JavaVersionParsingTest {
     @Test
     fun `Java 25 unnamed patterns and version marker parse correctly`() {
         writePom("25")
-        projectDir.resolve("Java25Syntax.java").writeText("""
+        projectDir.resolve("Java25Syntax.java").writeText(
+            """
             public class Java25Syntax {
 
                 sealed interface Shape permits Circle, Rectangle {}
@@ -390,11 +420,15 @@ class JavaVersionParsingTest {
                     demo();
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val version = buildAndInspect("Java25Syntax.java")
-        assertEquals("25", version.sourceCompatibility,
-            "JavaVersion marker must reflect Java 25 target; check that the build descriptor is parsed correctly")
+        assertEquals(
+            "25",
+            version.sourceCompatibility,
+            "JavaVersion marker must reflect Java 25 target; check that the build descriptor is parsed correctly"
+        )
         assertEquals("25", version.targetCompatibility)
     }
 
@@ -408,7 +442,8 @@ class JavaVersionParsingTest {
     @Test
     fun `AutoFormat recipe does not crash on Java 17 project with records and sealed types`() {
         writePom("17")
-        projectDir.resolve("Shapes17.java").writeText("""
+        projectDir.resolve("Shapes17.java").writeText(
+            """
             public class Shapes17 {
                 sealed interface Shape permits Circle,Square{}
                 record Circle(double radius) implements Shape{}
@@ -419,7 +454,8 @@ class JavaVersionParsingTest {
                     throw new AssertionError();
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
         val javaFile = sources.singleOrNull { it.sourcePath.toString().endsWith("Shapes17.java") }
@@ -437,7 +473,8 @@ class JavaVersionParsingTest {
     @Test
     fun `AutoFormat recipe does not crash on Java 21 project with switch patterns`() {
         writePom("21")
-        projectDir.resolve("Patterns21.java").writeText("""
+        projectDir.resolve("Patterns21.java").writeText(
+            """
             public class Patterns21 {
                 sealed interface Expr permits Num,Add{}
                 record Num(int value) implements Expr{}
@@ -449,7 +486,8 @@ class JavaVersionParsingTest {
                     };
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
         val javaFile = sources.singleOrNull { it.sourcePath.toString().endsWith("Patterns21.java") }
@@ -465,21 +503,24 @@ class JavaVersionParsingTest {
      * across nested directories, each with version-specific syntax.
      */
     @Test
-    fun `Java 17 project with multiple files in nested directories all get correct version marker`() {
+    fun `Java 17 project with multiple files in nested directories gets correct version markers`() {
         writePom("17")
         val srcDir = projectDir.resolve("src/main/java/com/example")
         srcDir.toFile().mkdirs()
 
-        srcDir.resolve("Domain.java").writeText("""
+        srcDir.resolve("Domain.java").writeText(
+            """
             package com.example;
             public class Domain {
                 public sealed interface Result<T> permits Success, Failure {}
                 public record Success<T>(T value) implements Result<T> {}
                 public record Failure<T>(String error) implements Result<T> {}
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
-        srcDir.resolve("Service.java").writeText("""
+        srcDir.resolve("Service.java").writeText(
+            """
             package com.example;
             public class Service {
                 public Domain.Result<String> process(String input) {
@@ -489,17 +530,26 @@ class JavaVersionParsingTest {
                     return new Domain.Failure<>("blank input");
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
         val javaFiles = sources.filter { it.sourcePath.toString().endsWith(".java") }
-        assertTrue(javaFiles.size == 2, "Both Java files must be parsed, got: ${javaFiles.map { it.sourcePath }}")
+        assertTrue(
+            javaFiles.size == 2,
+            "Both Java files must be parsed, got: ${javaFiles.map {
+                it.sourcePath
+            }}"
+        )
 
         for (file in javaFiles) {
             val marker = file.markers.findFirst(JavaVersion::class.java).orElse(null)
             assertNotNull(marker, "Every parsed Java file must carry a JavaVersion marker")
-            assertEquals("17", marker.sourceCompatibility,
-                "All files in a Java 17 project must get version marker '17', failed for ${file.sourcePath}")
+            assertEquals(
+                "17",
+                marker.sourceCompatibility,
+                "All files in a Java 17 project must get version marker '17', failed for ${file.sourcePath}"
+            )
         }
     }
 }

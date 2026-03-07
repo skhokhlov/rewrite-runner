@@ -1,7 +1,5 @@
 package org.example.integration
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
@@ -9,6 +7,8 @@ import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Integration tests for Java projects.
@@ -20,6 +20,7 @@ import kotlin.test.assertTrue
 class JavaProjectIntegrationTest : BaseIntegrationTest() {
 
     @TempDir lateinit var projectDir: Path
+
     @TempDir lateinit var cacheDir: Path
 
     /** Badly-formatted Java that AutoFormat will always rewrite. */
@@ -37,12 +38,18 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "org.openrewrite.java.format.AutoFormat",
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
-        assertTrue(result.stdout.contains("---"), "Expected unified diff markers:\n${result.stdout}")
-        assertTrue(result.stdout.contains("+++"), "Expected unified diff markers:\n${result.stdout}")
+        assertTrue(
+            result.stdout.contains("---"),
+            "Expected unified diff markers:\n${result.stdout}"
+        )
+        assertTrue(
+            result.stdout.contains("+++"),
+            "Expected unified diff markers:\n${result.stdout}"
+        )
     }
 
     @Test
@@ -54,11 +61,14 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "org.openrewrite.java.format.AutoFormat",
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
-        assertTrue(result.stdout.contains("Hello"), "Diff should reference the changed file:\n${result.stdout}")
+        assertTrue(
+            result.stdout.contains("Hello"),
+            "Diff should reference the changed file:\n${result.stdout}"
+        )
     }
 
     // ─── Dry-run ──────────────────────────────────────────────────────────────
@@ -73,10 +83,14 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "org.openrewrite.java.format.AutoFormat",
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
-            "--dry-run",
+            "--dry-run"
         )
 
-        assertEquals(unformattedClass, javaFile.readText(), "--dry-run must not modify files on disk")
+        assertEquals(
+            unformattedClass,
+            javaFile.readText(),
+            "--dry-run must not modify files on disk"
+        )
     }
 
     // ─── Writing changes ──────────────────────────────────────────────────────
@@ -87,10 +101,14 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
         javaFile.writeText(unformattedClass)
 
         val result = runCli(
-            "--project-dir", projectDir.toString(),
-            "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-            "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".java",
+            "--project-dir",
+            projectDir.toString(),
+            "--active-recipe",
+            "org.openrewrite.java.format.AutoFormat",
+            "--cache-dir",
+            cacheDir.toString(),
+            "--include-extensions",
+            ".java"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -112,7 +130,7 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -120,8 +138,14 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
             result.stdout.contains("Hello.java") || result.stdout.contains("No files"),
             "FILES mode should list changed paths: ${result.stdout}"
         )
-        assertTrue(!result.stdout.contains("---"), "FILES mode must not emit diff markers: ${result.stdout}")
-        assertTrue(!result.stdout.contains("@@"), "FILES mode must not emit hunk headers: ${result.stdout}")
+        assertTrue(
+            !result.stdout.contains("---"),
+            "FILES mode must not emit diff markers: ${result.stdout}"
+        )
+        assertTrue(
+            !result.stdout.contains("@@"),
+            "FILES mode must not emit hunk headers: ${result.stdout}"
+        )
     }
 
     @Test
@@ -134,7 +158,7 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
             "--output", "report",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -163,13 +187,14 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
         val output = result.stdout
         assertTrue(
-            (output.contains("Greeter.java") && output.contains("App.java")) || output.contains("No files"),
+            (output.contains("Greeter.java") && output.contains("App.java")) ||
+                output.contains("No files"),
             "Both source files should be reported: $output"
         )
     }
@@ -185,10 +210,13 @@ class JavaProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
-        assertTrue(!result.stdout.contains("ignored.txt"), "Non-Java file should not appear in output")
+        assertTrue(
+            !result.stdout.contains("ignored.txt"),
+            "Non-Java file should not appear in output"
+        )
     }
 }

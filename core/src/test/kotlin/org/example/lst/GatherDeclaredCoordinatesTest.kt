@@ -1,13 +1,13 @@
 package org.example.lst
 
-import org.example.config.ToolConfig
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.example.config.ToolConfig
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Tests for [LstBuilder.gatherDeclaredCoordinates].
@@ -28,7 +28,7 @@ class GatherDeclaredCoordinatesTest {
         cacheDir = projectDir.resolve("cache"),
         toolConfig = ToolConfig(),
         buildToolStage = failingBuildTool,
-        depResolutionStage = depStage,
+        depResolutionStage = depStage
     )
 
     @Test
@@ -54,7 +54,7 @@ class GatherDeclaredCoordinatesTest {
 
         val noOpDepStage = object : DependencyResolutionStage(
             cacheDir = projectDir.resolve("cache"),
-            extraRepositories = emptyList(),
+            extraRepositories = emptyList()
         ) {
             override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
         }
@@ -64,7 +64,11 @@ class GatherDeclaredCoordinatesTest {
         assertTrue(coords.isNotEmpty(), "Should return coordinates for project with dependencies")
         coords.forEach { coord ->
             val parts = coord.split(":")
-            assertEquals(3, parts.size, "Coordinate must be groupId:artifactId:version, got: $coord")
+            assertEquals(
+                3,
+                parts.size,
+                "Coordinate must be groupId:artifactId:version, got: $coord"
+            )
             assertFalse(coord.startsWith("/"), "Coordinate must not be a file path, got: $coord")
             assertFalse(coord.endsWith(".jar"), "Coordinate must not end with .jar, got: $coord")
             assertTrue(parts[0].isNotBlank(), "groupId must not be blank in: $coord")
@@ -86,17 +90,24 @@ class GatherDeclaredCoordinatesTest {
 
         val noOpDepStage = object : DependencyResolutionStage(
             cacheDir = projectDir.resolve("cache"),
-            extraRepositories = emptyList(),
+            extraRepositories = emptyList()
         ) {
             override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
         }
 
         val coords = lstBuilder(noOpDepStage).gatherDeclaredCoordinates(projectDir)
 
-        assertTrue(coords.isNotEmpty(), "Should return coordinates for Gradle project with dependencies")
+        assertTrue(
+            coords.isNotEmpty(),
+            "Should return coordinates for Gradle project with dependencies"
+        )
         coords.forEach { coord ->
             val parts = coord.split(":")
-            assertEquals(3, parts.size, "Coordinate must be groupId:artifactId:version, got: $coord")
+            assertEquals(
+                3,
+                parts.size,
+                "Coordinate must be groupId:artifactId:version, got: $coord"
+            )
             assertFalse(coord.startsWith("/"), "Coordinate must not be a file path, got: $coord")
             assertFalse(coord.endsWith(".jar"), "Coordinate must not end with .jar, got: $coord")
         }
@@ -106,7 +117,7 @@ class GatherDeclaredCoordinatesTest {
     fun `returns empty list when no build file exists`() {
         val noOpDepStage = object : DependencyResolutionStage(
             cacheDir = projectDir.resolve("cache"),
-            extraRepositories = emptyList(),
+            extraRepositories = emptyList()
         ) {
             override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
         }
@@ -121,7 +132,7 @@ class GatherDeclaredCoordinatesTest {
 
         val throwingDepStage = object : DependencyResolutionStage(
             cacheDir = projectDir.resolve("cache"),
-            extraRepositories = emptyList(),
+            extraRepositories = emptyList()
         ) {
             override fun resolveClasspath(projectDir: Path): List<Path> =
                 throw RuntimeException("Simulated failure")
@@ -150,7 +161,7 @@ class GatherDeclaredCoordinatesTest {
 
         val noOpDepStage = object : DependencyResolutionStage(
             cacheDir = projectDir.resolve("cache"),
-            extraRepositories = emptyList(),
+            extraRepositories = emptyList()
         ) {
             override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
         }

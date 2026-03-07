@@ -1,12 +1,12 @@
 package org.example.integration
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Integration tests for XML projects.
@@ -17,6 +17,7 @@ import kotlin.test.assertTrue
 class XmlProjectIntegrationTest : BaseIntegrationTest() {
 
     @TempDir lateinit var projectDir: Path
+
     @TempDir lateinit var cacheDir: Path
 
     // ─── FindAndReplace (guaranteed change) ───────────────────────────────────
@@ -40,7 +41,7 @@ class XmlProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".xml",
+            "--include-extensions", ".xml"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -62,7 +63,7 @@ class XmlProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".xml",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(original, xmlFile.readText(), "--dry-run must not write xml changes")
@@ -92,11 +93,14 @@ class XmlProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".xml",
+            "--include-extensions", ".xml"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
-        assertTrue(pomFile.readText().contains("<version>2.0.0</version>"), "Version should be updated in pom.xml")
+        assertTrue(
+            pomFile.readText().contains("<version>2.0.0</version>"),
+            "Version should be updated in pom.xml"
+        )
     }
 
     // ─── Multiple xml files ───────────────────────────────────────────────────
@@ -104,7 +108,9 @@ class XmlProjectIntegrationTest : BaseIntegrationTest() {
     @Test
     fun `FindAndReplace updates all xml files in project`() {
         projectDir.resolve("config.xml").writeText("<config><env>PLACEHOLDER</env></config>")
-        projectDir.resolve("override.xml").writeText("<config><env>PLACEHOLDER</env><debug>true</debug></config>")
+        projectDir.resolve(
+            "override.xml"
+        ).writeText("<config><env>PLACEHOLDER</env><debug>true</debug></config>")
         projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "production")
 
         val result = runCli(
@@ -114,7 +120,7 @@ class XmlProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".xml",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -139,7 +145,7 @@ class XmlProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".xml",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")

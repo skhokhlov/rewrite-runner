@@ -1,11 +1,11 @@
 package org.example.lst
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Tests the pom.xml / build.gradle parsing logic in DependencyResolutionStage
@@ -171,9 +171,15 @@ class DependencyResolutionStageTest {
 
         val coords = stage().parseGradleDependencies(projectDir)
 
-        assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"), "Should find commons-lang3")
+        assertTrue(
+            coords.contains("org.apache.commons:commons-lang3:3.12.0"),
+            "Should find commons-lang3"
+        )
         assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"), "Should find guava")
-        assertTrue(coords.contains("org.junit.jupiter:junit-jupiter:5.10.0"), "Should find junit (no scope filter)")
+        assertTrue(
+            coords.contains("org.junit.jupiter:junit-jupiter:5.10.0"),
+            "Should find junit (no scope filter)"
+        )
     }
 
     @Test
@@ -212,7 +218,10 @@ class DependencyResolutionStageTest {
 
         val coords = stage().parseGradleDependencies(projectDir)
 
-        assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"), "KTS should take precedence")
+        assertTrue(
+            coords.contains("com.google.guava:guava:32.1.2-jre"),
+            "KTS should take precedence"
+        )
         assertTrue(coords.none { it.contains("commons-lang3") }, "Groovy file should not be read")
     }
 
@@ -249,7 +258,17 @@ class DependencyResolutionStageTest {
         )
 
         val coords = stage().parseGradleDependencies(projectDir)
-        assertTrue(coords.none { it.contains("platform") || it.contains("bom") }, "BOM entries should be ignored")
-        assertTrue(coords.any { it.contains("spring-core") }, "Regular dependency should be included")
+        assertTrue(
+            coords.none {
+                it.contains("platform") || it.contains("bom")
+            },
+            "BOM entries should be ignored"
+        )
+        assertTrue(
+            coords.any {
+                it.contains("spring-core")
+            },
+            "Regular dependency should be included"
+        )
     }
 }

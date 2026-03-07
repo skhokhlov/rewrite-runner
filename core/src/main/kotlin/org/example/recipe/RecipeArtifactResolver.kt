@@ -1,5 +1,7 @@
 package org.example.recipe
 
+import java.nio.file.Path
+import java.util.logging.Logger
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils
 import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
@@ -15,8 +17,6 @@ import org.eclipse.aether.spi.connector.RepositoryConnectorFactory
 import org.eclipse.aether.spi.connector.transport.TransporterFactory
 import org.eclipse.aether.transport.http.HttpTransporterFactory
 import org.example.config.RepositoryConfig
-import java.nio.file.Path
-import java.util.logging.Logger
 
 /**
  * Resolves Maven coordinates to local JAR file paths using Eclipse Aether (Maven Resolver).
@@ -31,7 +31,7 @@ import java.util.logging.Logger
  */
 class RecipeArtifactResolver(
     private val cacheDir: Path,
-    private val extraRepositories: List<RepositoryConfig> = emptyList(),
+    private val extraRepositories: List<RepositoryConfig> = emptyList()
 ) {
     private val log = Logger.getLogger(RecipeArtifactResolver::class.java.name)
 
@@ -80,10 +80,18 @@ class RecipeArtifactResolver(
 
     private fun buildRemoteRepos(): List<RemoteRepository> {
         val repos = mutableListOf(
-            RemoteRepository.Builder("central", "default", "https://repo.maven.apache.org/maven2").build()
+            RemoteRepository.Builder(
+                "central",
+                "default",
+                "https://repo.maven.apache.org/maven2"
+            ).build()
         )
         extraRepositories.forEach { cfg ->
-            val builder = RemoteRepository.Builder(cfg.url.hashCode().toString(), "default", cfg.url)
+            val builder = RemoteRepository.Builder(
+                cfg.url.hashCode().toString(),
+                "default",
+                cfg.url
+            )
             if (cfg.username != null && cfg.password != null) {
                 builder.setAuthentication(
                     org.eclipse.aether.util.repository.AuthenticationBuilder()
@@ -100,7 +108,10 @@ class RecipeArtifactResolver(
     @Suppress("DEPRECATION")
     private fun newRepositorySystem(): RepositorySystem {
         val locator = MavenRepositorySystemUtils.newServiceLocator()
-        locator.addService(RepositoryConnectorFactory::class.java, BasicRepositoryConnectorFactory::class.java)
+        locator.addService(
+            RepositoryConnectorFactory::class.java,
+            BasicRepositoryConnectorFactory::class.java
+        )
         locator.addService(TransporterFactory::class.java, HttpTransporterFactory::class.java)
         return locator.getService(RepositorySystem::class.java)
             ?: throw IllegalStateException("Could not create RepositorySystem")

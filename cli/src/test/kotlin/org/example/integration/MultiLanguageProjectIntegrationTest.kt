@@ -1,13 +1,13 @@
 package org.example.integration
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Integration tests for realistic multi-language projects.
@@ -20,6 +20,7 @@ import kotlin.test.assertTrue
 class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
 
     @TempDir lateinit var projectDir: Path
+
     @TempDir lateinit var cacheDir: Path
 
     /**
@@ -76,12 +77,14 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".java",
+            "--include-extensions", ".java"
         )
 
         // Only Java should be changed
         assertTrue(
-            projectDir.resolve("src/main/java/com/example/App.java").readText().contains("REPLACED"),
+            projectDir.resolve(
+                "src/main/java/com/example/App.java"
+            ).readText().contains("REPLACED"),
             "Java file should be modified"
         )
         assertEquals(
@@ -90,7 +93,9 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "Kotlin file must not be modified when .kt is not in include-extensions"
         )
         assertTrue(
-            projectDir.resolve("src/main/resources/application.yaml").readText().contains("PLACEHOLDER"),
+            projectDir.resolve(
+                "src/main/resources/application.yaml"
+            ).readText().contains("PLACEHOLDER"),
             "YAML file must not be modified"
         )
     }
@@ -105,19 +110,25 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".java,.kt,.yaml",
+            "--include-extensions", ".java,.kt,.yaml"
         )
 
         assertTrue(
-            projectDir.resolve("src/main/java/com/example/App.java").readText().contains("REPLACED"),
+            projectDir.resolve(
+                "src/main/java/com/example/App.java"
+            ).readText().contains("REPLACED"),
             "Java file should be modified"
         )
         assertTrue(
-            projectDir.resolve("src/main/kotlin/com/example/Service.kt").readText().contains("REPLACED"),
+            projectDir.resolve(
+                "src/main/kotlin/com/example/Service.kt"
+            ).readText().contains("REPLACED"),
             "Kotlin file should be modified"
         )
         assertTrue(
-            projectDir.resolve("src/main/resources/application.yaml").readText().contains("REPLACED"),
+            projectDir.resolve(
+                "src/main/resources/application.yaml"
+            ).readText().contains("REPLACED"),
             "YAML file should be modified"
         )
         assertTrue(
@@ -144,7 +155,7 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java,.yaml,.xml,.json,.properties",
             "--output", "diff",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -165,7 +176,7 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java,.yaml,.xml,.json,.properties",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -174,8 +185,8 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
         // At least one of the processed file types should appear in the listing
         assertTrue(
             result.stdout.contains(".java") || result.stdout.contains(".yaml") ||
-            result.stdout.contains(".xml") || result.stdout.contains(".properties") ||
-            result.stdout.contains("No files"),
+                result.stdout.contains(".xml") || result.stdout.contains(".properties") ||
+                result.stdout.contains("No files"),
             "FILES mode should list affected paths: ${result.stdout}"
         )
     }
@@ -192,7 +203,7 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java,.yaml,.xml,.json,.properties",
             "--output", "report",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -217,7 +228,7 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "src/main/resources/application.properties",
             "src/main/resources/logback.xml",
             "src/main/resources/schema.json",
-            "pom.xml",
+            "pom.xml"
         ).associateWith { projectDir.resolve(it).readText() }
 
         projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "REPLACED")
@@ -228,11 +239,15 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java,.kt,.yaml,.properties,.xml,.json",
-            "--dry-run",
+            "--dry-run"
         )
 
         for ((path, expected) in originals) {
-            assertEquals(expected, projectDir.resolve(path).readText(), "$path should not be modified by --dry-run")
+            assertEquals(
+                expected,
+                projectDir.resolve(path).readText(),
+                "$path should not be modified by --dry-run"
+            )
         }
     }
 
@@ -252,13 +267,13 @@ class MultiLanguageProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
         assertTrue(
             !result.stdout.contains(".kt") && !result.stdout.contains(".yaml") &&
-            !result.stdout.contains(".xml") && !result.stdout.contains(".json"),
+                !result.stdout.contains(".xml") && !result.stdout.contains(".json"),
             "Non-Java files must not appear in FILES output: ${result.stdout}"
         )
     }

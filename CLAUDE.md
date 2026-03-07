@@ -20,6 +20,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Run the tool locally
 java -jar build/libs/openrewrite-runner-1.0-SNAPSHOT-all.jar --help
+
+# Lint Kotlin code (ktlint — Google Android code style)
+./gradlew ktlintCheck
+
+# Auto-format Kotlin code
+./gradlew ktlintFormat
 ```
 
 ## Architecture
@@ -197,9 +203,17 @@ docs: add library usage examples to README
 
 See `CONTRIBUTING.md` for the full convention details.
 
+## Code Style
+
+Kotlin code is formatted with **ktlint** (`com.pinterest.ktlint:ktlint-cli:1.8.0`) using the **Google Android** code style, configured via `.editorconfig` (`ktlint_code_style = android_studio`).
+
+- Run `./gradlew ktlintCheck` to verify formatting
+- Run `./gradlew ktlintFormat` to auto-fix formatting issues
+- CI fails on ktlint violations — fix them before pushing
+
 ## CI/CD
 
 GitHub Actions workflow (`.github/workflows/build.yml`) triggers on push/PR to `main`/`master`:
 1. Sets up JDK 21 (Temurin)
-2. Runs `./gradlew test shadowJar`
+2. Runs `./gradlew check shadowJar` (`check` includes `ktlintCheck` + `test`)
 3. Uploads fat JAR as a build artifact

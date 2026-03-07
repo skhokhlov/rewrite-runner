@@ -1,15 +1,15 @@
 package org.example.lst
 
-import org.example.config.ParseConfig
-import org.example.config.ToolConfig
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.example.config.ParseConfig
+import org.example.config.ToolConfig
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 class LstBuilderTest {
 
@@ -45,7 +45,7 @@ class LstBuilderTest {
     private fun lstBuilder(buildTool: BuildToolStage = failingBuildTool): LstBuilder {
         val noOpDepStage = object : DependencyResolutionStage(
             cacheDir = projectDir.resolve("cache"),
-            extraRepositories = emptyList(),
+            extraRepositories = emptyList()
         ) {
             override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
         }
@@ -53,7 +53,7 @@ class LstBuilderTest {
             cacheDir = projectDir.resolve("cache"),
             toolConfig = toolConfig,
             buildToolStage = buildTool,
-            depResolutionStage = noOpDepStage,
+            depResolutionStage = noOpDepStage
         )
     }
 
@@ -67,7 +67,7 @@ class LstBuilderTest {
 
         val sources = lstBuilder().build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
 
         assertEquals(1, sources.size, "Only .java file should be parsed")
@@ -82,7 +82,7 @@ class LstBuilderTest {
 
         val sources = lstBuilder().build(
             projectDir = projectDir,
-            excludeExtensionsCli = listOf(".xml", ".properties"),
+            excludeExtensionsCli = listOf(".xml", ".properties")
         )
 
         val paths = sources.map { it.sourcePath.toString() }
@@ -104,7 +104,7 @@ class LstBuilderTest {
             cacheDir = projectDir.resolve("cache"),
             toolConfig = config,
             buildToolStage = failingBuildTool,
-            depResolutionStage = noOpDepStage,
+            depResolutionStage = noOpDepStage
         )
 
         val sources = builder.build(projectDir = projectDir)
@@ -125,13 +125,13 @@ class LstBuilderTest {
             cacheDir = projectDir.resolve("cache"),
             toolConfig = config,
             buildToolStage = failingBuildTool,
-            depResolutionStage = noOpDepStage,
+            depResolutionStage = noOpDepStage
         )
 
         // CLI flag should override the config's yaml-only setting
         val sources = builder.build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
         assertEquals(1, sources.size)
         assertTrue(sources.first().sourcePath.toString().endsWith(".java"))
@@ -145,7 +145,10 @@ class LstBuilderTest {
         projectDir.resolve("build").createDirectories()
         projectDir.resolve("build/Generated.java").writeText("class Generated {}")
 
-        val sources = lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+        val sources = lstBuilder().build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".java")
+        )
         assertEquals(1, sources.size, "build/ files should be excluded")
         assertTrue(sources.first().sourcePath.toString() == "Hello.java")
     }
@@ -156,7 +159,10 @@ class LstBuilderTest {
         projectDir.resolve("target").createDirectories()
         projectDir.resolve("target/Compiled.java").writeText("class Compiled {}")
 
-        val sources = lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+        val sources = lstBuilder().build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".java")
+        )
         assertEquals(1, sources.size, "target/ files should be excluded")
     }
 
@@ -166,7 +172,10 @@ class LstBuilderTest {
         projectDir.resolve("node_modules").createDirectories()
         projectDir.resolve("node_modules/package.json").writeText("{}")
 
-        val sources = lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".json"))
+        val sources = lstBuilder().build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".json")
+        )
         assertEquals(0, sources.size, "node_modules/ files should be excluded")
     }
 
@@ -185,7 +194,7 @@ class LstBuilderTest {
             cacheDir = projectDir.resolve("cache"),
             toolConfig = config,
             buildToolStage = failingBuildTool,
-            depResolutionStage = noOpDepStage,
+            depResolutionStage = noOpDepStage
         )
 
         val sources = builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
@@ -217,7 +226,10 @@ class LstBuilderTest {
     fun `yml extension is treated same as yaml`() {
         projectDir.resolve("app.yml").writeText("spring:\n  port: 8080")
 
-        val sources = lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".yml"))
+        val sources = lstBuilder().build(
+            projectDir = projectDir,
+            includeExtensionsCli = listOf(".yml")
+        )
         assertEquals(1, sources.size)
     }
 
@@ -227,7 +239,7 @@ class LstBuilderTest {
     fun `stage 1 is attempted first`() {
         lstBuilder(buildTool = trackingBuildTool).build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
         assertTrue(stage1Called, "Stage 1 (build tool) should always be attempted first")
     }
@@ -253,7 +265,7 @@ class LstBuilderTest {
             cacheDir = projectDir.resolve("cache"),
             toolConfig = toolConfig,
             buildToolStage = successfulBuildTool,
-            depResolutionStage = trackingDepStage,
+            depResolutionStage = trackingDepStage
         ).build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
 
         assertTrue(!stage2Called, "Stage 2 should NOT be called when Stage 1 succeeds")
@@ -273,7 +285,7 @@ class LstBuilderTest {
             cacheDir = projectDir.resolve("cache"),
             toolConfig = toolConfig,
             buildToolStage = failingBuildTool,
-            depResolutionStage = trackingDepStage,
+            depResolutionStage = trackingDepStage
         ).build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
 
         assertTrue(stage2Called, "Stage 2 should be attempted when Stage 1 fails")
@@ -286,11 +298,15 @@ class LstBuilderTest {
 
         val sources = lstBuilder().build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
 
         // Should still parse the file even without a resolved classpath
-        assertEquals(1, sources.size, "Java file should be parsed even without classpath (Stage 3 fallback)")
+        assertEquals(
+            1,
+            sources.size,
+            "Java file should be parsed even without classpath (Stage 3 fallback)"
+        )
     }
 
     // ─── Compile-on-demand (Stage 1 enhancement) ─────────────────────────────
@@ -311,10 +327,13 @@ class LstBuilderTest {
         projectDir.resolve("Hello.java").writeText("class Hello {}")
         lstBuilder(buildTool = trackingBuildTool).build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
 
-        assertTrue(tryCompileCalled, "tryCompile should be called when Stage 1 succeeds but class dirs are absent")
+        assertTrue(
+            tryCompileCalled,
+            "tryCompile should be called when Stage 1 succeeds but class dirs are absent"
+        )
     }
 
     @Test
@@ -336,10 +355,13 @@ class LstBuilderTest {
         projectDir.resolve("Hello.java").writeText("class Hello {}")
         lstBuilder(buildTool = trackingBuildTool).build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
 
-        assertTrue(!tryCompileCalled, "tryCompile should NOT be called when class directories already exist")
+        assertTrue(
+            !tryCompileCalled,
+            "tryCompile should NOT be called when class directories already exist"
+        )
     }
 
     @Test
@@ -348,13 +370,13 @@ class LstBuilderTest {
 
         val failingCompileTool = object : BuildToolStage() {
             override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
-            override fun tryCompile(projectDir: Path): Boolean = false  // compilation fails
+            override fun tryCompile(projectDir: Path): Boolean = false // compilation fails
         }
 
         projectDir.resolve("Hello.java").writeText("class Hello {}")
         val sources = lstBuilder(buildTool = failingCompileTool).build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
 
         assertEquals(1, sources.size, "Parsing should succeed even when tryCompile returns false")
@@ -377,10 +399,14 @@ class LstBuilderTest {
         // No exception and file is parsed — class dir created by compile is picked up
         val sources = lstBuilder(buildTool = compilingBuildTool).build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
 
-        assertEquals(1, sources.size, "Parsing should succeed after tryCompile creates class directories")
+        assertEquals(
+            1,
+            sources.size,
+            "Parsing should succeed after tryCompile creates class directories"
+        )
     }
 
     @Test
@@ -397,7 +423,7 @@ class LstBuilderTest {
 
         lstBuilder(buildTool = nullReturningBuildTool).build(
             projectDir = projectDir,
-            includeExtensionsCli = listOf(".java"),
+            includeExtensionsCli = listOf(".java")
         )
 
         assertTrue(!tryCompileCalled, "tryCompile should NOT be called when Stage 1 returns null")

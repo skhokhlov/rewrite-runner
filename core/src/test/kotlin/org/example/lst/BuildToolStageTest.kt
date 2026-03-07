@@ -1,13 +1,13 @@
 package org.example.lst
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 class BuildToolStageTest {
 
@@ -70,14 +70,20 @@ class BuildToolStageTest {
     fun `detects Gradle project via build_gradle_kts presence`() {
         projectDir.resolve("build.gradle.kts").writeText("// empty")
         val result = runCatching { stage.extractClasspath(projectDir) }
-        assertTrue_compat(result.isSuccess, "extractClasspath should not throw for a Gradle KTS project")
+        assertTrue_compat(
+            result.isSuccess,
+            "extractClasspath should not throw for a Gradle KTS project"
+        )
     }
 
     @Test
     fun `detects Gradle project via build_gradle presence`() {
         projectDir.resolve("build.gradle").writeText("// empty")
         val result = runCatching { stage.extractClasspath(projectDir) }
-        assertTrue_compat(result.isSuccess, "extractClasspath should not throw for a Gradle Groovy project")
+        assertTrue_compat(
+            result.isSuccess,
+            "extractClasspath should not throw for a Gradle Groovy project"
+        )
     }
 
     @Test
@@ -86,7 +92,10 @@ class BuildToolStageTest {
         projectDir.resolve("build.gradle").writeText("// empty")
         // Maven is preferred; just verify no exception
         val result = runCatching { stage.extractClasspath(projectDir) }
-        assertTrue_compat(result.isSuccess, "Should not throw when both pom.xml and build.gradle exist")
+        assertTrue_compat(
+            result.isSuccess,
+            "Should not throw when both pom.xml and build.gradle exist"
+        )
     }
 
     // ─── tryCompile tests ─────────────────────────────────────────────────────
@@ -129,7 +138,10 @@ class BuildToolStageTest {
         projectDir.resolve("build.gradle").writeText("// empty")
         // Maven is preferred (same precedence as extractClasspath); must not throw
         val result = runCatching { stage.tryCompile(projectDir) }
-        assertTrue_compat(result.isSuccess, "tryCompile should not throw when both pom.xml and build.gradle exist")
+        assertTrue_compat(
+            result.isSuccess,
+            "tryCompile should not throw when both pom.xml and build.gradle exist"
+        )
     }
 
     @Test
@@ -151,7 +163,10 @@ class BuildToolStageTest {
         gradlew.writeText("#!/bin/sh\nexit 1\n")
         gradlew.setExecutable(true)
         val result = runCatching { stage.tryCompile(projectDir) }
-        assertTrue_compat(result.isSuccess, "tryCompile should not throw when gradlew exits non-zero")
+        assertTrue_compat(
+            result.isSuccess,
+            "tryCompile should not throw when gradlew exits non-zero"
+        )
     }
 
     // ─── Deadlock-prevention tests ────────────────────────────────────────────

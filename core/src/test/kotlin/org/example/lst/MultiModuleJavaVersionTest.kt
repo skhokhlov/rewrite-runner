@@ -1,14 +1,14 @@
 package org.example.lst
 
-import org.example.config.ToolConfig
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
-import org.openrewrite.java.marker.JavaVersion
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import org.example.config.ToolConfig
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import org.openrewrite.java.marker.JavaVersion
 
 /**
  * Verifies that [LstBuilder] detects Java versions **per submodule** in multi-module
@@ -36,7 +36,7 @@ class MultiModuleJavaVersionTest {
     private fun lstBuilder(): LstBuilder {
         val noOpDepStage = object : DependencyResolutionStage(
             cacheDir = projectDir.resolve("cache"),
-            extraRepositories = emptyList(),
+            extraRepositories = emptyList()
         ) {
             override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
         }
@@ -44,7 +44,7 @@ class MultiModuleJavaVersionTest {
             cacheDir = projectDir.resolve("cache"),
             toolConfig = ToolConfig(),
             buildToolStage = failingBuildTool,
-            depResolutionStage = noOpDepStage,
+            depResolutionStage = noOpDepStage
         )
     }
 
@@ -58,43 +58,56 @@ class MultiModuleJavaVersionTest {
             .filter { it.sourcePath.toString().endsWith(".java") }
             .associateBy(
                 { it.sourcePath.fileName.toString() },
-                { it.markers.findFirst(JavaVersion::class.java).orElseThrow {
-                    AssertionError("JavaVersion marker missing on ${it.sourcePath}")
-                } },
+                {
+                    it.markers.findFirst(JavaVersion::class.java).orElseThrow {
+                        AssertionError("JavaVersion marker missing on ${it.sourcePath}")
+                    }
+                }
             )
     }
 
     /** Writes a minimal Maven pom.xml with an optional explicit Java release version. */
     private fun Path.writeMavenPom(artifactId: String, javaVersion: String? = null) {
-        val versionBlock = if (javaVersion != null) """
+        val versionBlock = if (javaVersion != null) {
+            """
             |  <properties>
             |    <maven.compiler.release>$javaVersion</maven.compiler.release>
-            |  </properties>""".trimMargin() else ""
-        writeText("""
+            |  </properties>
+            """.trimMargin()
+        } else {
+            ""
+        }
+        writeText(
+            """
             <project>
               <modelVersion>4.0.0</modelVersion>
               <groupId>com.example</groupId>
               <artifactId>$artifactId</artifactId>
               <version>1.0</version>$versionBlock
             </project>
-        """.trimIndent())
+            """.trimIndent()
+        )
     }
 
     /** Writes a Gradle Kotlin DSL build file with a `jvmToolchain(N)` declaration. */
     private fun Path.writeGradleKtsToolchain(version: Int) {
-        writeText("""
+        writeText(
+            """
             plugins { kotlin("jvm") }
             kotlin { jvmToolchain($version) }
-        """.trimIndent())
+            """.trimIndent()
+        )
     }
 
     /** Writes a Gradle Groovy DSL build file with `sourceCompatibility`. */
     private fun Path.writeGradleGroovySource(version: String) {
-        writeText("""
+        writeText(
+            """
             plugins { id 'java' }
             sourceCompatibility = '$version'
             targetCompatibility = '$version'
-        """.trimIndent())
+            """.trimIndent()
+        )
     }
 
     // ─── Maven multi-module ───────────────────────────────────────────────────
@@ -120,13 +133,19 @@ class MultiModuleJavaVersionTest {
 
         val vA = versions["ModuleA.java"]
         assertNotNull(vA, "ModuleA.java must be present")
-        assertEquals("8", vA.sourceCompatibility,
-            "module-a declares Java 8; ModuleA.java must receive marker '8'")
+        assertEquals(
+            "8",
+            vA.sourceCompatibility,
+            "module-a declares Java 8; ModuleA.java must receive marker '8'"
+        )
 
         val vB = versions["ModuleB.java"]
         assertNotNull(vB, "ModuleB.java must be present")
-        assertEquals("17", vB.sourceCompatibility,
-            "module-b declares Java 17; ModuleB.java must receive marker '17'")
+        assertEquals(
+            "17",
+            vB.sourceCompatibility,
+            "module-b declares Java 17; ModuleB.java must receive marker '17'"
+        )
     }
 
     @Test
@@ -145,10 +164,16 @@ class MultiModuleJavaVersionTest {
 
         val versions = buildAndGetVersionsPerFile()
 
-        assertEquals("21", versions["Root.java"]?.sourceCompatibility,
-            "Root.java is under the root pom and must get version 21")
-        assertEquals("11", versions["ModuleA.java"]?.sourceCompatibility,
-            "ModuleA.java is under module-a pom and must get version 11")
+        assertEquals(
+            "21",
+            versions["Root.java"]?.sourceCompatibility,
+            "Root.java is under the root pom and must get version 21"
+        )
+        assertEquals(
+            "11",
+            versions["ModuleA.java"]?.sourceCompatibility,
+            "ModuleA.java is under module-a pom and must get version 11"
+        )
     }
 
     @Test
@@ -164,8 +189,11 @@ class MultiModuleJavaVersionTest {
 
         val versions = buildAndGetVersionsPerFile()
 
-        assertEquals("17", versions["ModuleA.java"]?.sourceCompatibility,
-            "module-a has no explicit Java version; must inherit root's Java 17 by walking up")
+        assertEquals(
+            "17",
+            versions["ModuleA.java"]?.sourceCompatibility,
+            "module-a has no explicit Java version; must inherit root's Java 17 by walking up"
+        )
     }
 
     @Test
@@ -191,10 +219,16 @@ class MultiModuleJavaVersionTest {
 
         val versions = buildAndGetVersionsPerFile()
 
-        assertEquals("17", versions["Child.java"]?.sourceCompatibility,
-            "child-module declares Java 17 explicitly; must win over parent-module (no version) and root (Java 11)")
-        assertEquals("11", versions["Sibling.java"]?.sourceCompatibility,
-            "sibling-module has no explicit version; walks up through empty parent pom to root's Java 11")
+        assertEquals(
+            "17",
+            versions["Child.java"]?.sourceCompatibility,
+            "child-module declares Java 17 explicitly; must win over parent-module (no version) and root (Java 11)"
+        )
+        assertEquals(
+            "11",
+            versions["Sibling.java"]?.sourceCompatibility,
+            "sibling-module has no explicit version; walks up through empty parent pom to root's Java 11"
+        )
     }
 
     @Test
@@ -222,9 +256,11 @@ class MultiModuleJavaVersionTest {
     fun `Gradle multi-module each subproject gets its own declared Java version`() {
         // Root: Java 21 via toolchain
         projectDir.resolve("build.gradle.kts").writeGradleKtsToolchain(21)
-        projectDir.resolve("settings.gradle.kts").writeText("""
+        projectDir.resolve("settings.gradle.kts").writeText(
+            """
             include("module-a", "module-b")
-        """.trimIndent())
+            """.trimIndent()
+        )
 
         // module-a: Java 11 via sourceCompatibility
         val modA = projectDir.resolve("module-a").also { it.createDirectories() }
@@ -240,10 +276,16 @@ class MultiModuleJavaVersionTest {
 
         val versions = buildAndGetVersionsPerFile()
 
-        assertEquals("11", versions["ModuleA.java"]?.sourceCompatibility,
-            "module-a declares Java 11; ModuleA.java must receive marker '11'")
-        assertEquals("17", versions["ModuleB.java"]?.sourceCompatibility,
-            "module-b declares Java 17; ModuleB.java must receive marker '17'")
+        assertEquals(
+            "11",
+            versions["ModuleA.java"]?.sourceCompatibility,
+            "module-a declares Java 11; ModuleA.java must receive marker '11'"
+        )
+        assertEquals(
+            "17",
+            versions["ModuleB.java"]?.sourceCompatibility,
+            "module-b declares Java 17; ModuleB.java must receive marker '17'"
+        )
     }
 
     @Test
@@ -258,8 +300,11 @@ class MultiModuleJavaVersionTest {
 
         val versions = buildAndGetVersionsPerFile()
 
-        assertEquals("21", versions["ModuleA.java"]?.sourceCompatibility,
-            "module-a has no build file; must walk up to root build.gradle.kts (Java 21)")
+        assertEquals(
+            "21",
+            versions["ModuleA.java"]?.sourceCompatibility,
+            "module-a has no build file; must walk up to root build.gradle.kts (Java 21)"
+        )
     }
 
     @Test
@@ -277,8 +322,11 @@ class MultiModuleJavaVersionTest {
 
         val versions = buildAndGetVersionsPerFile()
 
-        assertEquals("17", versions["RootApp.java"]?.sourceCompatibility,
-            "RootApp.java is in root src; must get root build.gradle.kts version (Java 17)")
+        assertEquals(
+            "17",
+            versions["RootApp.java"]?.sourceCompatibility,
+            "RootApp.java is in root src; must get root build.gradle.kts version (Java 17)"
+        )
         assertEquals("11", versions["ModuleA.java"]?.sourceCompatibility)
     }
 
@@ -320,8 +368,11 @@ class MultiModuleJavaVersionTest {
 
         val versions = buildAndGetVersionsPerFile()
 
-        assertEquals("17", versions["App.java"]?.sourceCompatibility,
-            "Single-module project must still detect version correctly from root pom.xml")
+        assertEquals(
+            "17",
+            versions["App.java"]?.sourceCompatibility,
+            "Single-module project must still detect version correctly from root pom.xml"
+        )
     }
 
     @Test
@@ -332,8 +383,11 @@ class MultiModuleJavaVersionTest {
 
         val versions = buildAndGetVersionsPerFile()
 
-        assertEquals("21", versions["App.java"]?.sourceCompatibility,
-            "Single-module Gradle project must still detect version correctly")
+        assertEquals(
+            "21",
+            versions["App.java"]?.sourceCompatibility,
+            "Single-module Gradle project must still detect version correctly"
+        )
     }
 
     @Test
@@ -349,7 +403,10 @@ class MultiModuleJavaVersionTest {
             val stripped = if (v.startsWith("1.")) v.removePrefix("1.") else v
             stripped.substringBefore(".")
         }
-        assertEquals(jvmMajor, versions["App.java"]?.sourceCompatibility,
-            "No build file → must fall back to running JVM version")
+        assertEquals(
+            jvmMajor,
+            versions["App.java"]?.sourceCompatibility,
+            "No build file → must fall back to running JVM version"
+        )
     }
 }

@@ -1,7 +1,7 @@
 package org.example
 
-import org.openrewrite.Result
 import java.nio.file.Path
+import org.openrewrite.Result
 
 /**
  * The result of a single [OpenRewriteRunner] invocation.
@@ -16,7 +16,7 @@ import java.nio.file.Path
 data class RunResult(
     val results: List<Result>,
     val changedFiles: List<Path>,
-    val projectDir: Path,
+    val projectDir: Path
 ) {
     /** `true` when the recipe produced at least one change, regardless of whether
      *  changes were written to disk. */

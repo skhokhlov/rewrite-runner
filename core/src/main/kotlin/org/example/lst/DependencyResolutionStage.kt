@@ -1,5 +1,8 @@
 package org.example.lst
 
+import java.nio.file.Path
+import java.util.logging.Logger
+import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils
 import org.eclipse.aether.RepositorySystem
@@ -15,9 +18,6 @@ import org.eclipse.aether.spi.connector.RepositoryConnectorFactory
 import org.eclipse.aether.spi.connector.transport.TransporterFactory
 import org.eclipse.aether.transport.http.HttpTransporterFactory
 import org.example.config.RepositoryConfig
-import java.nio.file.Path
-import java.util.logging.Logger
-import kotlin.io.path.exists
 
 /**
  * Stage 2: Parse the project's build descriptor and resolve declared dependencies
@@ -25,7 +25,7 @@ import kotlin.io.path.exists
  */
 open class DependencyResolutionStage(
     private val cacheDir: Path,
-    private val extraRepositories: List<RepositoryConfig> = emptyList(),
+    private val extraRepositories: List<RepositoryConfig> = emptyList()
 ) {
     private val log = Logger.getLogger(DependencyResolutionStage::class.java.name)
 
@@ -59,7 +59,9 @@ open class DependencyResolutionStage(
         }
 
         if (failed.isNotEmpty()) {
-            log.warning("Could not resolve ${failed.size} dependencies: ${failed.joinToString(", ")}")
+            log.warning(
+                "Could not resolve ${failed.size} dependencies: ${failed.joinToString(", ")}"
+            )
         }
 
         return resolved
@@ -110,7 +112,9 @@ open class DependencyResolutionStage(
                 """(?:implementation|api|compileOnly|runtimeOnly)\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)"""
             )
             threeArgPattern.findAll(text).forEach { match ->
-                coordinates.add("${match.groupValues[1]}:${match.groupValues[2]}:${match.groupValues[3]}")
+                coordinates.add(
+                    "${match.groupValues[1]}:${match.groupValues[2]}:${match.groupValues[3]}"
+                )
             }
 
             coordinates.distinct()
@@ -133,10 +137,18 @@ open class DependencyResolutionStage(
 
     private fun buildRemoteRepos(): List<RemoteRepository> {
         val repos = mutableListOf(
-            RemoteRepository.Builder("central", "default", "https://repo.maven.apache.org/maven2").build()
+            RemoteRepository.Builder(
+                "central",
+                "default",
+                "https://repo.maven.apache.org/maven2"
+            ).build()
         )
         extraRepositories.forEach { cfg ->
-            val builder = RemoteRepository.Builder(cfg.url.hashCode().toString(), "default", cfg.url)
+            val builder = RemoteRepository.Builder(
+                cfg.url.hashCode().toString(),
+                "default",
+                cfg.url
+            )
             if (cfg.username != null && cfg.password != null) {
                 builder.setAuthentication(
                     org.eclipse.aether.util.repository.AuthenticationBuilder()
@@ -153,7 +165,10 @@ open class DependencyResolutionStage(
     @Suppress("DEPRECATION")
     private fun newRepositorySystem(): RepositorySystem {
         val locator = MavenRepositorySystemUtils.newServiceLocator()
-        locator.addService(RepositoryConnectorFactory::class.java, BasicRepositoryConnectorFactory::class.java)
+        locator.addService(
+            RepositoryConnectorFactory::class.java,
+            BasicRepositoryConnectorFactory::class.java
+        )
         locator.addService(TransporterFactory::class.java, HttpTransporterFactory::class.java)
         return locator.getService(RepositorySystem::class.java)
             ?: throw IllegalStateException("Could not create RepositorySystem")
@@ -162,7 +177,8 @@ open class DependencyResolutionStage(
     private fun newSession(system: RepositorySystem): RepositorySystemSession {
         val session = MavenRepositorySystemUtils.newSession()
         val repoDir = cacheDir.resolve("repository").toFile().also { it.mkdirs() }
-        session.localRepositoryManager = system.newLocalRepositoryManager(session, LocalRepository(repoDir))
+        session.localRepositoryManager =
+            system.newLocalRepositoryManager(session, LocalRepository(repoDir))
         return session
     }
 
