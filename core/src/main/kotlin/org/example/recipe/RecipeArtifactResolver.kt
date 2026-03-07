@@ -2,24 +2,21 @@ package org.example.recipe
 
 import java.nio.file.Path
 import java.util.logging.Logger
-import org.apache.maven.repository.internal.MavenRepositorySystemUtils
+import org.eclipse.aether.DefaultRepositorySystemSession
 import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.collection.CollectRequest
-import org.eclipse.aether.connector.basic.BasicRepositoryConnectorFactory
 import org.eclipse.aether.graph.Dependency
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
 import org.eclipse.aether.resolution.DependencyRequest
 import org.eclipse.aether.resolution.VersionRangeRequest
-import org.eclipse.aether.spi.connector.RepositoryConnectorFactory
-import org.eclipse.aether.spi.connector.transport.TransporterFactory
-import org.eclipse.aether.transport.http.HttpTransporterFactory
+import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.example.config.RepositoryConfig
 
 /**
- * Resolves Maven coordinates to local JAR file paths using Eclipse Aether (Maven Resolver).
+ * Resolves Maven coordinates to local JAR file paths using Maven Resolver.
  *
  * Downloads the requested artifact and its transitive runtime dependencies, caching them
  * in a local Maven repository under [cacheDir]. Maven Central is always included as a
@@ -66,7 +63,7 @@ class RecipeArtifactResolver(
         val depRequest = DependencyRequest(collectRequest, null)
 
         val result = system.resolveDependencies(session, depRequest)
-        return result.artifactResults.mapNotNull { it.artifact?.file?.toPath() }
+        return result.artifactResults.mapNotNull { it.artifact?.path }
     }
 
     private fun resolveLatestVersion(groupId: String, artifactId: String): String {
@@ -105,23 +102,14 @@ class RecipeArtifactResolver(
         return repos
     }
 
-    @Suppress("DEPRECATION")
-    private fun newRepositorySystem(): RepositorySystem {
-        val locator = MavenRepositorySystemUtils.newServiceLocator()
-        locator.addService(
-            RepositoryConnectorFactory::class.java,
-            BasicRepositoryConnectorFactory::class.java
-        )
-        locator.addService(TransporterFactory::class.java, HttpTransporterFactory::class.java)
-        return locator.getService(RepositorySystem::class.java)
-            ?: throw IllegalStateException("Could not create RepositorySystem")
-    }
+    private fun newRepositorySystem(): RepositorySystem = RepositorySystemSupplier().get()
 
+    @Suppress("DEPRECATION")
     private fun newSession(system: RepositorySystem): RepositorySystemSession {
-        val session = MavenRepositorySystemUtils.newSession()
         val repoDir = cacheDir.resolve("repository").toFile().also { it.mkdirs() }
         val localRepo = LocalRepository(repoDir)
-        session.localRepositoryManager = system.newLocalRepositoryManager(session, localRepo)
-        return session
+        val bootstrap = DefaultRepositorySystemSession()
+        val localRepoManager = system.newLocalRepositoryManager(bootstrap, localRepo)
+        return system.createSessionBuilder().setLocalRepositoryManager(localRepoManager).build()
     }
 }
