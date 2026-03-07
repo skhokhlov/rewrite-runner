@@ -41,7 +41,7 @@ dependencies {
 
     // Config + JSON report
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.21.1")
 
     // Tests
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
