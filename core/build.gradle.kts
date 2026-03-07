@@ -41,7 +41,7 @@ dependencies {
 
     // Config + JSON report
     implementation("tools.jackson.dataformat:jackson-dataformat-yaml:3.0.0")
-    implementation("tools.jackson.module:jackson-module-kotlin:3.0.0")
+    implementation("tools.jackson.module:jackson-module-kotlin:3.1.0")
 
     // Tests
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
