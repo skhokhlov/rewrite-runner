@@ -40,7 +40,7 @@ dependencies {
     implementation("org.apache.maven:maven-resolver-provider:3.9.13")
 
     // Config + JSON report
-    implementation("tools.jackson.dataformat:jackson-dataformat-yaml:3.0.0")
+    implementation("tools.jackson.dataformat:jackson-dataformat-yaml:3.1.0")
     implementation("tools.jackson.module:jackson-module-kotlin:3.1.0")
 
     // Tests
