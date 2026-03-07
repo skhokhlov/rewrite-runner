@@ -25,8 +25,3 @@ jobs:
       - name: Build and test
         run: ./gradlew check shadowJar
 
-      - name: Upload fat JAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: openrewrite-runner
-          path: cli/build/libs/cli-*-all.jar
