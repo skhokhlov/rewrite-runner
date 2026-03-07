@@ -16,14 +16,7 @@ class OpenRewriteRunnerBuilderTest {
     @TempDir
     lateinit var tempDir: Path
 
-    @Test
-    fun `builder returns non-null runner`() {
-        val runner = OpenRewriteRunner.builder()
-            .projectDir(tempDir)
-            .activeRecipe("org.openrewrite.java.format.AutoFormat")
-            .build()
-        assertNotNull(runner)
-    }
+    // ── Build-time validation ────────────────────────────────────────────────
 
     @Test
     fun `build throws when activeRecipe is blank`() {
@@ -35,8 +28,7 @@ class OpenRewriteRunnerBuilderTest {
     }
 
     @Test
-    fun `builder activeRecipe setter is applied`() {
-        // Verify that setting activeRecipe doesn't throw and the runner is built
+    fun `build succeeds and returns non-null runner`() {
         val runner = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
@@ -44,96 +36,158 @@ class OpenRewriteRunnerBuilderTest {
         assertNotNull(runner)
     }
 
+    // ── Property storage: each setter persists its value ────────────────────
+
     @Test
-    fun `builder recipeArtifact accumulates coordinates`() {
-        // recipeArtifact() appends; verify build() succeeds and stores them
+    fun `builder stores projectDir`() {
+        val builder = OpenRewriteRunner.builder().projectDir(tempDir)
+        assertEquals(tempDir, builder.projectDir)
+    }
+
+    @Test
+    fun `builder stores activeRecipe`() {
+        val builder = OpenRewriteRunner.builder()
+            .activeRecipe("org.openrewrite.FindSourceFiles")
+        assertEquals("org.openrewrite.FindSourceFiles", builder.activeRecipe)
+    }
+
+    @Test
+    fun `recipeArtifact accumulates coordinates in order`() {
         val builder = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
             .recipeArtifact("com.example:recipe-a:1.0")
             .recipeArtifact("com.example:recipe-b:2.0")
-        val runner = builder.build()
-        assertNotNull(runner)
+        assertEquals(
+            listOf("com.example:recipe-a:1.0", "com.example:recipe-b:2.0"),
+            builder.recipeArtifacts
+        )
     }
 
     @Test
-    fun `builder recipeArtifacts replaces the full list`() {
-        val coords = listOf("com.example:lib-a:1.0", "com.example:lib-b:1.0")
-        val runner = OpenRewriteRunner.builder()
+    fun `recipeArtifacts replaces the full list including previously accumulated entries`() {
+        val replacement = listOf("com.example:lib-a:1.0", "com.example:lib-b:1.0")
+        val builder = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
-            .recipeArtifacts(coords)
-            .build()
-        assertNotNull(runner)
+            .recipeArtifact("com.example:old:9.9")
+            .recipeArtifacts(replacement)
+        assertEquals(replacement, builder.recipeArtifacts)
     }
 
     @Test
-    fun `builder rewriteConfig accepts a path`() {
+    fun `builder stores rewriteConfig path`() {
         val configPath = tempDir.resolve("rewrite.yaml")
-        val runner = OpenRewriteRunner.builder()
+        val builder = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
             .rewriteConfig(configPath)
-            .build()
-        assertNotNull(runner)
+        assertEquals(configPath, builder.rewriteConfig)
     }
 
     @Test
-    fun `builder cacheDir accepts a path`() {
-        val runner = OpenRewriteRunner.builder()
+    fun `builder stores cacheDir path`() {
+        val cache = tempDir.resolve("cache")
+        val builder = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
-            .cacheDir(tempDir.resolve("cache"))
-            .build()
-        assertNotNull(runner)
+            .cacheDir(cache)
+        assertEquals(cache, builder.cacheDir)
     }
 
     @Test
-    fun `builder configFile accepts a path`() {
-        val runner = OpenRewriteRunner.builder()
+    fun `builder stores configFile path`() {
+        val configFile = tempDir.resolve("config.yml")
+        val builder = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
-            .configFile(tempDir.resolve("config.yml"))
-            .build()
-        assertNotNull(runner)
+            .configFile(configFile)
+        assertEquals(configFile, builder.configFile)
     }
 
     @Test
-    fun `builder dryRun defaults to false and can be set to true`() {
-        // Build twice: once without dryRun (default), once with it set explicitly
-        val defaultRunner = OpenRewriteRunner.builder()
-            .projectDir(tempDir)
-            .activeRecipe("org.openrewrite.FindSourceFiles")
-            .build()
-        assertNotNull(defaultRunner)
-
-        val dryRunRunner = OpenRewriteRunner.builder()
+    fun `builder stores dryRun true`() {
+        val builder = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
             .dryRun(true)
-            .build()
-        assertNotNull(dryRunRunner)
+        assertTrue(builder.dryRun)
     }
 
     @Test
-    fun `builder includeExtensions accepts a list`() {
-        val runner = OpenRewriteRunner.builder()
+    fun `builder stores dryRun false when explicitly set`() {
+        val builder = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
-            .includeExtensions(listOf(".java", ".kt"))
-            .build()
-        assertNotNull(runner)
+            .dryRun(false)
+        assertFalse(builder.dryRun)
     }
 
     @Test
-    fun `builder excludeExtensions accepts a list`() {
-        val runner = OpenRewriteRunner.builder()
+    fun `builder stores includeExtensions`() {
+        val extensions = listOf(".java", ".kt")
+        val builder = OpenRewriteRunner.builder()
             .projectDir(tempDir)
             .activeRecipe("org.openrewrite.FindSourceFiles")
-            .excludeExtensions(listOf(".xml", ".yml"))
-            .build()
-        assertNotNull(runner)
+            .includeExtensions(extensions)
+        assertEquals(extensions, builder.includeExtensions)
     }
+
+    @Test
+    fun `builder stores excludeExtensions`() {
+        val extensions = listOf(".xml", ".yml")
+        val builder = OpenRewriteRunner.builder()
+            .projectDir(tempDir)
+            .activeRecipe("org.openrewrite.FindSourceFiles")
+            .excludeExtensions(extensions)
+        assertEquals(extensions, builder.excludeExtensions)
+    }
+
+    // ── Default values ───────────────────────────────────────────────────────
+
+    @Test
+    fun `dryRun defaults to false`() {
+        val builder = OpenRewriteRunner.builder()
+        assertFalse(builder.dryRun)
+    }
+
+    @Test
+    fun `rewriteConfig defaults to null`() {
+        val builder = OpenRewriteRunner.builder()
+        assertNull(builder.rewriteConfig)
+    }
+
+    @Test
+    fun `cacheDir defaults to null`() {
+        val builder = OpenRewriteRunner.builder()
+        assertNull(builder.cacheDir)
+    }
+
+    @Test
+    fun `configFile defaults to null`() {
+        val builder = OpenRewriteRunner.builder()
+        assertNull(builder.configFile)
+    }
+
+    @Test
+    fun `recipeArtifacts defaults to empty`() {
+        val builder = OpenRewriteRunner.builder()
+        assertTrue(builder.recipeArtifacts.isEmpty())
+    }
+
+    @Test
+    fun `includeExtensions defaults to empty`() {
+        val builder = OpenRewriteRunner.builder()
+        assertTrue(builder.includeExtensions.isEmpty())
+    }
+
+    @Test
+    fun `excludeExtensions defaults to empty`() {
+        val builder = OpenRewriteRunner.builder()
+        assertTrue(builder.excludeExtensions.isEmpty())
+    }
+
+    // ── Run-time behaviour ───────────────────────────────────────────────────
 
     @Test
     fun `run throws when projectDir does not exist`() {
