@@ -40,8 +40,8 @@ dependencies {
     implementation("org.apache.maven:maven-resolver-provider:3.9.12")
 
     // Config + JSON report
-    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.2")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.18.2")
+    implementation("tools.jackson.dataformat:jackson-dataformat-yaml:3.0.0")
+    implementation("tools.jackson.module:jackson-module-kotlin:3.0.0")
 
     // Tests
     testImplementation(platform("org.junit:junit-bom:5.10.0"))

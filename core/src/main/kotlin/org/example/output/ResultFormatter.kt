@@ -1,12 +1,12 @@
 package org.example.output
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import java.io.OutputStream
 import java.io.PrintStream
 import java.io.PrintWriter
 import java.nio.file.Path
 import org.openrewrite.Result
+import tools.jackson.databind.json.JsonMapper
+import tools.jackson.module.kotlin.KotlinModule
 
 /**
  * The three output modes supported by [ResultFormatter].
@@ -52,7 +52,9 @@ class ResultFormatter(
                 true
             )
         )
-    private val json = ObjectMapper().registerKotlinModule()
+    private val json = JsonMapper.builder()
+        .addModule(KotlinModule.Builder().build())
+        .build()
 
     /**
      * Write formatted output for the given [results].
@@ -102,27 +104,18 @@ class ResultFormatter(
 
     private fun writeReport(results: List<Result>, reportDir: Path) {
         val reportFile = reportDir.resolve("openrewrite-report.json").toFile()
-        // Stream entries one-by-one so diff strings can be GC'd as we go,
-        // rather than holding every diff in memory before the file is written.
-        json.factory.createGenerator(reportFile.writer(Charsets.UTF_8)).use { gen ->
-            gen.useDefaultPrettyPrinter()
-            gen.writeStartObject()
-            gen.writeNumberField("totalChanged", results.size)
-            gen.writeArrayFieldStart("results")
-            for (r in results) {
-                gen.writeStartObject()
-                gen.writeObjectField(
-                    "filePath",
-                    (r.after?.sourcePath ?: r.before?.sourcePath)?.toString()
+        val report = mapOf(
+            "totalChanged" to results.size,
+            "results" to results.map { r ->
+                mapOf(
+                    "filePath" to (r.after?.sourcePath ?: r.before?.sourcePath)?.toString(),
+                    "isNewFile" to (r.before == null),
+                    "isDeletedFile" to (r.after == null),
+                    "diff" to r.diff()
                 )
-                gen.writeBooleanField("isNewFile", r.before == null)
-                gen.writeBooleanField("isDeletedFile", r.after == null)
-                gen.writeStringField("diff", r.diff())
-                gen.writeEndObject()
             }
-            gen.writeEndArray()
-            gen.writeEndObject()
-        }
+        )
+        json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
         out.println("Report written to: ${reportFile.absolutePath}")
     }
 }

@@ -1,13 +1,12 @@
 package org.example.config
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
-import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+import tools.jackson.dataformat.yaml.YAMLMapper
+import tools.jackson.module.kotlin.KotlinModule
 
 /**
  * Configuration for a single Maven-compatible remote repository.
@@ -88,7 +87,9 @@ data class ToolConfig(
     }
 
     companion object {
-        private val yaml = ObjectMapper(YAMLFactory()).registerKotlinModule()
+        private val yaml = YAMLMapper.builder()
+            .addModule(KotlinModule.Builder().build())
+            .build()
 
         /**
          * Load a [ToolConfig] from [configFile] if it exists, or return a default instance.
