@@ -158,7 +158,7 @@ This project enforces the **Google Android** Kotlin code style via **[ktlint](ht
 ./gradlew ktlintFormat
 ```
 
-Run `ktlintFormat` before committing to avoid CI failures. The `ktlintCheck` task is part of the CI build and will fail the build on any violation.
+Run `ktlintFormat` before committing to avoid CI failures. The `ktlintCheck` task is wired into Gradle's `check` lifecycle and runs automatically as part of every `./gradlew check` or `./gradlew build` invocation.
 
 **Additional style rules:**
 

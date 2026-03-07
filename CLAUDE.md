@@ -215,5 +215,5 @@ Kotlin code is formatted with **ktlint** using the **Google Android** code style
 
 GitHub Actions workflow (`.github/workflows/build.yml`) triggers on push/PR to `main`/`master`:
 1. Sets up JDK 21 (Temurin)
-2. Runs `./gradlew ktlintCheck test shadowJar`
+2. Runs `./gradlew check shadowJar` (`check` includes `ktlintCheck` + `test`)
 3. Uploads fat JAR as a build artifact
