@@ -237,23 +237,6 @@ class LstBuilder(
         return fallback
     }
 
-    private fun detectJavaVersion(projectDir: Path): Pair<String, String> {
-        val jvmMajor = normalizeJvmVersion(System.getProperty("java.version") ?: "")
-        val fallback = Pair(jvmMajor, jvmMajor)
-
-        if (projectDir.resolve("pom.xml").toFile().exists()) {
-            return detectMavenJavaVersion(projectDir) ?: fallback
-        }
-
-        val buildFile = projectDir.resolve("build.gradle.kts").takeIf { it.toFile().exists() }
-            ?: projectDir.resolve("build.gradle").takeIf { it.toFile().exists() }
-        if (buildFile != null) {
-            return detectGradleJavaVersion(buildFile) ?: fallback
-        }
-
-        return fallback
-    }
-
     /**
      * Extracts Java source/target version from Maven's maven-compiler-plugin.
      * Priority: plugin <release> > plugin <source>/<target> > project properties.
