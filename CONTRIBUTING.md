@@ -40,6 +40,12 @@ Thank you for your interest in contributing! This document outlines the process 
 
 # Run the tool locally
 java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
+
+# Check code style (Google Android / ktlint)
+./gradlew ktlintCheck
+
+# Auto-fix code style issues
+./gradlew ktlintFormat
 ```
 
 ## Making Changes
@@ -137,6 +143,24 @@ BREAKING CHANGE: The `results` property on `RunResult` has been renamed to
 5. At least one maintainer review is required before merging
 
 ## Code Style
+
+This project enforces the **Google Android** Kotlin code style via **[ktlint](https://pinterest.github.io/ktlint/)** (plugin: `org.jlleitschuh.gradle.ktlint`).
+
+**Check formatting:**
+
+```bash
+./gradlew ktlintCheck
+```
+
+**Auto-fix formatting:**
+
+```bash
+./gradlew ktlintFormat
+```
+
+Run `ktlintFormat` before committing to avoid CI failures. The `ktlintCheck` task is part of the CI build and will fail the build on any violation.
+
+**Additional style rules:**
 
 - Follow existing Kotlin idioms and conventions in the codebase
 - Add KotlinDoc to all new public classes and methods (the project requires this — see `CLAUDE.md`)
