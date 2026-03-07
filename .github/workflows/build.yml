@@ -30,22 +30,3 @@ jobs:
         with:
           name: openrewrite-runner
           path: cli/build/libs/cli-*-all.jar
-
-      - name: Upload coverage reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: jacoco-reports
-          path: |
-            core/build/reports/jacoco/test/
-            cli/build/reports/jacoco/test/
-
-      - name: Report coverage on PR
-        uses: madrapps/jacoco-report@v1.7.1
-        if: github.event_name == 'pull_request'
-        with:
-          paths: |
-            ${{ github.workspace }}/core/build/reports/jacoco/test/jacocoTestReport.xml,
-            ${{ github.workspace }}/cli/build/reports/jacoco/test/jacocoTestReport.xml
-          token: ${{ secrets.GITHUB_TOKEN }}
-          title: Test Coverage
-          update-comment: true
