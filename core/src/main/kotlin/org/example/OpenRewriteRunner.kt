@@ -120,11 +120,17 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         val writtenFiles = mutableListOf<Path>()
         if (!config.dryRun) {
             for (result in results) {
-                val after = result.after ?: continue
-                val target = config.projectDir.resolve(after.sourcePath)
-                target.toFile().parentFile?.mkdirs()
-                target.toFile().writeText(after.printAll())
-                writtenFiles.add(target)
+                if (result.after == null) {
+                    // Recipe deleted this file — remove it from disk
+                    val beforePath = result.before?.let { config.projectDir.resolve(it.sourcePath) }
+                    beforePath?.toFile()?.delete()
+                } else {
+                    val after = result.after!!
+                    val target = config.projectDir.resolve(after.sourcePath)
+                    target.toFile().parentFile?.mkdirs()
+                    target.toFile().writeText(after.printAll())
+                    writtenFiles.add(target)
+                }
             }
             if (results.isNotEmpty()) {
                 log.info("Changes written to disk (${results.size} file(s) modified)")
