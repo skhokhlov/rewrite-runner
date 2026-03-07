@@ -1,5 +1,6 @@
 package org.example
 
+import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.logging.Logger
@@ -123,12 +124,18 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
                 if (result.after == null) {
                     // Recipe deleted this file — remove it from disk
                     val beforePath = result.before?.let { config.projectDir.resolve(it.sourcePath) }
-                    beforePath?.toFile()?.delete()
+                    if (beforePath != null) {
+                        try {
+                            Files.deleteIfExists(beforePath)
+                        } catch (e: Exception) {
+                            log.warning("Failed to delete file $beforePath: ${e.message}")
+                        }
+                    }
                 } else {
                     val after = result.after!!
                     val target = config.projectDir.resolve(after.sourcePath)
                     target.toFile().parentFile?.mkdirs()
-                    target.toFile().writeText(after.printAll())
+                    target.toFile().writeText(after.printAll(), Charsets.UTF_8)
                     writtenFiles.add(target)
                 }
             }
