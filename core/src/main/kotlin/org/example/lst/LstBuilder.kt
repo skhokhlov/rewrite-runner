@@ -1,7 +1,17 @@
 package org.example.lst
 
+import java.nio.file.FileSystems
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.UUID
+import java.util.logging.Logger
+import kotlin.io.path.extension
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.name
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.codehaus.plexus.util.xml.Xpp3Dom
+import org.example.config.ParseConfig
+import org.example.config.ToolConfig
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.SourceFile
@@ -13,16 +23,6 @@ import org.openrewrite.kotlin.KotlinParser
 import org.openrewrite.properties.PropertiesParser
 import org.openrewrite.xml.XmlParser
 import org.openrewrite.yaml.YamlParser
-import org.example.config.ParseConfig
-import org.example.config.ToolConfig
-import java.nio.file.FileSystems
-import java.nio.file.Files
-import java.nio.file.Path
-import java.util.UUID
-import java.util.logging.Logger
-import kotlin.io.path.extension
-import kotlin.io.path.isRegularFile
-import kotlin.io.path.name
 
 /**
  * Orchestrates the 3-stage LST building pipeline and multi-language file parsing.
@@ -37,17 +37,25 @@ class LstBuilder(
     private val buildToolStage: BuildToolStage = BuildToolStage(),
     private val depResolutionStage: DependencyResolutionStage = DependencyResolutionStage(
         cacheDir = cacheDir,
-        extraRepositories = toolConfig.resolvedRepositories(),
-    ),
+        extraRepositories = toolConfig.resolvedRepositories()
+    )
 ) {
     private val log = Logger.getLogger(LstBuilder::class.java.name)
 
     /** Default set of extensions supported out of the box. */
-    private val defaultExtensions = setOf(".java", ".kt", ".groovy", ".yaml", ".yml", ".json", ".xml", ".properties")
+    private val defaultExtensions =
+        setOf(".java", ".kt", ".groovy", ".yaml", ".yml", ".json", ".xml", ".properties")
 
     /** Directories excluded from the recursive walk. */
     private val excludedDirNames = setOf(
-        ".git", "build", "target", "node_modules", ".gradle", ".idea", "out", "dist",
+        ".git",
+        "build",
+        "target",
+        "node_modules",
+        ".gradle",
+        ".idea",
+        "out",
+        "dist"
     )
 
     /**
@@ -72,10 +80,12 @@ class LstBuilder(
         parseConfig: ParseConfig = toolConfig.parse,
         includeExtensionsCli: List<String> = emptyList(),
         excludeExtensionsCli: List<String> = emptyList(),
-        ctx: ExecutionContext = InMemoryExecutionContext { log.warning("Parse error: ${it.message}") },
+        ctx: ExecutionContext =
+            InMemoryExecutionContext { log.warning("Parse error: ${it.message}") }
     ): List<SourceFile> {
         // Determine effective extension set
-        val effectiveExtensions = resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
+        val effectiveExtensions =
+            resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
         log.info("Parsing extensions: $effectiveExtensions")
 
         // ── 3-stage classpath resolution ──────────────────────────────────────
@@ -89,7 +99,9 @@ class LstBuilder(
         // ── Collect files by extension ────────────────────────────────────────
         val filesByExt = collectFiles(projectDir, effectiveExtensions, parseConfig.excludePaths)
         val totalFiles = filesByExt.values.sumOf { it.size }
-        log.info("Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)")
+        log.info(
+            "Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)"
+        )
 
         // ── Parse each language ───────────────────────────────────────────────
         val allSources = mutableListOf<SourceFile>()
@@ -103,8 +115,14 @@ class LstBuilder(
             parser.parse(files, projectDir, ctx).forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
                 val (source, target) = detectJavaVersionForFile(absPath, projectDir, versionCache)
-                log.fine("Java version for ${sourceFile.sourcePath}: source=$source, target=$target")
-                allSources.add(sourceFile.withMarkers(sourceFile.markers.add(buildJavaVersionMarker(source, target))))
+                log.fine(
+                    "Java version for ${sourceFile.sourcePath}: source=$source, target=$target"
+                )
+                allSources.add(
+                    sourceFile.withMarkers(
+                        sourceFile.markers.add(buildJavaVersionMarker(source, target))
+                    )
+                )
             }
         }
 
@@ -153,7 +171,8 @@ class LstBuilder(
 
     /** Creates a [JavaVersion] marker with the given source/target version strings. */
     private fun buildJavaVersionMarker(source: String, target: String): JavaVersion {
-        val createdBy = System.getProperty("java.runtime.version") ?: System.getProperty("java.version") ?: ""
+        val createdBy =
+            System.getProperty("java.runtime.version") ?: System.getProperty("java.version") ?: ""
         val vmVendor = System.getProperty("java.vm.vendor") ?: ""
         return JavaVersion(UUID.randomUUID(), createdBy, vmVendor, source, target)
     }
@@ -182,7 +201,7 @@ class LstBuilder(
     private fun detectJavaVersionForFile(
         absFilePath: Path,
         projectDir: Path,
-        cache: MutableMap<Path, Pair<String, String>?>,
+        cache: MutableMap<Path, Pair<String, String>?>
     ): Pair<String, String> {
         val jvmMajor = normalizeJvmVersion(System.getProperty("java.version") ?: "")
         val fallback = Pair(jvmMajor, jvmMajor)
@@ -199,15 +218,17 @@ class LstBuilder(
                     ?: dir.resolve("build.gradle").takeIf { it.toFile().exists() }
                 val detected: Pair<String, String>? = when {
                     pomFile.toFile().exists() -> detectMavenJavaVersion(dir)
-                    buildFile != null         -> detectGradleJavaVersion(buildFile)
-                    else                      -> {
+
+                    buildFile != null -> detectGradleJavaVersion(buildFile)
+
+                    else -> {
                         // No build file at this level; skip caching and try parent
                         if (dir == projectDir) break
                         dir = dir.parent
                         continue
                     }
                 }
-                cache[dir] = detected   // cache null too (build file present, no explicit version)
+                cache[dir] = detected // cache null too (build file present, no explicit version)
                 if (detected != null) return detected
             }
             if (dir == projectDir) break
@@ -244,28 +265,42 @@ class LstBuilder(
             val model = MavenXpp3Reader().read(projectDir.resolve("pom.xml").toFile().inputStream())
 
             // Priority 1: maven-compiler-plugin <configuration>
-            val compilerPlugin = model.build?.plugins?.find { it.artifactId == "maven-compiler-plugin" }
+            val compilerPlugin = model.build?.plugins?.find {
+                it.artifactId ==
+                    "maven-compiler-plugin"
+            }
             val dom = compilerPlugin?.configuration as? Xpp3Dom
             if (dom != null) {
-                val release = dom.getChild("release")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
+                val release = dom.getChild("release")?.value?.takeIf {
+                    it.isNotBlank() &&
+                        !it.startsWith("\${")
+                }
                 if (release != null) {
                     val v = normalizeJvmVersion(release)
                     return Pair(v, v)
                 }
 
-                val source = dom.getChild("source")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
-                val target = dom.getChild("target")?.value?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
+                val source = dom.getChild("source")?.value?.takeIf {
+                    it.isNotBlank() &&
+                        !it.startsWith("\${")
+                }
+                val target = dom.getChild("target")?.value?.takeIf {
+                    it.isNotBlank() &&
+                        !it.startsWith("\${")
+                }
                 if (source != null || target != null) {
                     return Pair(
                         normalizeJvmVersion(source ?: target ?: ""),
-                        normalizeJvmVersion(target ?: source ?: ""),
+                        normalizeJvmVersion(target ?: source ?: "")
                     )
                 }
             }
 
             // Priority 2: project <properties>
             val props = model.properties
-            val propsRelease = props["maven.compiler.release"]?.toString()?.takeIf { it.isNotBlank() }
+            val propsRelease = props["maven.compiler.release"]?.toString()?.takeIf {
+                it.isNotBlank()
+            }
             if (propsRelease != null) {
                 val v = normalizeJvmVersion(propsRelease)
                 return Pair(v, v)
@@ -276,7 +311,7 @@ class LstBuilder(
             if (propsSource != null || propsTarget != null) {
                 return Pair(
                     normalizeJvmVersion(propsSource ?: propsTarget ?: ""),
-                    normalizeJvmVersion(propsTarget ?: propsSource ?: ""),
+                    normalizeJvmVersion(propsTarget ?: propsSource ?: "")
                 )
             }
 
@@ -293,38 +328,48 @@ class LstBuilder(
      * (`sourceCompatibility = JavaVersion.VERSION_17`, `jvmToolchain(21)`,
      * `java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }`).
      */
-    private fun detectGradleJavaVersion(buildFile: Path): Pair<String, String>? {
-        return try {
-            val text = buildFile.toFile().readText()
+    private fun detectGradleJavaVersion(buildFile: Path): Pair<String, String>? = try {
+        val text = buildFile.toFile().readText()
 
-            // sourceCompatibility / targetCompatibility in various forms.
-            // Handles quoted strings ('17', '1.8'), JavaVersion constants (VERSION_17,
-            // VERSION_1_8), and the legacy "1.N" format used for Java 8 (maps to "N").
-            val sourcePattern = Regex("""sourceCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_(?:1_)?)?['"]?(?:1\.)?(\d+)['"]?""")
-            val targetPattern = Regex("""targetCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_(?:1_)?)?['"]?(?:1\.)?(\d+)['"]?""")
-            // jvmToolchain(21) — Kotlin/Gradle toolchain shorthand
-            val jvmToolchainPattern = Regex("""jvmToolchain\s*\(\s*(\d+)\s*\)""")
-            // java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
-            val javaToolchainPattern = Regex("""JavaLanguageVersion\.of\s*\(\s*(\d+)\s*\)""")
-            // compileJava.options.release = 17 or options.release.set(17)
-            val releasePattern = Regex("""[.\s]release\s*[=.(]\s*(\d+)""")
+        // sourceCompatibility / targetCompatibility in various forms.
+        // Handles quoted strings ('17', '1.8'), JavaVersion constants (VERSION_17,
+        // VERSION_1_8), and the legacy "1.N" format used for Java 8 (maps to "N").
+        val sourcePattern =
+            Regex(
+                """sourceCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_(?:1_)?)?['"]?(?:1\.)?(\d+)['"]?"""
+            )
+        val targetPattern =
+            Regex(
+                """targetCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_(?:1_)?)?['"]?(?:1\.)?(\d+)['"]?"""
+            )
+        // jvmToolchain(21) — Kotlin/Gradle toolchain shorthand
+        val jvmToolchainPattern = Regex("""jvmToolchain\s*\(\s*(\d+)\s*\)""")
+        // java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+        val javaToolchainPattern = Regex("""JavaLanguageVersion\.of\s*\(\s*(\d+)\s*\)""")
+        // compileJava.options.release = 17 or options.release.set(17)
+        val releasePattern = Regex("""[.\s]release\s*[=.(]\s*(\d+)""")
 
-            val source = sourcePattern.find(text)?.groupValues?.get(1)
-            val target = targetPattern.find(text)?.groupValues?.get(1)
-            val toolchain = jvmToolchainPattern.find(text)?.groupValues?.get(1)
-                ?: javaToolchainPattern.find(text)?.groupValues?.get(1)
-            val release = releasePattern.find(text)?.groupValues?.get(1)
+        val source = sourcePattern.find(text)?.groupValues?.get(1)
+        val target = targetPattern.find(text)?.groupValues?.get(1)
+        val toolchain = jvmToolchainPattern.find(text)?.groupValues?.get(1)
+            ?: javaToolchainPattern.find(text)?.groupValues?.get(1)
+        val release = releasePattern.find(text)?.groupValues?.get(1)
 
-            when {
-                release != null -> Pair(release, release)
-                source != null || target != null -> Pair(source ?: target ?: "", target ?: source ?: "")
-                toolchain != null -> Pair(toolchain, toolchain)
-                else -> null
-            }
-        } catch (e: Exception) {
-            log.warning("Failed to detect Java version from Gradle build file: ${e.message}")
-            null
+        when {
+            release != null -> Pair(release, release)
+
+            source != null || target != null -> Pair(
+                source ?: target ?: "",
+                target ?: source ?: ""
+            )
+
+            toolchain != null -> Pair(toolchain, toolchain)
+
+            else -> null
         }
+    } catch (e: Exception) {
+        log.warning("Failed to detect Java version from Gradle build file: ${e.message}")
+        null
     }
 
     /** Converts JVM version strings like "1.8.0_xxx" → "8", "21.0.1" → "21". */
@@ -341,17 +386,16 @@ class LstBuilder(
      * `import com.example.pkg.*;`) and cross-module references resolve correctly,
      * preventing javac from producing `Type$UnknownType` for project-owned types.
      */
-    private fun projectClassDirs(projectDir: Path): List<Path> =
-        listOf(
-            // Maven
-            projectDir.resolve("target/classes"),
-            projectDir.resolve("target/test-classes"),
-            // Gradle
-            projectDir.resolve("build/classes/java/main"),
-            projectDir.resolve("build/classes/java/test"),
-            projectDir.resolve("build/classes/kotlin/main"),
-            projectDir.resolve("build/classes/kotlin/test"),
-        ).filter { Files.isDirectory(it) }
+    private fun projectClassDirs(projectDir: Path): List<Path> = listOf(
+        // Maven
+        projectDir.resolve("target/classes"),
+        projectDir.resolve("target/test-classes"),
+        // Gradle
+        projectDir.resolve("build/classes/java/main"),
+        projectDir.resolve("build/classes/java/test"),
+        projectDir.resolve("build/classes/kotlin/main"),
+        projectDir.resolve("build/classes/kotlin/test")
+    ).filter { Files.isDirectory(it) }
 
     private fun resolveClasspath(projectDir: Path): List<Path> {
         // Stage 1: Build tool subprocess
@@ -404,7 +448,9 @@ class LstBuilder(
         if (classDirs.isNotEmpty()) {
             log.info("Appending ${classDirs.size} project class dir(s) to classpath")
         }
-        log.info("Stage 3: using ${stage3.size} locally cached JAR(s) — unresolved types will be JavaType.Unknown")
+        log.info(
+            "Stage 3: using ${stage3.size} locally cached JAR(s) — unresolved types will be JavaType.Unknown"
+        )
         return stage3 + classDirs
     }
 
@@ -418,17 +464,16 @@ class LstBuilder(
      * [DirectParseStage.parseCoord] to always return null (paths contain no `:` triplet),
      * making Stage 3 a permanent no-op.
      */
-    internal fun gatherDeclaredCoordinates(projectDir: Path): List<String> {
-        return try {
-            when {
-                projectDir.resolve("pom.xml").toFile().exists() ->
-                    depResolutionStage.parseMavenDependencies(projectDir)
-                else ->
-                    depResolutionStage.parseGradleDependencies(projectDir)
-            }
-        } catch (_: Exception) {
-            emptyList()
+    internal fun gatherDeclaredCoordinates(projectDir: Path): List<String> = try {
+        when {
+            projectDir.resolve("pom.xml").toFile().exists() ->
+                depResolutionStage.parseMavenDependencies(projectDir)
+
+            else ->
+                depResolutionStage.parseGradleDependencies(projectDir)
         }
+    } catch (_: Exception) {
+        emptyList()
     }
 
     // ─── File collection ──────────────────────────────────────────────────────
@@ -436,7 +481,7 @@ class LstBuilder(
     private fun collectFiles(
         projectDir: Path,
         effectiveExtensions: Set<String>,
-        excludeGlobs: List<String>,
+        excludeGlobs: List<String>
     ): Map<String, List<Path>> {
         val matchers = excludeGlobs.map {
             FileSystems.getDefault().getPathMatcher("glob:$it")
@@ -472,13 +517,19 @@ class LstBuilder(
     private fun resolveExtensions(
         parseConfig: ParseConfig,
         includeExtensionsCli: List<String>,
-        excludeExtensionsCli: List<String>,
+        excludeExtensionsCli: List<String>
     ): Set<String> {
         // CLI flags take precedence over config file
-        val include = (includeExtensionsCli.takeIf { it.isNotEmpty() } ?: parseConfig.includeExtensions)
+        val include = (
+            includeExtensionsCli.takeIf { it.isNotEmpty() }
+                ?: parseConfig.includeExtensions
+            )
             .map { it.lowercase().let { e -> if (e.startsWith(".")) e else ".$e" } }
 
-        val exclude = (excludeExtensionsCli.takeIf { it.isNotEmpty() } ?: parseConfig.excludeExtensions)
+        val exclude = (
+            excludeExtensionsCli.takeIf { it.isNotEmpty() }
+                ?: parseConfig.excludeExtensions
+            )
             .map { it.lowercase().let { e -> if (e.startsWith(".")) e else ".$e" } }
             .toSet()
 

@@ -26,7 +26,7 @@ import kotlin.io.path.readText
 data class RepositoryConfig(
     val url: String = "",
     val username: String? = null,
-    val password: String? = null,
+    val password: String? = null
 )
 
 /**
@@ -45,7 +45,7 @@ data class RepositoryConfig(
 data class ParseConfig(
     val includeExtensions: List<String> = emptyList(),
     val excludeExtensions: List<String> = emptyList(),
-    val excludePaths: List<String> = emptyList(),
+    val excludePaths: List<String> = emptyList()
 )
 
 /**
@@ -65,7 +65,7 @@ data class ParseConfig(
 data class ToolConfig(
     val repositories: List<RepositoryConfig> = emptyList(),
     val cacheDir: String = "~/.openscript/cache",
-    val parse: ParseConfig = ParseConfig(),
+    val parse: ParseConfig = ParseConfig()
 ) {
     /** Returns [cacheDir] with `~` expanded to the user home directory and environment
      *  variable placeholders replaced. */
@@ -83,7 +83,7 @@ data class ToolConfig(
         repo.copy(
             url = interpolateEnvVars(repo.url),
             username = repo.username?.let { interpolateEnvVars(it) },
-            password = repo.password?.let { interpolateEnvVars(it) },
+            password = repo.password?.let { interpolateEnvVars(it) }
         )
     }
 

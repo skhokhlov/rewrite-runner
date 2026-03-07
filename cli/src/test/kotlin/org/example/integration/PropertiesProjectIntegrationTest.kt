@@ -1,12 +1,12 @@
 package org.example.integration
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Integration tests for Java .properties projects.
@@ -18,6 +18,7 @@ import kotlin.test.assertTrue
 class PropertiesProjectIntegrationTest : BaseIntegrationTest() {
 
     @TempDir lateinit var projectDir: Path
+
     @TempDir lateinit var cacheDir: Path
 
     // ─── ChangePropertyValue (structured, key-targeted) ───────────────────────
@@ -46,13 +47,16 @@ class PropertiesProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.ChangePort",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".properties",
+            "--include-extensions", ".properties"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
         val content = propsFile.readText()
         assertTrue(content.contains("server.port=9090"), "server.port should be updated to 9090")
-        assertTrue(content.contains("spring.application.name=my-app"), "Unrelated property should be preserved")
+        assertTrue(
+            content.contains("spring.application.name=my-app"),
+            "Unrelated property should be preserved"
+        )
     }
 
     @Test
@@ -75,12 +79,18 @@ class PropertiesProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".properties",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
-        assertTrue(result.stdout.contains("-server.port=8080"), "Diff should show removed old value:\n${result.stdout}")
-        assertTrue(result.stdout.contains("+server.port=9090"), "Diff should show added new value:\n${result.stdout}")
+        assertTrue(
+            result.stdout.contains("-server.port=8080"),
+            "Diff should show removed old value:\n${result.stdout}"
+        )
+        assertTrue(
+            result.stdout.contains("+server.port=9090"),
+            "Diff should show added new value:\n${result.stdout}"
+        )
     }
 
     @Test
@@ -103,7 +113,7 @@ class PropertiesProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".properties",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(original, propsFile.readText(), "--dry-run must not modify .properties files")
@@ -122,11 +132,14 @@ class PropertiesProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".properties",
+            "--include-extensions", ".properties"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
-        assertTrue(propsFile.readText().contains("localhost"), "Host placeholder should be replaced")
+        assertTrue(
+            propsFile.readText().contains("localhost"),
+            "Host placeholder should be replaced"
+        )
     }
 
     // ─── Multiple .properties files ───────────────────────────────────────────
@@ -134,7 +147,9 @@ class PropertiesProjectIntegrationTest : BaseIntegrationTest() {
     @Test
     fun `ChangePropertyValue updates matching property in all properties files`() {
         projectDir.resolve("application.properties").writeText("server.port=8080\n")
-        projectDir.resolve("application-dev.properties").writeText("server.port=8080\nlogging.level.root=DEBUG\n")
+        projectDir.resolve(
+            "application-dev.properties"
+        ).writeText("server.port=8080\nlogging.level.root=DEBUG\n")
         projectDir.writeRewriteYaml(
             "com.example.integration.ChangePort",
             """
@@ -151,12 +166,13 @@ class PropertiesProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".properties",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
         assertTrue(
-            result.stdout.contains("application.properties") && result.stdout.contains("application-dev.properties"),
+            result.stdout.contains("application.properties") &&
+                result.stdout.contains("application-dev.properties"),
             "Both properties files should be listed: ${result.stdout}"
         )
     }
@@ -184,7 +200,7 @@ class PropertiesProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.ChangePort",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".properties",
+            "--include-extensions", ".properties"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")

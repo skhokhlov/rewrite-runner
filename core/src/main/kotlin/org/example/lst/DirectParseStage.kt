@@ -11,13 +11,15 @@ import kotlin.io.path.name
  * Stage 3: Assemble the best available classpath from local caches without
  * downloading anything. Uses entries already present in ~/.m2 and ~/.gradle/caches.
  */
-class DirectParseStage(
-    private val projectDir: Path,
-) {
+class DirectParseStage(private val projectDir: Path) {
     private val log = Logger.getLogger(DirectParseStage::class.java.name)
 
     private val m2Root: Path = Paths.get(System.getProperty("user.home"), ".m2", "repository")
-    private val gradleCacheRoot: Path = Paths.get(System.getProperty("user.home"), ".gradle", "caches")
+    private val gradleCacheRoot: Path = Paths.get(
+        System.getProperty("user.home"),
+        ".gradle",
+        "caches"
+    )
 
     /**
      * Return any JARs we can locate in local caches that correspond to the project's

@@ -1,13 +1,13 @@
 package org.example.integration
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Integration tests for Kotlin projects.
@@ -18,6 +18,7 @@ import kotlin.test.assertTrue
 class KotlinProjectIntegrationTest : BaseIntegrationTest() {
 
     @TempDir lateinit var projectDir: Path
+
     @TempDir lateinit var cacheDir: Path
 
     /** Compact Kotlin that AutoFormat will expand with whitespace. */
@@ -35,10 +36,14 @@ class KotlinProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "org.openrewrite.kotlin.format.AutoFormat",
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".kt",
-            "--dry-run",
+            "--dry-run"
         )
 
-        assertEquals(0, result.exitCode, "AutoFormat should succeed on valid Kotlin, stderr: ${result.stderr}")
+        assertEquals(
+            0,
+            result.exitCode,
+            "AutoFormat should succeed on valid Kotlin, stderr: ${result.stderr}"
+        )
     }
 
     @Test
@@ -50,7 +55,7 @@ class KotlinProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "org.openrewrite.kotlin.format.AutoFormat",
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".kt",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -80,12 +85,15 @@ class KotlinProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".kt",
+            "--include-extensions", ".kt"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
         val content = ktFile.readText()
-        assertTrue(content.contains("api.example.com"), "PLACEHOLDER should be replaced in Kotlin file")
+        assertTrue(
+            content.contains("api.example.com"),
+            "PLACEHOLDER should be replaced in Kotlin file"
+        )
         assertTrue(!content.contains("PLACEHOLDER"), "Original placeholder should not remain")
     }
 
@@ -102,10 +110,14 @@ class KotlinProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".kt",
-            "--dry-run",
+            "--dry-run"
         )
 
-        assertEquals(original, ktFile.readText(), "--dry-run must not write changes for Kotlin files")
+        assertEquals(
+            original,
+            ktFile.readText(),
+            "--dry-run must not write changes for Kotlin files"
+        )
     }
 
     // ─── Extension filtering ──────────────────────────────────────────────────
@@ -121,10 +133,18 @@ class KotlinProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".kt",
+            "--include-extensions", ".kt"
         )
 
-        assertNotEquals("val url = \"PLACEHOLDER\"", projectDir.resolve("App.kt").readText(), "Kotlin file should be modified")
-        assertEquals("class App { String url = \"PLACEHOLDER\"; }", projectDir.resolve("App.java").readText(), "Java file should not be touched")
+        assertNotEquals(
+            "val url = \"PLACEHOLDER\"",
+            projectDir.resolve("App.kt").readText(),
+            "Kotlin file should be modified"
+        )
+        assertEquals(
+            "class App { String url = \"PLACEHOLDER\"; }",
+            projectDir.resolve("App.java").readText(),
+            "Java file should not be touched"
+        )
     }
 }

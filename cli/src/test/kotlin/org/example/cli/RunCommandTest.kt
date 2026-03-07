@@ -1,9 +1,5 @@
 package org.example.cli
 
-import org.example.config.ToolConfig
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
-import picocli.CommandLine
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.io.PrintWriter
@@ -13,6 +9,10 @@ import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import org.example.config.ToolConfig
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import picocli.CommandLine
 
 class RunCommandTest {
 
@@ -99,19 +99,28 @@ class RunCommandTest {
     fun `multiple --recipe-artifact flags are collected into a list`() {
         val cmd = RunCommand()
         CommandLine(cmd).parseArgs(
-            "--active-recipe", "org.example.MyRecipe",
-            "--recipe-artifact", "org.openrewrite.recipe:rewrite-spring:LATEST",
-            "--recipe-artifact", "org.openrewrite.recipe:rewrite-java:LATEST",
+            "--active-recipe",
+            "org.example.MyRecipe",
+            "--recipe-artifact",
+            "org.openrewrite.recipe:rewrite-spring:LATEST",
+            "--recipe-artifact",
+            "org.openrewrite.recipe:rewrite-java:LATEST"
         )
-        assertEquals(2, cmd.recipeArtifacts.size, "Two --recipe-artifact flags should produce a list of 2")
+        assertEquals(
+            2,
+            cmd.recipeArtifacts.size,
+            "Two --recipe-artifact flags should produce a list of 2"
+        )
     }
 
     @Test
     fun `--include-extensions splits on comma`() {
         val cmd = RunCommand()
         CommandLine(cmd).parseArgs(
-            "--active-recipe", "org.example.MyRecipe",
-            "--include-extensions", ".java,.kt",
+            "--active-recipe",
+            "org.example.MyRecipe",
+            "--include-extensions",
+            ".java,.kt"
         )
         assertEquals(listOf(".java", ".kt"), cmd.includeExtensions)
     }
@@ -120,8 +129,10 @@ class RunCommandTest {
     fun `--exclude-extensions splits on comma`() {
         val cmd = RunCommand()
         CommandLine(cmd).parseArgs(
-            "--active-recipe", "org.example.MyRecipe",
-            "--exclude-extensions", ".xml,.properties",
+            "--active-recipe",
+            "org.example.MyRecipe",
+            "--exclude-extensions",
+            ".xml,.properties"
         )
         assertEquals(listOf(".xml", ".properties"), cmd.excludeExtensions)
     }
@@ -133,8 +144,10 @@ class RunCommandTest {
 
         val cmd = RunCommand()
         CommandLine(cmd).parseArgs(
-            "--active-recipe", "org.example.MyRecipe",
-            "--rewrite-config", rewriteYaml.toString(),
+            "--active-recipe",
+            "org.example.MyRecipe",
+            "--rewrite-config",
+            rewriteYaml.toString()
         )
         assertEquals(rewriteYaml, cmd.rewriteConfig)
     }
@@ -149,14 +162,25 @@ class RunCommandTest {
         val code = cli()
             .setErr(PrintWriter(errBaos))
             .execute(
-                "--project-dir", projectDir.toString(),
-                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-                "--cache-dir", cacheDir.toString(),
-                "--output", "foobar",
+                "--project-dir",
+                projectDir.toString(),
+                "--active-recipe",
+                "org.openrewrite.java.format.AutoFormat",
+                "--cache-dir",
+                cacheDir.toString(),
+                "--output",
+                "foobar"
             )
 
-        assertEquals(1, code, "Unknown --output value should exit with code 1, not silently fall back to diff")
-        assertTrue(errBaos.toString().contains("foobar"), "Error message should mention the invalid value")
+        assertEquals(
+            1,
+            code,
+            "Unknown --output value should exit with code 1, not silently fall back to diff"
+        )
+        assertTrue(
+            errBaos.toString().contains("foobar"),
+            "Error message should mention the invalid value"
+        )
     }
 
     // ─── projectDir validation ────────────────────────────────────────────────
@@ -167,9 +191,12 @@ class RunCommandTest {
         val code = cli()
             .setErr(PrintWriter(errBaos))
             .execute(
-                "--project-dir", "/tmp/this-directory-does-not-exist-openrewrite-runner-test",
-                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-                "--cache-dir", cacheDir.toString(),
+                "--project-dir",
+                "/tmp/this-directory-does-not-exist-openrewrite-runner-test",
+                "--active-recipe",
+                "org.openrewrite.java.format.AutoFormat",
+                "--cache-dir",
+                cacheDir.toString()
             )
 
         assertEquals(1, code, "Nonexistent project directory should exit with code 1")
@@ -186,10 +213,14 @@ class RunCommandTest {
         val code = cli()
             .setErr(PrintWriter(errBaos))
             .execute(
-                "--project-dir", projectDir.toString(),
-                "--active-recipe", "org.example.recipe.ThatDoesNotExist",
-                "--cache-dir", cacheDir.toString(),
-                "--include-extensions", ".java",
+                "--project-dir",
+                projectDir.toString(),
+                "--active-recipe",
+                "org.example.recipe.ThatDoesNotExist",
+                "--cache-dir",
+                cacheDir.toString(),
+                "--include-extensions",
+                ".java"
             )
 
         assertNotEquals(0, code, "Nonexistent recipe should produce exit code 1")
@@ -212,7 +243,7 @@ class RunCommandTest {
                 "--active-recipe", "org.openrewrite.java.format.AutoFormat",
                 "--cache-dir", cacheDir.toString(),
                 "--include-extensions", ".java",
-                "--output", "diff",
+                "--output", "diff"
             )
 
         val stdout = outBaos.toString()
@@ -242,10 +273,14 @@ class RunCommandTest {
             "--active-recipe", "org.openrewrite.java.format.AutoFormat",
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
-            "--dry-run",
+            "--dry-run"
         )
 
-        assertEquals(originalContent, javaFile.toFile().readText(), "--dry-run should not modify files")
+        assertEquals(
+            originalContent,
+            javaFile.toFile().readText(),
+            "--dry-run should not modify files"
+        )
     }
 
     @Test
@@ -263,7 +298,7 @@ class RunCommandTest {
                 "--cache-dir", cacheDir.toString(),
                 "--include-extensions", ".java",
                 "--output", "files",
-                "--dry-run",
+                "--dry-run"
             )
 
         val output = outBaos.toString()
@@ -287,7 +322,7 @@ class RunCommandTest {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".java",
             "--output", "report",
-            "--dry-run",
+            "--dry-run"
         )
 
         if (code == 0) {
@@ -317,9 +352,12 @@ class RunCommandTest {
                 "--active-recipe", "com.example.MyCompositeRecipe",
                 "--rewrite-config", rewriteYaml.toString(),
                 "--cache-dir", cacheDir.toString(),
-                "--include-extensions", ".java",
+                "--include-extensions", ".java"
             )
         }
-        assertTrue(result.isSuccess, "CLI should not throw an uncaught exception: ${result.exceptionOrNull()}")
+        assertTrue(
+            result.isSuccess,
+            "CLI should not throw an uncaught exception: ${result.exceptionOrNull()}"
+        )
     }
 }

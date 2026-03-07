@@ -1,5 +1,6 @@
 package org.example.recipe
 
+import java.util.logging.Logger
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.LargeSourceSet
@@ -7,7 +8,6 @@ import org.openrewrite.Recipe
 import org.openrewrite.Result
 import org.openrewrite.SourceFile
 import org.openrewrite.internal.InMemoryLargeSourceSet
-import java.util.logging.Logger
 
 /**
  * Executes an OpenRewrite [org.openrewrite.Recipe] against a list of parsed source files
@@ -34,7 +34,7 @@ class RecipeRunner {
     fun run(
         recipe: Recipe,
         sourceFiles: List<SourceFile>,
-        ctx: ExecutionContext = defaultContext(),
+        ctx: ExecutionContext = defaultContext()
     ): List<Result> {
         log.info("Running recipe '${recipe.name}' against ${sourceFiles.size} source files")
 
@@ -46,8 +46,7 @@ class RecipeRunner {
         return results
     }
 
-    private fun defaultContext(): ExecutionContext =
-        InMemoryExecutionContext { throwable ->
-            log.warning("Recipe execution error: ${throwable.message}")
-        }
+    private fun defaultContext(): ExecutionContext = InMemoryExecutionContext { throwable ->
+        log.warning("Recipe execution error: ${throwable.message}")
+    }
 }

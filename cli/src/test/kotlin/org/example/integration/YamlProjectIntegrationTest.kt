@@ -1,12 +1,12 @@
 package org.example.integration
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Integration tests for YAML projects.
@@ -17,6 +17,7 @@ import kotlin.test.assertTrue
 class YamlProjectIntegrationTest : BaseIntegrationTest() {
 
     @TempDir lateinit var projectDir: Path
+
     @TempDir lateinit var cacheDir: Path
 
     // ─── FindAndReplace (text-level, guaranteed change) ───────────────────────
@@ -40,7 +41,7 @@ class YamlProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".yaml",
+            "--include-extensions", ".yaml"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -60,11 +61,14 @@ class YamlProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.FindAndReplace",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".yml",
+            "--include-extensions", ".yml"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
-        assertTrue(ymlFile.readText().contains("localhost"), "PLACEHOLDER should be replaced in .yml file")
+        assertTrue(
+            ymlFile.readText().contains("localhost"),
+            "PLACEHOLDER should be replaced in .yml file"
+        )
     }
 
     @Test
@@ -80,7 +84,7 @@ class YamlProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".yaml",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(original, yamlFile.readText(), "--dry-run must not write yaml changes to disk")
@@ -101,13 +105,19 @@ class YamlProjectIntegrationTest : BaseIntegrationTest() {
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".yaml",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
         assertTrue(result.stdout.contains("---"), "Expected unified diff:\n${result.stdout}")
-        assertTrue(result.stdout.contains("PLACEHOLDER"), "Diff should show removed text:\n${result.stdout}")
-        assertTrue(result.stdout.contains("production"), "Diff should show added text:\n${result.stdout}")
+        assertTrue(
+            result.stdout.contains("PLACEHOLDER"),
+            "Diff should show removed text:\n${result.stdout}"
+        )
+        assertTrue(
+            result.stdout.contains("production"),
+            "Diff should show added text:\n${result.stdout}"
+        )
     }
 
     // ─── MergeYaml (structured YAML recipe) ───────────────────────────────────
@@ -133,7 +143,7 @@ class YamlProjectIntegrationTest : BaseIntegrationTest() {
             "--active-recipe", "com.example.integration.AddManagementPort",
             "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
             "--cache-dir", cacheDir.toString(),
-            "--include-extensions", ".yaml",
+            "--include-extensions", ".yaml"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -157,12 +167,13 @@ class YamlProjectIntegrationTest : BaseIntegrationTest() {
             "--cache-dir", cacheDir.toString(),
             "--include-extensions", ".yaml",
             "--output", "files",
-            "--dry-run",
+            "--dry-run"
         )
 
         assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
         assertTrue(
-            result.stdout.contains("application.yaml") && result.stdout.contains("application-dev.yaml"),
+            result.stdout.contains("application.yaml") &&
+                result.stdout.contains("application-dev.yaml"),
             "Both yaml files should be reported as changed: ${result.stdout}"
         )
     }

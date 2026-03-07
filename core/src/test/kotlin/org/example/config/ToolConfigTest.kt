@@ -1,13 +1,13 @@
 package org.example.config
 
-import org.junit.jupiter.api.Assumptions.assumeTrue
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 class ToolConfigTest {
 
@@ -137,7 +137,10 @@ class ToolConfigTest {
             resolved.toString().startsWith(home),
             "Tilde should be expanded to user home dir. Got: $resolved"
         )
-        assertTrue(resolved.toString().contains(".openscript"), "Should contain .openscript path component")
+        assertTrue(
+            resolved.toString().contains(".openscript"),
+            "Should contain .openscript path component"
+        )
     }
 
     @Test

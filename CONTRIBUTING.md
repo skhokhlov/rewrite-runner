@@ -144,7 +144,7 @@ BREAKING CHANGE: The `results` property on `RunResult` has been renamed to
 
 ## Code Style
 
-This project enforces the **Google Android** Kotlin code style via **[ktlint](https://pinterest.github.io/ktlint/)** (plugin: `org.jlleitschuh.gradle.ktlint`).
+This project enforces the **Google Android** Kotlin code style via **[ktlint](https://pinterest.github.io/ktlint/)** (`com.pinterest.ktlint:ktlint-cli:1.8.0`). The code style is configured in `.editorconfig` (`ktlint_code_style = android_studio`). ktlint is resolved directly from Maven Central — no third-party Gradle plugin is required.
 
 **Check formatting:**
 

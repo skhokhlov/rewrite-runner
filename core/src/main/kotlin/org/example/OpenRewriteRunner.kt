@@ -1,13 +1,13 @@
 package org.example
 
+import java.nio.file.Path
+import java.nio.file.Paths
+import java.util.logging.Logger
 import org.example.config.ToolConfig
 import org.example.lst.LstBuilder
 import org.example.recipe.RecipeArtifactResolver
 import org.example.recipe.RecipeLoader
 import org.example.recipe.RecipeRunner
-import java.nio.file.Path
-import java.nio.file.Paths
-import java.util.logging.Logger
 
 /**
  * Programmatic entry point for running OpenRewrite recipes from library code.
@@ -74,7 +74,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
             log.info("Resolving ${config.recipeArtifacts.size} recipe artifact(s)…")
             val resolver = RecipeArtifactResolver(
                 cacheDir = effectiveCacheDir,
-                extraRepositories = toolConfig.resolvedRepositories(),
+                extraRepositories = toolConfig.resolvedRepositories()
             )
             config.recipeArtifacts.flatMap { coord ->
                 log.info("  → $coord")
@@ -91,7 +91,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         val recipe = RecipeLoader().load(
             recipeJars = recipeJars,
             activeRecipeName = config.activeRecipe,
-            rewriteYaml = effectiveRewriteConfig,
+            rewriteYaml = effectiveRewriteConfig
         )
         log.info("Recipe loaded: ${recipe.name}")
 
@@ -102,13 +102,13 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         log.info("Building LST for project: ${config.projectDir}")
         val lstBuilder = LstBuilder(
             cacheDir = effectiveCacheDir,
-            toolConfig = toolConfig,
+            toolConfig = toolConfig
         )
         val sourceFiles = lstBuilder.build(
             projectDir = config.projectDir,
             parseConfig = toolConfig.parse,
             includeExtensionsCli = config.includeExtensions,
-            excludeExtensionsCli = config.excludeExtensions,
+            excludeExtensionsCli = config.excludeExtensions
         )
         log.info("Parsed ${sourceFiles.size} source file(s)")
 
@@ -136,7 +136,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         return RunResult(
             results = results,
             changedFiles = writtenFiles,
-            projectDir = config.projectDir,
+            projectDir = config.projectDir
         )
     }
 

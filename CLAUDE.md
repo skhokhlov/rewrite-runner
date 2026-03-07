@@ -205,7 +205,7 @@ See `CONTRIBUTING.md` for the full convention details.
 
 ## Code Style
 
-Kotlin code is formatted with **ktlint** using the **Google Android** code style (`android.set(true)` in the ktlint extension).
+Kotlin code is formatted with **ktlint** (`com.pinterest.ktlint:ktlint-cli:1.8.0`) using the **Google Android** code style, configured via `.editorconfig` (`ktlint_code_style = android_studio`).
 
 - Run `./gradlew ktlintCheck` to verify formatting
 - Run `./gradlew ktlintFormat` to auto-fix formatting issues

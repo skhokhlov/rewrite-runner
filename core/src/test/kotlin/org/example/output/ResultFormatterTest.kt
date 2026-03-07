@@ -2,6 +2,13 @@ package org.example.output
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import java.io.ByteArrayOutputStream
+import java.io.PrintWriter
+import java.nio.file.Path
+import kotlin.io.path.readText
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.openrewrite.ExecutionContext
@@ -13,13 +20,6 @@ import org.openrewrite.internal.InMemoryLargeSourceSet
 import org.openrewrite.text.PlainText
 import org.openrewrite.text.PlainTextParser
 import org.openrewrite.text.PlainTextVisitor
-import java.io.ByteArrayOutputStream
-import java.io.PrintWriter
-import java.nio.file.Path
-import kotlin.io.path.readText
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class ResultFormatterTest {
 
@@ -79,7 +79,10 @@ class ResultFormatterTest {
         val output = captureOutput { pw ->
             ResultFormatter(OutputMode.DIFF, pw).format(emptyList())
         }
-        assertTrue(output.contains("No changes"), "Should indicate no changes when result list is empty")
+        assertTrue(
+            output.contains("No changes"),
+            "Should indicate no changes when result list is empty"
+        )
     }
 
     @Test
@@ -120,7 +123,7 @@ class ResultFormatterTest {
     fun `FILES mode lists each file on its own line`() {
         val results = listOf(
             makeResult("a.txt", "a\n", "aa\n"),
-            makeResult("b.txt", "b\n", "bb\n"),
+            makeResult("b.txt", "b\n", "bb\n")
         )
         val output = captureOutput { pw ->
             ResultFormatter(OutputMode.FILES, pw).format(results)
@@ -171,14 +174,19 @@ class ResultFormatterTest {
         captureOutput { pw ->
             ResultFormatter(OutputMode.REPORT, pw).format(listOf(result), reportDir)
         }
-        val entry = json.readTree(reportDir.resolve("openrewrite-report.json").readText())["results"][0]
+        val entry = json.readTree(
+            reportDir.resolve("openrewrite-report.json").readText()
+        )["results"][0]
 
         assertTrue(entry.has("filePath"), "Each result should have filePath")
         assertTrue(entry.has("diff"), "Each result should have diff")
         assertTrue(entry.has("isNewFile"), "Each result should have isNewFile")
         assertTrue(entry.has("isDeletedFile"), "Each result should have isDeletedFile")
         assertFalse(entry["isNewFile"].asBoolean(), "Modified file should not be marked as new")
-        assertFalse(entry["isDeletedFile"].asBoolean(), "Modified file should not be marked as deleted")
+        assertFalse(
+            entry["isDeletedFile"].asBoolean(),
+            "Modified file should not be marked as deleted"
+        )
     }
 
     @Test

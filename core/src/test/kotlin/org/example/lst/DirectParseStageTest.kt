@@ -1,7 +1,5 @@
 package org.example.lst
 
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.util.logging.Handler
 import java.util.logging.Level
@@ -9,6 +7,8 @@ import java.util.logging.LogRecord
 import java.util.logging.Logger
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 
 class DirectParseStageTest {
 
@@ -26,7 +26,9 @@ class DirectParseStageTest {
     fun `returns empty list when no local JARs match`() {
         val stage = DirectParseStage(projectDir)
         // Use a coordinate that certainly won't be in any local cache
-        val result = stage.findAvailableJars(listOf("com.example.nonexistent:ultra-rare-lib:99.99.99"))
+        val result = stage.findAvailableJars(
+            listOf("com.example.nonexistent:ultra-rare-lib:99.99.99")
+        )
         assertEquals(0, result.size, "Should return empty when JAR is not locally cached")
     }
 
@@ -36,7 +38,7 @@ class DirectParseStageTest {
         val result = stage.findAvailableJars(
             listOf(
                 "com.example:ghost-lib:1.0",
-                "org.phantom:unknown:2.0",
+                "org.phantom:unknown:2.0"
             )
         )
         // Every returned path must exist
@@ -62,7 +64,10 @@ class DirectParseStageTest {
             val stage = DirectParseStage(projectDir)
             stage.findAvailableJars(listOf("com.example:missing:9.9.9"))
             assertTrue(
-                warnings.any { it.contains("9.9.9") || it.contains("missing") || it.contains("cached") },
+                warnings.any {
+                    it.contains("9.9.9") || it.contains("missing") ||
+                        it.contains("cached")
+                },
                 "Expected a warning about the unresolved coordinate, got: $warnings"
             )
         } finally {

@@ -14,12 +14,10 @@ import kotlin.io.path.exists
 open class BuildToolStage {
     private val log = Logger.getLogger(BuildToolStage::class.java.name)
 
-    open fun extractClasspath(projectDir: Path): List<Path>? {
-        return when {
-            projectDir.resolve("pom.xml").exists() -> extractMavenClasspath(projectDir)
-            hasBuildGradle(projectDir) -> extractGradleClasspath(projectDir)
-            else -> null
-        }
+    open fun extractClasspath(projectDir: Path): List<Path>? = when {
+        projectDir.resolve("pom.xml").exists() -> extractMavenClasspath(projectDir)
+        hasBuildGradle(projectDir) -> extractGradleClasspath(projectDir)
+        else -> null
     }
 
     // ─── Maven ───────────────────────────────────────────────────────────────
@@ -35,21 +33,27 @@ open class BuildToolStage {
                     "dependency:build-classpath",
                     "-q",
                     "-DincludeScope=test",
-                    "-Dmdep.outputFile=${outputFile.toAbsolutePath()}",
-                ),
+                    "-Dmdep.outputFile=${outputFile.toAbsolutePath()}"
+                )
             ) ?: return null
 
             if (result != 0) {
-                log.warning("Maven classpath extraction failed with exit code $result — falling through to Stage 2")
+                log.warning(
+                    "Maven classpath extraction failed with exit code $result — falling through to Stage 2"
+                )
                 return null
             }
 
             val content = outputFile.toFile().readText().trim()
             if (content.isEmpty()) return null
 
-            return content.split(java.io.File.pathSeparator).map { Path.of(it) }.filter { it.exists() }
+            return content.split(java.io.File.pathSeparator).map {
+                Path.of(it)
+            }.filter { it.exists() }
         } catch (e: Exception) {
-            log.warning("Maven classpath extraction threw an exception: ${e.message} — falling through to Stage 2")
+            log.warning(
+                "Maven classpath extraction threw an exception: ${e.message} — falling through to Stage 2"
+            )
             return null
         } finally {
             outputFile.toFile().delete()
@@ -77,13 +81,15 @@ open class BuildToolStage {
                     "-q",
                     "printClasspathForOpenRewrite",
                     "--init-script",
-                    initScript.toAbsolutePath().toString(),
+                    initScript.toAbsolutePath().toString()
                 ),
-                captureStdout = output,
+                captureStdout = output
             ) ?: return null
 
             if (result != 0) {
-                log.warning("Gradle classpath extraction failed with exit code $result — falling through to Stage 2")
+                log.warning(
+                    "Gradle classpath extraction failed with exit code $result — falling through to Stage 2"
+                )
                 return null
             }
 
@@ -93,7 +99,9 @@ open class BuildToolStage {
                 .map { Path.of(it) }
                 .filter { it.exists() }
         } catch (e: Exception) {
-            log.warning("Gradle classpath extraction threw an exception: ${e.message} — falling through to Stage 2")
+            log.warning(
+                "Gradle classpath extraction threw an exception: ${e.message} — falling through to Stage 2"
+            )
             return null
         } finally {
             initScript.toFile().delete()
@@ -107,12 +115,10 @@ open class BuildToolStage {
      * Returns true if compilation succeeded, false on any failure.
      * Never throws — failure is logged as a warning and the pipeline continues.
      */
-    open fun tryCompile(projectDir: Path): Boolean {
-        return when {
-            projectDir.resolve("pom.xml").exists() -> tryMavenCompile(projectDir)
-            hasBuildGradle(projectDir) -> tryGradleCompile(projectDir)
-            else -> false
-        }
+    open fun tryCompile(projectDir: Path): Boolean = when {
+        projectDir.resolve("pom.xml").exists() -> tryMavenCompile(projectDir)
+        hasBuildGradle(projectDir) -> tryGradleCompile(projectDir)
+        else -> false
     }
 
     private fun tryMavenCompile(projectDir: Path): Boolean {
@@ -162,7 +168,7 @@ open class BuildToolStage {
         workDir: Path,
         command: List<String>,
         captureStdout: StringBuilder? = null,
-        timeoutSeconds: Long = 120,
+        timeoutSeconds: Long = 120
     ): Int? {
         val pb = ProcessBuilder(command).directory(workDir.toFile())
 
