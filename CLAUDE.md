@@ -79,7 +79,7 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 **Key dependency versions** (chosen for Gradle 9.0.0 + JDK 25 compatibility):
 - Kotlin: `2.3.0` (2.1.x crashes on JDK 25)
 - Shadow plugin: `com.gradleup.shadow:9.0.0` (`com.github.johnrengelman.shadow` is incompatible with Gradle 9)
-- Maven Resolver: `1.9.22` (version 2.x doesn't exist yet)
+- Maven Resolver: `2.0.16`
 - JVM toolchain: 21 (set via `kotlin { jvmToolchain(21) }`)
 - OpenRewrite: via `rewrite-recipe-bom:3.10.1`
 - Picocli: `4.7.6`

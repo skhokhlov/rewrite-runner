@@ -5,19 +5,15 @@ import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
 import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
-import org.apache.maven.repository.internal.MavenRepositorySystemUtils
 import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.collection.CollectRequest
-import org.eclipse.aether.connector.basic.BasicRepositoryConnectorFactory
 import org.eclipse.aether.graph.Dependency
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
 import org.eclipse.aether.resolution.DependencyRequest
-import org.eclipse.aether.spi.connector.RepositoryConnectorFactory
-import org.eclipse.aether.spi.connector.transport.TransporterFactory
-import org.eclipse.aether.transport.http.HttpTransporterFactory
+import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.example.config.RepositoryConfig
 
 /**
@@ -259,7 +255,7 @@ open class DependencyResolutionStage(
         val collectRequest = CollectRequest(dep, remoteRepos)
         val depRequest = DependencyRequest(collectRequest, null)
         val result = system.resolveDependencies(session, depRequest)
-        return result.artifactResults.mapNotNull { it.artifact?.file?.toPath() }
+        return result.artifactResults.mapNotNull { it.artifact?.path }
     }
 
     private fun buildRemoteRepos(): List<RemoteRepository> {
@@ -289,24 +285,16 @@ open class DependencyResolutionStage(
         return repos
     }
 
-    @Suppress("DEPRECATION")
-    private fun newRepositorySystem(): RepositorySystem {
-        val locator = MavenRepositorySystemUtils.newServiceLocator()
-        locator.addService(
-            RepositoryConnectorFactory::class.java,
-            BasicRepositoryConnectorFactory::class.java
-        )
-        locator.addService(TransporterFactory::class.java, HttpTransporterFactory::class.java)
-        return locator.getService(RepositorySystem::class.java)
-            ?: throw IllegalStateException("Could not create RepositorySystem")
-    }
+    private fun newRepositorySystem(): RepositorySystem = RepositorySystemSupplier().get()
 
     private fun newSession(system: RepositorySystem): RepositorySystemSession {
-        val session = MavenRepositorySystemUtils.newSession()
         val repoDir = cacheDir.resolve("repository").toFile().also { it.mkdirs() }
-        session.localRepositoryManager =
-            system.newLocalRepositoryManager(session, LocalRepository(repoDir))
-        return session
+        val localRepo = LocalRepository(repoDir)
+        val localRepoManager =
+            system.createSessionBuilder().build().use { bootstrap ->
+                system.newLocalRepositoryManager(bootstrap, localRepo)
+            }
+        return system.createSessionBuilder().setLocalRepositoryManager(localRepoManager).build()
     }
 
     private fun hasBuildGradle(dir: Path): Boolean =

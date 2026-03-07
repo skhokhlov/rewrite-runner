@@ -33,11 +33,9 @@ dependencies {
     implementation("org.apache.maven:maven-model:3.9.13")
 
     // Maven Resolver (JAR download for Stage 2 + recipe artifacts)
-    implementation("org.apache.maven.resolver:maven-resolver-api:1.9.27")
-    implementation("org.apache.maven.resolver:maven-resolver-impl:1.9.27")
-    implementation("org.apache.maven.resolver:maven-resolver-connector-basic:1.9.27")
-    implementation("org.apache.maven.resolver:maven-resolver-transport-http:1.9.27")
-    implementation("org.apache.maven:maven-resolver-provider:3.9.13")
+    implementation("org.apache.maven.resolver:maven-resolver-api:2.0.16")
+    implementation("org.apache.maven.resolver:maven-resolver-impl:2.0.16")
+    implementation("org.apache.maven.resolver:maven-resolver-supplier-mvn3:2.0.16")
 
     // Config + JSON report
     implementation("tools.jackson.dataformat:jackson-dataformat-yaml:3.1.0")
