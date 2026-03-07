@@ -258,9 +258,11 @@ Invokes the project's own build tool as a subprocess to extract the full compile
 If successful, the resulting JAR list is passed to `JavaParser` for full type attribution (resolves imports, method signatures, type hierarchies).
 
 ### Stage 2 — Direct dependency resolution
-If Stage 1 fails (broken build, no wrapper, timeout), the tool parses the build descriptor statically and downloads dependencies directly:
+If Stage 1 fails (broken build, no wrapper, timeout), the tool resolves dependencies without running the full build:
 - **Maven**: parses `pom.xml` using `maven-model`; resolves JARs via Maven Resolver (Aether)
-- **Gradle**: best-effort static regex parse of `build.gradle` / `build.gradle.kts` to extract `implementation(...)` declarations
+- **Gradle**: runs `gradle dependencies` for the root project **and all declared subprojects** (discovered from `settings.gradle` / `settings.gradle.kts`), parsing the resolved dependency tree to get accurately resolved versions; falls back to best-effort static regex parsing of `build.gradle` / `build.gradle.kts` if Gradle cannot be invoked
+
+> **Note:** The `gradle dependencies` task only reports dependencies for the project it is applied to. Subprojects are queried explicitly (`:sub:dependencies`) so that multi-module builds are fully covered.
 
 Downloads are cached locally and respect configured extra repositories.
 

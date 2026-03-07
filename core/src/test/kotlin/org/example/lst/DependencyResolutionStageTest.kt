@@ -3,6 +3,7 @@ package org.example.lst
 import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -155,10 +156,10 @@ class DependencyResolutionStageTest {
         assertEquals(0, coords.size, "Malformed pom.xml should not throw, should return empty list")
     }
 
-    // ─── Gradle build file parsing ────────────────────────────────────────────
+    // ─── Static Gradle build file parsing ────────────────────────────────────
 
     @Test
-    fun `parseGradleDependencies extracts Kotlin DSL string coordinates`() {
+    fun `parseGradleDependenciesStatically extracts Kotlin DSL string coordinates`() {
         projectDir.resolve("build.gradle.kts").writeText(
             """
             dependencies {
@@ -169,7 +170,7 @@ class DependencyResolutionStageTest {
             """.trimIndent()
         )
 
-        val coords = stage().parseGradleDependencies(projectDir)
+        val coords = stage().parseGradleDependenciesStatically(projectDir)
 
         assertTrue(
             coords.contains("org.apache.commons:commons-lang3:3.12.0"),
@@ -183,7 +184,7 @@ class DependencyResolutionStageTest {
     }
 
     @Test
-    fun `parseGradleDependencies extracts Groovy DSL single-quoted coordinates`() {
+    fun `parseGradleDependenciesStatically extracts Groovy DSL single-quoted coordinates`() {
         projectDir.resolve("build.gradle").writeText(
             """
             dependencies {
@@ -193,14 +194,14 @@ class DependencyResolutionStageTest {
             """.trimIndent()
         )
 
-        val coords = stage().parseGradleDependencies(projectDir)
+        val coords = stage().parseGradleDependenciesStatically(projectDir)
 
         assertTrue(coords.contains("org.springframework:spring-core:6.1.0"))
         assertTrue(coords.contains("ch.qos.logback:logback-classic:1.4.11"))
     }
 
     @Test
-    fun `parseGradleDependencies prefers build_gradle_kts over build_gradle`() {
+    fun `parseGradleDependenciesStatically prefers build_gradle_kts over build_gradle`() {
         projectDir.resolve("build.gradle.kts").writeText(
             """
             dependencies {
@@ -216,7 +217,7 @@ class DependencyResolutionStageTest {
             """.trimIndent()
         )
 
-        val coords = stage().parseGradleDependencies(projectDir)
+        val coords = stage().parseGradleDependenciesStatically(projectDir)
 
         assertTrue(
             coords.contains("com.google.guava:guava:32.1.2-jre"),
@@ -226,13 +227,13 @@ class DependencyResolutionStageTest {
     }
 
     @Test
-    fun `parseGradleDependencies returns empty list when no build file`() {
-        val coords = stage().parseGradleDependencies(projectDir)
+    fun `parseGradleDependenciesStatically returns empty list when no build file`() {
+        val coords = stage().parseGradleDependenciesStatically(projectDir)
         assertEquals(0, coords.size)
     }
 
     @Test
-    fun `parseGradleDependencies deduplicates identical coordinates`() {
+    fun `parseGradleDependenciesStatically deduplicates identical coordinates`() {
         projectDir.resolve("build.gradle.kts").writeText(
             """
             dependencies {
@@ -242,12 +243,12 @@ class DependencyResolutionStageTest {
             """.trimIndent()
         )
 
-        val coords = stage().parseGradleDependencies(projectDir)
+        val coords = stage().parseGradleDependenciesStatically(projectDir)
         assertEquals(coords.distinct(), coords, "Coordinates should be deduplicated")
     }
 
     @Test
-    fun `parseGradleDependencies ignores BOM and platform entries`() {
+    fun `parseGradleDependenciesStatically ignores BOM and platform entries`() {
         projectDir.resolve("build.gradle.kts").writeText(
             """
             dependencies {
@@ -257,7 +258,7 @@ class DependencyResolutionStageTest {
             """.trimIndent()
         )
 
-        val coords = stage().parseGradleDependencies(projectDir)
+        val coords = stage().parseGradleDependenciesStatically(projectDir)
         assertTrue(
             coords.none {
                 it.contains("platform") || it.contains("bom")
@@ -270,5 +271,203 @@ class DependencyResolutionStageTest {
             },
             "Regular dependency should be included"
         )
+    }
+
+    // ─── Gradle dependencies task output parsing ──────────────────────────────
+
+    @Test
+    fun `parseGradleDependencyTaskOutput extracts simple coordinates`() {
+        val output =
+            """
+            compileClasspath - Compile classpath for source set 'main'.
+            +--- org.apache.commons:commons-lang3:3.12.0
+            \--- com.google.guava:guava:32.1.2-jre
+            """.trimIndent()
+
+        val coords = stage().parseGradleDependencyTaskOutput(output)
+
+        assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
+        assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"))
+    }
+
+    @Test
+    fun `parseGradleDependencyTaskOutput uses resolved version when overridden`() {
+        val output =
+            """
+            runtimeClasspath - Runtime classpath of source set 'main'.
+            +--- com.google.guava:guava:30.0-jre -> 32.1.2-jre
+            \--- org.springframework:spring-core:5.3.0 -> 6.1.0
+            """.trimIndent()
+
+        val coords = stage().parseGradleDependencyTaskOutput(output)
+
+        assertTrue(
+            coords.contains("com.google.guava:guava:32.1.2-jre"),
+            "Should use resolved version after ->"
+        )
+        assertTrue(
+            coords.contains("org.springframework:spring-core:6.1.0"),
+            "Should use resolved version after ->"
+        )
+        assertFalse(
+            coords.any { it.contains("30.0") || it.contains("5.3.0") },
+            "Should not contain declared version"
+        )
+    }
+
+    @Test
+    fun `parseGradleDependencyTaskOutput handles nested transitive dependencies`() {
+        val output =
+            """
+            compileClasspath - Compile classpath for source set 'main'.
+            +--- org.springframework.boot:spring-boot-starter-web:3.2.0
+            |    +--- org.springframework.boot:spring-boot-starter:3.2.0
+            |    |    \--- org.springframework.boot:spring-boot:3.2.0
+            |    \--- org.springframework:spring-webmvc:6.1.0
+            \--- com.google.guava:guava:32.1.2-jre
+            """.trimIndent()
+
+        val coords = stage().parseGradleDependencyTaskOutput(output)
+
+        assertTrue(coords.contains("org.springframework.boot:spring-boot-starter-web:3.2.0"))
+        assertTrue(coords.contains("org.springframework.boot:spring-boot-starter:3.2.0"))
+        assertTrue(coords.contains("org.springframework.boot:spring-boot:3.2.0"))
+        assertTrue(coords.contains("org.springframework:spring-webmvc:6.1.0"))
+        assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"))
+    }
+
+    @Test
+    fun `parseGradleDependencyTaskOutput deduplicates across configurations`() {
+        val output =
+            """
+            compileClasspath - Compile classpath for source set 'main'.
+            \--- com.google.guava:guava:32.1.2-jre
+
+            runtimeClasspath - Runtime classpath of source set 'main'.
+            \--- com.google.guava:guava:32.1.2-jre
+            """.trimIndent()
+
+        val coords = stage().parseGradleDependencyTaskOutput(output)
+
+        assertEquals(1, coords.size, "Duplicate coordinates should be deduplicated")
+        assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"))
+    }
+
+    @Test
+    fun `parseGradleDependencyTaskOutput skips FAILED resolutions`() {
+        val output =
+            """
+            compileClasspath - Compile classpath for source set 'main'.
+            +--- com.example:missing-artifact:1.0 FAILED
+            \--- com.google.guava:guava:32.1.2-jre
+            """.trimIndent()
+
+        val coords = stage().parseGradleDependencyTaskOutput(output)
+
+        assertFalse(coords.any { it.contains("FAILED") }, "FAILED entries should be excluded")
+        assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"))
+    }
+
+    @Test
+    fun `parseGradleDependencyTaskOutput returns empty list for empty output`() {
+        val coords = stage().parseGradleDependencyTaskOutput("")
+        assertEquals(0, coords.size)
+    }
+
+    @Test
+    fun `parseGradleDependencyTaskOutput aggregates dependencies from multiple projects`() {
+        // Simulates output from running both root and subproject dependencies tasks
+        val output =
+            """
+            > Task :dependencies
+
+            compileClasspath - Compile classpath for source set 'main'.
+            \--- org.apache.commons:commons-lang3:3.12.0
+
+            > Task :api:dependencies
+
+            compileClasspath - Compile classpath for source set 'main'.
+            \--- com.google.guava:guava:32.1.2-jre
+            """.trimIndent()
+
+        val coords = stage().parseGradleDependencyTaskOutput(output)
+
+        assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
+        assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"))
+    }
+
+    // ─── Subproject discovery ─────────────────────────────────────────────────
+
+    @Test
+    fun `discoverSubprojects finds subprojects from Kotlin DSL settings`() {
+        projectDir.resolve("settings.gradle.kts").writeText(
+            """
+            rootProject.name = "my-app"
+            include(":api")
+            include(":core", ":web")
+            """.trimIndent()
+        )
+
+        val subs = stage().discoverSubprojects(projectDir)
+
+        assertTrue(subs.contains(":api"))
+        assertTrue(subs.contains(":core"))
+        assertTrue(subs.contains(":web"))
+    }
+
+    @Test
+    fun `discoverSubprojects finds subprojects from Groovy DSL settings`() {
+        projectDir.resolve("settings.gradle").writeText(
+            """
+            rootProject.name = 'my-app'
+            include ':service'
+            include ':common'
+            """.trimIndent()
+        )
+
+        val subs = stage().discoverSubprojects(projectDir)
+
+        assertTrue(subs.contains(":service"))
+        assertTrue(subs.contains(":common"))
+    }
+
+    @Test
+    fun `discoverSubprojects prefers settings_gradle_kts over settings_gradle`() {
+        projectDir.resolve("settings.gradle.kts").writeText(
+            """
+            include(":from-kts")
+            """.trimIndent()
+        )
+        projectDir.resolve("settings.gradle").writeText(
+            """
+            include ':from-groovy'
+            """.trimIndent()
+        )
+
+        val subs = stage().discoverSubprojects(projectDir)
+
+        assertTrue(subs.contains(":from-kts"), "KTS settings should take precedence")
+        assertFalse(subs.contains(":from-groovy"), "Groovy settings should not be read")
+    }
+
+    @Test
+    fun `discoverSubprojects returns empty list when no settings file`() {
+        val subs = stage().discoverSubprojects(projectDir)
+        assertEquals(0, subs.size)
+    }
+
+    @Test
+    fun `discoverSubprojects deduplicates repeated entries`() {
+        projectDir.resolve("settings.gradle.kts").writeText(
+            """
+            include(":api")
+            include(":api")
+            include(":core")
+            """.trimIndent()
+        )
+
+        val subs = stage().discoverSubprojects(projectDir)
+        assertEquals(subs.distinct(), subs, "Subprojects should be deduplicated")
+        assertEquals(2, subs.size)
     }
 }
