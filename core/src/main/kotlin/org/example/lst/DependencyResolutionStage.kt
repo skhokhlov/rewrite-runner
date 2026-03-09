@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
 import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
+import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
 import org.eclipse.aether.artifact.DefaultArtifact
@@ -294,7 +295,12 @@ open class DependencyResolutionStage(
             system.createSessionBuilder().build().use { bootstrap ->
                 system.newLocalRepositoryManager(bootstrap, localRepo)
             }
-        return system.createSessionBuilder().setLocalRepositoryManager(localRepoManager).build()
+        return system
+            .createSessionBuilder()
+            .setLocalRepositoryManager(localRepoManager)
+            .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 30_000)
+            .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 60_000)
+            .build()
     }
 
     private fun hasBuildGradle(dir: Path): Boolean =

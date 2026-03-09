@@ -1,6 +1,7 @@
 package org.example.recipe
 
 import io.kotest.core.spec.style.FunSpec
+import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.jar.JarOutputStream
@@ -8,6 +9,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.eclipse.aether.repository.RemoteRepository
 import org.example.config.RepositoryConfig
 
 class RecipeArtifactResolverTest :
@@ -173,6 +175,50 @@ class RecipeArtifactResolverTest :
             assertTrue(
                 repoDir.exists(),
                 "Cache repository directory should be created during session init"
+            )
+        }
+
+        // ─── Timeout behaviour ────────────────────────────────────────────────────
+
+        test(
+            "resolve completes within requestTimeoutMs when remote server accepts but never responds"
+        ) {
+            // Regression test: without an explicit REQUEST_TIMEOUT the Maven Resolver
+            // default is 30 minutes, causing the process to hang indefinitely when a
+            // remote repository accepts TCP connections but never sends an HTTP response.
+            val blackHole = ServerSocket(0) // bind on any free port
+            val port = blackHole.localPort
+            // Accept the connection but never respond, simulating a hung server
+            Thread {
+                try {
+                    val conn = blackHole.accept()
+                    Thread.sleep(60_000)
+                    conn.close()
+                } catch (_: Exception) {}
+            }.also { it.isDaemon = true }.start()
+
+            // Subclass routes ONLY to the black-hole server so network access to
+            // Maven Central cannot mask a missing timeout configuration.
+            val resolver =
+                object : RecipeArtifactResolver(cacheDir, requestTimeoutMs = 2_000) {
+                    override fun buildRemoteRepos() = listOf(
+                        RemoteRepository.Builder(
+                            "blackhole",
+                            "default",
+                            "http://127.0.0.1:$port"
+                        )
+                            .build()
+                    )
+                }
+
+            val startMs = System.currentTimeMillis()
+            runCatching { resolver.resolve("test:missing-artifact:1.0.0") }
+            val elapsedMs = System.currentTimeMillis() - startMs
+
+            blackHole.close()
+            assertTrue(
+                elapsedMs < 10_000,
+                "resolve() must honour requestTimeoutMs and complete in <10 s; took ${elapsedMs}ms"
             )
         }
 

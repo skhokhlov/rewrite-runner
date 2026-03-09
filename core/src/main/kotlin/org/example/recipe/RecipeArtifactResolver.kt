@@ -2,6 +2,7 @@ package org.example.recipe
 
 import java.nio.file.Path
 import java.util.logging.Logger
+import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
 import org.eclipse.aether.artifact.DefaultArtifact
@@ -24,10 +25,17 @@ import org.example.config.RepositoryConfig
  * @param cacheDir Root directory for the local Maven repository cache. Created if absent.
  * @param extraRepositories Additional remote Maven repositories to query after Maven Central.
  *   Credentials (username/password) from [RepositoryConfig] are applied when present.
+ * @param connectTimeoutMs TCP connection timeout in milliseconds. Defaults to 30 000 (30 s).
+ * @param requestTimeoutMs Socket read / request timeout in milliseconds. Defaults to 60 000
+ *   (60 s). Maven Resolver's built-in default is 30 minutes; an explicit value is required to
+ *   prevent the process from hanging indefinitely when a remote server accepts the TCP
+ *   connection but never sends an HTTP response.
  */
-class RecipeArtifactResolver(
+open class RecipeArtifactResolver(
     private val cacheDir: Path,
-    private val extraRepositories: List<RepositoryConfig> = emptyList()
+    private val extraRepositories: List<RepositoryConfig> = emptyList(),
+    private val connectTimeoutMs: Int = 30_000,
+    private val requestTimeoutMs: Int = 60_000
 ) {
     private val log = Logger.getLogger(RecipeArtifactResolver::class.java.name)
 
@@ -76,7 +84,7 @@ class RecipeArtifactResolver(
         return highest.toString()
     }
 
-    private fun buildRemoteRepos(): List<RemoteRepository> {
+    protected open fun buildRemoteRepos(): List<RemoteRepository> {
         val repos = mutableListOf(
             RemoteRepository.Builder(
                 "central",
@@ -112,6 +120,8 @@ class RecipeArtifactResolver(
             .createSessionBuilder()
             .withLocalRepositories(localRepo)
             .setSystemProperties(System.getProperties())
+            .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
+            .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
             .build()
     }
 }
