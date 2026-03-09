@@ -128,8 +128,15 @@ class RunCommand : Callable<Int> {
             ).format(runResult.results, runResult.projectDir)
 
             0
+        } catch (e: IllegalArgumentException) {
+            // User-configuration errors (wrong recipe name, missing artifact, bad project path, …).
+            // Show a plain one-line message — stack traces belong in debug logs, not on stderr.
+            spec.commandLine().err.println("ERROR: ${e.message ?: e.javaClass.simpleName}")
+            spec.commandLine().err.flush()
+            1
         } catch (e: Exception) {
             spec.commandLine().err.println("ERROR: ${e.message ?: e.javaClass.simpleName}")
+            spec.commandLine().err.flush()
             log.severe("Unhandled exception: ${e.stackTraceToString()}")
             1
         }
