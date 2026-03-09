@@ -26,6 +26,7 @@ open class BuildToolStage {
         val outputFile = Files.createTempFile("openrewrite-cp-", ".txt")
         try {
             val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
+            log.info("Stage 1: running '$mvnCmd dependency:build-classpath'")
             val result = runProcess(
                 projectDir,
                 listOf(
@@ -49,7 +50,9 @@ open class BuildToolStage {
 
             return content.split(java.io.File.pathSeparator).map {
                 Path.of(it)
-            }.filter { it.exists() }
+            }.filter { it.exists() }.also {
+                log.info("Stage 1: Maven classpath resolved — ${it.size} JAR(s)")
+            }
         } catch (e: Exception) {
             log.warning(
                 "Maven classpath extraction threw an exception: ${e.message} — falling through to Stage 2"
@@ -73,6 +76,7 @@ open class BuildToolStage {
                 else -> "gradle"
             }
 
+            log.info("Stage 1: running '$gradleCmd printClasspathForOpenRewrite'")
             val output = StringBuilder()
             val result = runProcess(
                 projectDir,
@@ -97,7 +101,9 @@ open class BuildToolStage {
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
                 .map { Path.of(it) }
-                .filter { it.exists() }
+                .filter { it.exists() }.also {
+                    log.info("Stage 1: Gradle classpath resolved — ${it.size} JAR(s)")
+                }
         } catch (e: Exception) {
             log.warning(
                 "Gradle classpath extraction threw an exception: ${e.message} — falling through to Stage 2"
