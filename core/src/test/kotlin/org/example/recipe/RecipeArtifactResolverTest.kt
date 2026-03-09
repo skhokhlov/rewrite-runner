@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.example.config.RepositoryConfig
@@ -59,6 +60,28 @@ class RecipeArtifactResolverTest :
         test("resolve throws IllegalArgumentException for empty coordinate") {
             val resolver = RecipeArtifactResolver(cacheDir)
             assertFailsWith<IllegalArgumentException> { resolver.resolve("") }
+        }
+
+        // ─── Session initialization ───────────────────────────────────────────────
+
+        test(
+            "session initialization does not throw IllegalStateException about missing local repository"
+        ) {
+            // Regression test: Maven Resolver 2.x SessionBuilder requires withLocalRepositories()
+            // rather than a bootstrap-then-createLocalRepositoryManager approach.
+            // The bug manifested as: "No local repository manager or local repositories set on session"
+            val resolver = RecipeArtifactResolver(cacheDir)
+            val ex =
+                runCatching {
+                    resolver.resolve("org.example:nonexistent-artifact-xyz:99.99.99")
+                }.exceptionOrNull()
+
+            if (ex is IllegalStateException) {
+                assertFalse(
+                    ex.message?.contains("local repositor", ignoreCase = true) == true,
+                    "Session init must not fail with: ${ex.message}"
+                )
+            }
         }
 
         // ─── Cache directory setup ────────────────────────────────────────────────
