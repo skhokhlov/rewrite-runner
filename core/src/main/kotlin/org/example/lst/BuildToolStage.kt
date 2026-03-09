@@ -66,7 +66,7 @@ open class BuildToolStage {
     // ─── Gradle ──────────────────────────────────────────────────────────────
 
     private fun extractGradleClasspath(projectDir: Path): List<Path>? {
-        val initScript = Files.createTempFile("openrewrite-init-", ".gradle.kts")
+        val initScript = Files.createTempFile("openrewrite-init-", ".gradle")
         try {
             initScript.toFile().writeText(GRADLE_INIT_SCRIPT)
 
