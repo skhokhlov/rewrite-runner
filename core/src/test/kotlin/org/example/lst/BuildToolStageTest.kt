@@ -167,6 +167,45 @@ class BuildToolStageTest :
             )
         }
 
+        // ─── Gradle init script tests ─────────────────────────────────────────────
+
+        test("Gradle init script uses .gradle extension so Gradle parses it as Groovy DSL") {
+            // Create a fake gradlew that captures the --init-script argument and verifies
+            // it ends in ".gradle", then prints a fake JAR path to stdout.
+            val fakeJar = Files.createTempFile("fake-dep-", ".jar")
+            try {
+                projectDir.resolve("build.gradle.kts").writeText("// empty")
+                val gradlew = projectDir.resolve("gradlew").toFile()
+                gradlew.writeText(
+                    """
+                    #!/bin/sh
+                    for arg in "${'$'}@"; do
+                        case "${'$'}arg" in
+                            *.gradle.kts)
+                                echo "ERROR: init script has .gradle.kts extension" >&2
+                                exit 2
+                                ;;
+                            *.gradle)
+                                echo "${fakeJar.toAbsolutePath()}"
+                                exit 0
+                                ;;
+                        esac
+                    done
+                    exit 1
+                    """.trimIndent()
+                )
+                gradlew.setExecutable(true)
+
+                val result = stage.extractClasspath(projectDir)
+                assertTrue(
+                    result != null && result.isNotEmpty(),
+                    "Stage 1 should succeed with .gradle init script; result was $result"
+                )
+            } finally {
+                fakeJar.toFile().delete()
+            }
+        }
+
         // ─── Deadlock-prevention tests ────────────────────────────────────────────
 
         test(
