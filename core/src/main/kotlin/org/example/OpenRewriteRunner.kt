@@ -64,29 +64,33 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         }
 
         // 1. Load tool config
+        log.info("[1/6] Loading configuration")
         val toolConfig = ToolConfig.load(config.configFile)
         val effectiveCacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).also {
             it.toFile().mkdirs()
-            log.info("Cache dir: $it")
+            log.info("      Cache dir: $it")
         }
 
         // 2. Resolve recipe JARs
         val recipeJars = if (config.recipeArtifacts.isNotEmpty()) {
-            log.info("Resolving ${config.recipeArtifacts.size} recipe artifact(s)…")
+            log.info("[2/6] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
             val resolver = RecipeArtifactResolver(
                 cacheDir = effectiveCacheDir,
                 extraRepositories = toolConfig.resolvedRepositories()
             )
             config.recipeArtifacts.flatMap { coord ->
-                log.info("  → $coord")
+                log.info("      Resolving $coord")
                 resolver.resolve(coord)
-            }.distinct()
+            }.distinct().also { jars ->
+                log.info("      Resolved ${jars.size} JAR(s) total")
+            }
         } else {
+            log.info("[2/6] No recipe artifacts specified — using classpath recipes only")
             emptyList()
         }
-        log.info("Recipe JARs resolved: ${recipeJars.size} JAR(s)")
 
         // 3. Load recipe
+        log.info("[3/6] Loading recipe '${config.activeRecipe}'")
         val effectiveRewriteConfig = config.rewriteConfig
             ?: config.projectDir.resolve("rewrite.yaml")
         val recipe = RecipeLoader().load(
@@ -94,32 +98,41 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
             activeRecipeName = config.activeRecipe,
             rewriteYaml = effectiveRewriteConfig
         )
-        log.info("Recipe loaded: ${recipe.name}")
+        log.info("      Recipe ready: ${recipe.name}")
 
         // 4. Build LST (3-stage pipeline)
         // OpenRewrite requires all source files in memory simultaneously to support
         // cross-file analysis. For large projects set -Xmx accordingly, e.g.:
         //   java -Xmx6g -jar openrewrite-runner-all.jar …
-        log.info("Building LST for project: ${config.projectDir}")
+        log.info("[4/6] Building LST for ${config.projectDir}")
         val lstBuilder = LstBuilder(
             cacheDir = effectiveCacheDir,
             toolConfig = toolConfig
         )
+        val lstStart = System.currentTimeMillis()
         val sourceFiles = lstBuilder.build(
             projectDir = config.projectDir,
             parseConfig = toolConfig.parse,
             includeExtensionsCli = config.includeExtensions,
             excludeExtensionsCli = config.excludeExtensions
         )
-        log.info("Parsed ${sourceFiles.size} source file(s)")
+        log.info(
+            "      LST built: ${sourceFiles.size} file(s) in ${System.currentTimeMillis() - lstStart}ms"
+        )
 
         // 5. Run recipe
+        log.info("[5/6] Running recipe '${recipe.name}' against ${sourceFiles.size} file(s)")
+        val recipeStart = System.currentTimeMillis()
         val results = RecipeRunner().run(recipe, sourceFiles)
-        log.info("Recipe produced ${results.size} result(s)")
+        log.info(
+            "      Recipe complete: ${results.size} file(s) changed" +
+                " in ${System.currentTimeMillis() - recipeStart}ms"
+        )
 
         // 6. Apply changes (unless dryRun)
         val writtenFiles = mutableListOf<Path>()
         if (!config.dryRun) {
+            log.info("[6/6] Writing changes to disk")
             for (result in results) {
                 if (result.after == null) {
                     // Recipe deleted this file — remove it from disk
@@ -127,6 +140,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
                     if (beforePath != null) {
                         try {
                             Files.deleteIfExists(beforePath)
+                            log.info("      Deleted ${result.before!!.sourcePath}")
                         } catch (e: Exception) {
                             log.warning("Failed to delete file $beforePath: ${e.message}")
                         }
@@ -137,13 +151,18 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
                     target.toFile().parentFile?.mkdirs()
                     target.toFile().writeText(after.printAll(), Charsets.UTF_8)
                     writtenFiles.add(target)
+                    log.info("      Wrote ${after.sourcePath}")
                 }
             }
-            if (results.isNotEmpty()) {
-                log.info("Changes written to disk (${results.size} file(s) modified)")
+            if (results.isEmpty()) {
+                log.info("      No changes — nothing to write")
+            } else {
+                log.info("      Done: ${writtenFiles.size} file(s) written")
             }
-        } else if (results.isNotEmpty()) {
-            log.info("Dry-run mode: ${results.size} file(s) would be modified")
+        } else {
+            log.info(
+                "[6/6] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
+            )
         }
 
         return RunResult(

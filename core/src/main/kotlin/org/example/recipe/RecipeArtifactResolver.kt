@@ -62,7 +62,9 @@ class RecipeArtifactResolver(
         val depRequest = DependencyRequest(collectRequest, null)
 
         val result = system.resolveDependencies(session, depRequest)
-        return result.artifactResults.mapNotNull { it.artifact?.path }
+        return result.artifactResults.mapNotNull { it.artifact?.path }.also {
+            log.info("      $groupId:$artifactId:$resolvedVersion → ${it.size} JAR(s)")
+        }
     }
 
     private fun resolveLatestVersion(groupId: String, artifactId: String): String {
