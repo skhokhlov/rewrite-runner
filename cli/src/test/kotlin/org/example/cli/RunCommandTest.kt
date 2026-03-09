@@ -94,6 +94,42 @@ class RunCommandTest :
             assertEquals(false, cmd.dryRun, "--dry-run should default to false")
         }
 
+        test("--debug defaults to false") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs("--active-recipe", "org.example.MyRecipe")
+            assertEquals(false, cmd.debugLogging, "--debug should default to false")
+        }
+
+        test("--info defaults to false") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs("--active-recipe", "org.example.MyRecipe")
+            assertEquals(false, cmd.infoLogging, "--info should default to false")
+        }
+
+        test("--debug flag is accepted") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs("--active-recipe", "org.example.MyRecipe", "--debug")
+            assertEquals(true, cmd.debugLogging)
+        }
+
+        test("--info flag is accepted") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs("--active-recipe", "org.example.MyRecipe", "--info")
+            assertEquals(true, cmd.infoLogging)
+        }
+
+        test("--help output mentions --debug") {
+            val baos = ByteArrayOutputStream()
+            cli().setOut(PrintWriter(baos)).execute("--help")
+            assertTrue(baos.toString().contains("--debug"), "--help should document --debug option")
+        }
+
+        test("--help output mentions --info") {
+            val baos = ByteArrayOutputStream()
+            cli().setOut(PrintWriter(baos)).execute("--help")
+            assertTrue(baos.toString().contains("--info"), "--help should document --info option")
+        }
+
         test("multiple --recipe-artifact flags are collected into a list") {
             val cmd = RunCommand()
             CommandLine(cmd).parseArgs(

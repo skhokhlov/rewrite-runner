@@ -2,10 +2,11 @@ package org.example.cli
 
 import java.nio.file.Path
 import java.util.concurrent.Callable
-import java.util.logging.Logger
 import org.example.OpenRewriteRunner
 import org.example.output.OutputMode
 import org.example.output.ResultFormatter
+import org.example.setLogLevel
+import org.slf4j.LoggerFactory
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.Option
@@ -17,7 +18,7 @@ import picocli.CommandLine.Spec
     mixinStandardHelpOptions = true
 )
 class RunCommand : Callable<Int> {
-    private val log = Logger.getLogger(RunCommand::class.java.name)
+    private val log = LoggerFactory.getLogger(RunCommand::class.java.name)
 
     @Spec
     lateinit var spec: CommandLine.Model.CommandSpec
@@ -77,6 +78,18 @@ class RunCommand : Callable<Int> {
     var dryRun: Boolean = false
 
     @Option(
+        names = ["--info"],
+        description = ["Enable INFO-level logging (default)."]
+    )
+    var infoLogging: Boolean = false
+
+    @Option(
+        names = ["--debug"],
+        description = ["Enable DEBUG-level logging for verbose output."]
+    )
+    var debugLogging: Boolean = false
+
+    @Option(
         names = ["--include-extensions"],
         description = ["Comma-separated list of file extensions to include (e.g. .java,.kt)."],
         split = ","
@@ -91,6 +104,11 @@ class RunCommand : Callable<Int> {
     var excludeExtensions: List<String> = emptyList()
 
     override fun call(): Int {
+        // Apply log level override before any work (--debug takes precedence over --info)
+        if (debugLogging || infoLogging) {
+            setLogLevel(debug = debugLogging)
+        }
+
         // Validate output mode before doing any expensive work (fail fast)
         val mode = when (outputMode.lowercase()) {
             "diff" -> OutputMode.DIFF
@@ -137,7 +155,7 @@ class RunCommand : Callable<Int> {
         } catch (e: Exception) {
             spec.commandLine().err.println("ERROR: ${e.message ?: e.javaClass.simpleName}")
             spec.commandLine().err.flush()
-            log.severe("Unhandled exception: ${e.stackTraceToString()}")
+            log.error("Unhandled exception: ${e.stackTraceToString()}")
             1
         }
     }
