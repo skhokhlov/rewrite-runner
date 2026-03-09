@@ -9,6 +9,9 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.eclipse.aether.RepositorySystem
+import org.eclipse.aether.RepositorySystemSession
+import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
 import org.example.config.RepositoryConfig
 
@@ -219,6 +222,114 @@ class RecipeArtifactResolverTest :
             assertTrue(
                 elapsedMs < 10_000,
                 "resolve() must honour requestTimeoutMs and complete in <10 s; took ${elapsedMs}ms"
+            )
+        }
+
+        test(
+            "resolve returns partial results instead of throwing when some transitive deps are unavailable"
+        ) {
+            // Regression test: when DependencyResolutionException is thrown (e.g. because a
+            // transitive dependency points to a private repo artifact like a Red Hat patch),
+            // resolve() must return whatever JARs were successfully resolved instead of
+            // crashing the tool with an "Unhandled exception" message.
+            //
+            // Setup: root artifact pre-cached locally; its transitive dep is unavailable
+            // (the only remote is a black-hole server that never responds).
+            val rootGroupId = "test.partial"
+            val rootArtifactId = "root-with-missing-dep"
+            val rootVersion = "1.0.0"
+            val missingArtifactId = "unavailable-transitive"
+
+            val pomContent =
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>$rootGroupId</groupId>
+                  <artifactId>$rootArtifactId</artifactId>
+                  <version>$rootVersion</version>
+                  <packaging>jar</packaging>
+                  <dependencies>
+                    <dependency>
+                      <groupId>$rootGroupId</groupId>
+                      <artifactId>$missingArtifactId</artifactId>
+                      <version>1.0.0</version>
+                      <scope>runtime</scope>
+                    </dependency>
+                  </dependencies>
+                </project>
+                """.trimIndent()
+
+            val artifactDir =
+                cacheDir
+                    .resolve(
+                        "repository/${rootGroupId.replace('.', '/')}/$rootArtifactId/$rootVersion"
+                    )
+            Files.createDirectories(artifactDir)
+            val pomName = "$rootArtifactId-$rootVersion.pom"
+            val jarName = "$rootArtifactId-$rootVersion.jar"
+            artifactDir.resolve(pomName).toFile().writeText(pomContent)
+            JarOutputStream(artifactDir.resolve(jarName).toFile().outputStream()).close()
+            // Use "simple" local repo type so Maven Resolver reads cached files directly
+            // without verifying their provenance against a remote repository.
+
+            val blackHole = ServerSocket(0)
+            val port = blackHole.localPort
+            Thread {
+                try {
+                    val conn = blackHole.accept()
+                    Thread.sleep(30_000)
+                    conn.close()
+                } catch (_: Exception) {}
+            }
+                .also { it.isDaemon = true }
+                .start()
+
+            // Subclass using a "simple" local repository so the pre-cached root artifact
+            // is used as-is and only the missing transitive dep hits the black-hole remote.
+            val resolver =
+                object : RecipeArtifactResolver(cacheDir, requestTimeoutMs = 2_000) {
+                    override fun buildRemoteRepos() = listOf(
+                        RemoteRepository.Builder(
+                            "blackhole",
+                            "default",
+                            "http://127.0.0.1:$port"
+                        )
+                            .build()
+                    )
+
+                    override fun buildSession(system: RepositorySystem): RepositorySystemSession {
+                        val repoDir = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
+                        // "simple" type: reads cached files without _remote.repositories checks
+                        val localRepo = LocalRepository(repoDir.toFile(), "simple")
+                        return system
+                            .createSessionBuilder()
+                            .withLocalRepositories(localRepo)
+                            .setSystemProperties(System.getProperties())
+                            .setConfigProperty(
+                                org.eclipse.aether.ConfigurationProperties.CONNECT_TIMEOUT,
+                                2_000
+                            )
+                            .setConfigProperty(
+                                org.eclipse.aether.ConfigurationProperties.REQUEST_TIMEOUT,
+                                2_000
+                            )
+                            .build()
+                    }
+                }
+
+            // Should NOT throw — partial results (root artifact) are returned
+            val paths = resolver.resolve("$rootGroupId:$rootArtifactId:$rootVersion")
+
+            blackHole.close()
+
+            assertTrue(
+                paths.isNotEmpty(),
+                "resolve() must return partial results when some transitive deps are unavailable"
+            )
+            assertTrue(
+                paths.any { it.fileName.toString() == jarName },
+                "Resolved paths should include root artifact JAR; got: $paths"
             )
         }
 

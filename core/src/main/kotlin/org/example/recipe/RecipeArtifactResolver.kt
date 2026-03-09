@@ -11,6 +11,7 @@ import org.eclipse.aether.graph.Dependency
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
 import org.eclipse.aether.resolution.DependencyRequest
+import org.eclipse.aether.resolution.DependencyResolutionException
 import org.eclipse.aether.resolution.VersionRangeRequest
 import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.example.config.RepositoryConfig
@@ -40,13 +41,17 @@ open class RecipeArtifactResolver(
     private val log = Logger.getLogger(RecipeArtifactResolver::class.java.name)
 
     private val system: RepositorySystem by lazy { newRepositorySystem() }
-    private val session: RepositorySystemSession by lazy { newSession(system) }
+    private val session: RepositorySystemSession by lazy { buildSession(system) }
     private val remoteRepos: List<RemoteRepository> by lazy { buildRemoteRepos() }
 
     /**
      * Resolve a Maven coordinate (groupId:artifactId:version) to a list of JAR paths
      * (the artifact itself plus its transitive runtime dependencies).
      * Version may be "LATEST" to resolve to the highest available release.
+     *
+     * When dependency collection encounters errors (e.g. an optional transitive dep points
+     * to a private-repo artifact unavailable on Maven Central), the method logs a warning
+     * and returns whichever JARs were successfully resolved, rather than throwing.
      */
     fun resolve(coordinate: String): List<Path> {
         val parts = coordinate.split(":")
@@ -56,11 +61,12 @@ open class RecipeArtifactResolver(
         val artifactId = parts[1]
         val version = if (parts.size >= 3) parts[2] else "LATEST"
 
-        val resolvedVersion = if (version.equals("LATEST", ignoreCase = true)) {
-            resolveLatestVersion(groupId, artifactId)
-        } else {
-            version
-        }
+        val resolvedVersion =
+            if (version.equals("LATEST", ignoreCase = true)) {
+                resolveLatestVersion(groupId, artifactId)
+            } else {
+                version
+            }
 
         log.info("Resolving $groupId:$artifactId:$resolvedVersion")
 
@@ -69,29 +75,53 @@ open class RecipeArtifactResolver(
         val collectRequest = CollectRequest(dep, remoteRepos)
         val depRequest = DependencyRequest(collectRequest, null)
 
-        val result = system.resolveDependencies(session, depRequest)
-        return result.artifactResults.mapNotNull { it.artifact?.path }.also {
-            log.info("      $groupId:$artifactId:$resolvedVersion → ${it.size} JAR(s)")
-        }
+        val paths =
+            try {
+                system
+                    .resolveDependencies(session, depRequest)
+                    .artifactResults
+                    .mapNotNull { it.artifact?.path }
+            } catch (e: DependencyResolutionException) {
+                val partial = e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty()
+                val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
+                if (partial.isNotEmpty()) {
+                    log.warning(
+                        "Partial resolution for $groupId:$artifactId:$resolvedVersion " +
+                            "(${partial.size} JAR(s) resolved; some transitive deps missing): $firstError"
+                    )
+                    partial
+                } else {
+                    log.severe(
+                        "Cannot resolve $groupId:$artifactId:$resolvedVersion: $firstError"
+                    )
+                    throw e
+                }
+            }
+
+        log.info("      $groupId:$artifactId:$resolvedVersion → ${paths.size} JAR(s)")
+        return paths
     }
 
     private fun resolveLatestVersion(groupId: String, artifactId: String): String {
         val artifact = DefaultArtifact("$groupId:$artifactId:[0,)")
         val request = VersionRangeRequest(artifact, remoteRepos, null)
         val range = system.resolveVersionRange(session, request)
-        val highest = range.highestVersion
-            ?: throw IllegalStateException("No versions found for $groupId:$artifactId")
+        val highest =
+            range.highestVersion
+                ?: throw IllegalStateException("No versions found for $groupId:$artifactId")
         return highest.toString()
     }
 
     protected open fun buildRemoteRepos(): List<RemoteRepository> {
-        val repos = mutableListOf(
-            RemoteRepository.Builder(
-                "central",
-                "default",
-                "https://repo.maven.apache.org/maven2"
-            ).build()
-        )
+        val repos =
+            mutableListOf(
+                RemoteRepository.Builder(
+                    "central",
+                    "default",
+                    "https://repo.maven.apache.org/maven2"
+                )
+                    .build()
+            )
         extraRepositories.forEach { cfg ->
             val builder = RemoteRepository.Builder(
                 cfg.url.hashCode().toString(),
@@ -111,9 +141,7 @@ open class RecipeArtifactResolver(
         return repos
     }
 
-    private fun newRepositorySystem(): RepositorySystem = RepositorySystemSupplier().get()
-
-    private fun newSession(system: RepositorySystem): RepositorySystemSession {
+    protected open fun buildSession(system: RepositorySystem): RepositorySystemSession {
         val repoDir = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
         val localRepo = LocalRepository(repoDir)
         return system
@@ -124,4 +152,6 @@ open class RecipeArtifactResolver(
             .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
             .build()
     }
+
+    private fun newRepositorySystem(): RepositorySystem = RepositorySystemSupplier().get()
 }
