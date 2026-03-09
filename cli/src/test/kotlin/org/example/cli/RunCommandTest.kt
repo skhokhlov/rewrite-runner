@@ -221,6 +221,37 @@ class RunCommandTest :
             assertNotEquals(0, code, "Nonexistent recipe should produce exit code 1")
         }
 
+        test("user-facing error (IllegalArgumentException) prints message without stack trace") {
+            // Regression: when OpenRewrite throws RecipeException (recipe not found), the CLI
+            // must show a clear one-line error message, not a full Java stack trace.  Stack traces
+            // belong in debug logs, not in user-facing stderr output.
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+
+            val errBaos = ByteArrayOutputStream()
+            val code =
+                cli()
+                    .setErr(PrintWriter(errBaos))
+                    .execute(
+                        "--project-dir",
+                        projectDir.toString(),
+                        "--active-recipe",
+                        "org.example.recipe.ThatDefinitelyDoesNotExist99",
+                        "--cache-dir",
+                        cacheDir.toString()
+                    )
+
+            val stderr = errBaos.toString()
+            assertNotEquals(0, code, "Missing recipe should return non-zero exit code")
+            assertTrue(
+                stderr.contains("not found", ignoreCase = true),
+                "Error output should contain 'not found': $stderr"
+            )
+            assertTrue(
+                !stderr.contains("at org.example") && !stderr.contains("at org.openrewrite"),
+                "User-error stderr must NOT contain a stack trace; got:\n$stderr"
+            )
+        }
+
         test("run with AutoFormat recipe on a simple Java project produces output") {
             projectDir.resolve("Hello.java").writeText(
                 "public class Hello {public static void main(String[] args){System.out.println(\"hi\");}}"
