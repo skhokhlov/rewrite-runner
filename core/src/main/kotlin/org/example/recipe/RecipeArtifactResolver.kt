@@ -150,6 +150,16 @@ open class RecipeArtifactResolver(
             .setSystemProperties(System.getProperties())
             .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
             .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
+            // Disable downloading remote prefix-filter index files (Maven Resolver 2.x feature).
+            // Without this, Maven Resolver downloads large /.index/prefixes.txt files from each
+            // remote repository before resolving any artifacts, causing significant delays and
+            // potential hangs. Prefix files already in the local cache are still used.
+            .setConfigProperty("aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles", false)
+            // Ignore <repositories> sections declared in dependency POMs.
+            // Without this, Maven Resolver contacts every third-party repo (e.g. repo.fusesource.com,
+            // redhat.com, spring repos) declared by transitive dependencies, causing slow resolution
+            // or hangs when those repos are unavailable. Our explicit remote repo list is sufficient.
+            .setIgnoreArtifactDescriptorRepositories(true)
             .build()
     }
 
