@@ -1,6 +1,5 @@
 package org.example.recipe
 
-import java.util.logging.Logger
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.LargeSourceSet
@@ -8,6 +7,7 @@ import org.openrewrite.Recipe
 import org.openrewrite.Result
 import org.openrewrite.SourceFile
 import org.openrewrite.internal.InMemoryLargeSourceSet
+import org.slf4j.LoggerFactory
 
 /**
  * Executes an OpenRewrite [org.openrewrite.Recipe] against a list of parsed source files
@@ -18,7 +18,7 @@ import org.openrewrite.internal.InMemoryLargeSourceSet
  * across multiple files). For large projects, increase the JVM heap with `-Xmx`.
  */
 class RecipeRunner {
-    private val log = Logger.getLogger(RecipeRunner::class.java.name)
+    private val log = LoggerFactory.getLogger(RecipeRunner::class.java.name)
 
     /**
      * Run [recipe] against [sourceFiles] and return all [org.openrewrite.Result]s.
@@ -47,6 +47,6 @@ class RecipeRunner {
     }
 
     private fun defaultContext(): ExecutionContext = InMemoryExecutionContext { throwable ->
-        log.warning("Recipe execution error: ${throwable.message}")
+        log.warn("Recipe execution error: ${throwable.message}")
     }
 }

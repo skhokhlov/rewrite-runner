@@ -4,8 +4,6 @@ import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
-import java.util.logging.Level
-import java.util.logging.Logger
 import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
@@ -24,6 +22,7 @@ import org.openrewrite.kotlin.KotlinParser
 import org.openrewrite.properties.PropertiesParser
 import org.openrewrite.xml.XmlParser
 import org.openrewrite.yaml.YamlParser
+import org.slf4j.LoggerFactory
 
 /**
  * Orchestrates the 3-stage LST building pipeline and multi-language file parsing.
@@ -41,7 +40,7 @@ class LstBuilder(
         extraRepositories = toolConfig.resolvedRepositories()
     )
 ) {
-    private val log = Logger.getLogger(LstBuilder::class.java.name)
+    private val log = LoggerFactory.getLogger(LstBuilder::class.java.name)
 
     /** Default set of extensions supported out of the box. */
     private val defaultExtensions =
@@ -82,7 +81,7 @@ class LstBuilder(
         includeExtensionsCli: List<String> = emptyList(),
         excludeExtensionsCli: List<String> = emptyList(),
         ctx: ExecutionContext =
-            InMemoryExecutionContext { log.warning("Parse error: ${it.message}") }
+            InMemoryExecutionContext { log.warn("Parse error: ${it.message}") }
     ): List<SourceFile> {
         // Determine effective extension set
         val effectiveExtensions =
@@ -116,7 +115,7 @@ class LstBuilder(
             parser.parse(files, projectDir, ctx).forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
                 val (source, target) = detectJavaVersionForFile(absPath, projectDir, versionCache)
-                log.fine(
+                log.debug(
                     "Java version for ${sourceFile.sourcePath}: source=$source, target=$target"
                 )
                 allSources.add(
@@ -301,7 +300,7 @@ class LstBuilder(
 
             null
         } catch (e: Exception) {
-            log.warning("Failed to detect Java version from pom.xml: ${e.message}")
+            log.warn("Failed to detect Java version from pom.xml: ${e.message}")
             null
         }
     }
@@ -352,7 +351,7 @@ class LstBuilder(
             else -> null
         }
     } catch (e: Exception) {
-        log.warning("Failed to detect Java version from Gradle build file: ${e.message}")
+        log.warn("Failed to detect Java version from Gradle build file: ${e.message}")
         null
     }
 
@@ -408,7 +407,7 @@ class LstBuilder(
         val stage2 = try {
             depResolutionStage.resolveClasspath(projectDir)
         } catch (e: Exception) {
-            log.log(Level.WARNING, "Stage 2 threw an exception", e)
+            log.warn("Stage 2 threw an exception: ${e.message}")
             emptyList()
         }
 

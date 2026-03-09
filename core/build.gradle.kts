@@ -42,6 +42,7 @@ dependencies {
     implementation("tools.jackson.module:jackson-module-kotlin:3.1.0")
 
     // Tests
+    testImplementation("ch.qos.logback:logback-classic:1.5.18")
     testImplementation("io.kotest:kotest-runner-junit5:6.1.4")
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

@@ -17,6 +17,9 @@ dependencies {
     implementation("info.picocli:picocli:4.7.7")
     annotationProcessor("info.picocli:picocli-codegen:4.7.7")
 
+    // SLF4J backend for the CLI fat JAR
+    implementation("ch.qos.logback:logback-classic:1.5.18")
+
     // Tests
     testImplementation(project(":core"))
     testImplementation("io.kotest:kotest-runner-junit5:6.1.4")

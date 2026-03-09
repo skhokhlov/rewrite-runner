@@ -1,14 +1,13 @@
 package org.example.lst
 
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.logging.Handler
-import java.util.logging.Level
-import java.util.logging.LogRecord
-import java.util.logging.Logger
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.slf4j.LoggerFactory
 
 class DirectParseStageTest :
     FunSpec({
@@ -45,32 +44,28 @@ class DirectParseStageTest :
         }
 
         test("logs warning for each unresolved coordinate") {
-            val warnings = mutableListOf<String>()
-            val handler =
-                object : Handler() {
-                    override fun publish(record: LogRecord) {
-                        if (record.level == Level.WARNING) warnings.add(record.message)
-                    }
-
-                    override fun flush() {}
-
-                    override fun close() {}
-                }
-            val logger = Logger.getLogger(DirectParseStage::class.java.name)
-            logger.addHandler(handler)
+            val logger = LoggerFactory.getLogger(DirectParseStage::class.java.name)
+                as ch.qos.logback.classic.Logger
+            val appender = ListAppender<ILoggingEvent>()
+            appender.start()
+            logger.addAppender(appender)
 
             try {
                 val stage = DirectParseStage(projectDir)
                 stage.findAvailableJars(listOf("com.example:missing:9.9.9"))
+                val warnings = appender.list.filter {
+                    it.level == ch.qos.logback.classic.Level.WARN
+                }
                 assertTrue(
-                    warnings.any {
-                        it.contains("9.9.9") || it.contains("missing") ||
-                            it.contains("cached")
+                    warnings.any { event ->
+                        val msg = event.formattedMessage
+                        msg.contains("9.9.9") || msg.contains("missing") ||
+                            msg.contains("cached")
                     },
-                    "Expected a warning about the unresolved coordinate, got: $warnings"
+                    "Expected a warning about the unresolved coordinate, got: ${appender.list}"
                 )
             } finally {
-                logger.removeHandler(handler)
+                logger.detachAppender(appender)
             }
         }
 

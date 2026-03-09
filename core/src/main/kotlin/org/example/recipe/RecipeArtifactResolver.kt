@@ -1,7 +1,6 @@
 package org.example.recipe
 
 import java.nio.file.Path
-import java.util.logging.Logger
 import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
@@ -15,6 +14,7 @@ import org.eclipse.aether.resolution.DependencyResolutionException
 import org.eclipse.aether.resolution.VersionRangeRequest
 import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.example.config.RepositoryConfig
+import org.slf4j.LoggerFactory
 
 /**
  * Resolves Maven coordinates to local JAR file paths using Maven Resolver.
@@ -38,7 +38,7 @@ open class RecipeArtifactResolver(
     private val connectTimeoutMs: Int = 30_000,
     private val requestTimeoutMs: Int = 60_000
 ) {
-    private val log = Logger.getLogger(RecipeArtifactResolver::class.java.name)
+    private val log = LoggerFactory.getLogger(RecipeArtifactResolver::class.java.name)
 
     private val system: RepositorySystem by lazy { newRepositorySystem() }
     private val session: RepositorySystemSession by lazy { buildSession(system) }
@@ -85,13 +85,13 @@ open class RecipeArtifactResolver(
                 val partial = e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty()
                 val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
                 if (partial.isNotEmpty()) {
-                    log.warning(
+                    log.warn(
                         "Partial resolution for $groupId:$artifactId:$resolvedVersion " +
                             "(${partial.size} JAR(s) resolved; some transitive deps missing): $firstError"
                     )
                     partial
                 } else {
-                    log.severe(
+                    log.error(
                         "Cannot resolve $groupId:$artifactId:$resolvedVersion: $firstError"
                     )
                     throw e

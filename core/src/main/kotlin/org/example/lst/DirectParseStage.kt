@@ -2,17 +2,17 @@ package org.example.lst
 
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.logging.Logger
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.name
+import org.slf4j.LoggerFactory
 
 /**
  * Stage 3: Assemble the best available classpath from local caches without
  * downloading anything. Uses entries already present in ~/.m2 and ~/.gradle/caches.
  */
 class DirectParseStage(private val projectDir: Path) {
-    private val log = Logger.getLogger(DirectParseStage::class.java.name)
+    private val log = LoggerFactory.getLogger(DirectParseStage::class.java.name)
 
     private val m2Root: Path = Paths.get(System.getProperty("user.home"), ".m2", "repository")
     private val gradleCacheRoot: Path = Paths.get(
@@ -39,7 +39,7 @@ class DirectParseStage(private val projectDir: Path) {
         }
 
         if (notFound.isNotEmpty()) {
-            log.warning(
+            log.warn(
                 "Stage 3 — could not locate ${notFound.size} JAR(s) in local caches. " +
                     "Affected types will be JavaType.Unknown:\n  " + notFound.joinToString("\n  ")
             )

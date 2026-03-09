@@ -1,0 +1,16 @@
+<configuration>
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
+        <encoder>
+            <pattern>[%-5level] %message%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Show org.example logs at INFO and above on stderr -->
+    <logger name="org.example" level="INFO" additivity="false">
+        <appender-ref ref="STDERR"/>
+    </logger>
+
+    <!-- Suppress all other library noise (OpenRewrite, Maven Resolver, etc.) -->
+    <root level="OFF"/>
+</configuration>
