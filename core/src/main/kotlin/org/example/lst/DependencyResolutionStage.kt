@@ -300,6 +300,8 @@ open class DependencyResolutionStage(
             .setLocalRepositoryManager(localRepoManager)
             .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 30_000)
             .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 60_000)
+            .setConfigProperty("aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles", false)
+            .setIgnoreArtifactDescriptorRepositories(true)
             .build()
     }
 
