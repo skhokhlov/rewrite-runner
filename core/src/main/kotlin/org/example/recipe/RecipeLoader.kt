@@ -4,13 +4,13 @@ import java.io.FileInputStream
 import java.net.URLClassLoader
 import java.nio.file.Path
 import java.util.Properties
-import java.util.logging.Logger
 import kotlin.io.path.exists
 import org.openrewrite.Recipe
 import org.openrewrite.RecipeException
 import org.openrewrite.config.ClasspathScanningLoader
 import org.openrewrite.config.Environment
 import org.openrewrite.config.YamlResourceLoader
+import org.slf4j.LoggerFactory
 
 /**
  * Loads OpenRewrite recipes from recipe JARs and/or a `rewrite.yaml` declarative config.
@@ -21,7 +21,7 @@ import org.openrewrite.config.YamlResourceLoader
  * ready for execution by [RecipeRunner].
  */
 class RecipeLoader {
-    private val log = Logger.getLogger(RecipeLoader::class.java.name)
+    private val log = LoggerFactory.getLogger(RecipeLoader::class.java.name)
 
     /**
      * Build an OpenRewrite [Environment] from the given recipe JARs and optional rewrite.yaml.
@@ -49,7 +49,7 @@ class RecipeLoader {
             try {
                 builder.load(ClasspathScanningLoader(jar, props, emptyList(), recipeClassLoader))
             } catch (e: Exception) {
-                log.warning("Failed to scan recipe JAR $jar (skipping): ${e.message}")
+                log.warn("Failed to scan recipe JAR $jar (skipping): ${e.message}")
             }
         }
 
@@ -61,7 +61,7 @@ class RecipeLoader {
             try {
                 builder.load(ClasspathScanningLoader(props, recipeClassLoader))
             } catch (e: Exception) {
-                log.warning("Failed to scan tool classpath (skipping): ${e.message}")
+                log.warn("Failed to scan tool classpath (skipping): ${e.message}")
             }
         }
 

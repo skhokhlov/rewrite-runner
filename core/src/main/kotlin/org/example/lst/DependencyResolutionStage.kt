@@ -2,7 +2,6 @@ package org.example.lst
 
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
-import java.util.logging.Logger
 import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.eclipse.aether.ConfigurationProperties
@@ -16,6 +15,7 @@ import org.eclipse.aether.repository.RemoteRepository
 import org.eclipse.aether.resolution.DependencyRequest
 import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.example.config.RepositoryConfig
+import org.slf4j.LoggerFactory
 
 /**
  * Stage 2: Parse the project's build descriptor and resolve declared dependencies
@@ -29,7 +29,7 @@ open class DependencyResolutionStage(
     private val cacheDir: Path,
     private val extraRepositories: List<RepositoryConfig> = emptyList()
 ) {
-    private val log = Logger.getLogger(DependencyResolutionStage::class.java.name)
+    private val log = LoggerFactory.getLogger(DependencyResolutionStage::class.java.name)
 
     private val system: RepositorySystem by lazy { newRepositorySystem() }
     private val session: RepositorySystemSession by lazy { newSession(system) }
@@ -61,7 +61,7 @@ open class DependencyResolutionStage(
         }
 
         if (failed.isNotEmpty()) {
-            log.warning(
+            log.warn(
                 "Could not resolve ${failed.size} dependencies: ${failed.joinToString(", ")}"
             )
         }
@@ -83,7 +83,7 @@ open class DependencyResolutionStage(
                     "${dep.groupId}:${dep.artifactId}:$version"
                 }
         } catch (e: Exception) {
-            log.warning("Failed to parse pom.xml: ${e.message}")
+            log.warn("Failed to parse pom.xml: ${e.message}")
             emptyList()
         }
     }
@@ -129,7 +129,7 @@ open class DependencyResolutionStage(
         ) ?: return null
 
         if (result != 0) {
-            log.warning(
+            log.warn(
                 "Gradle dependencies task failed with exit code $result — falling back to static parsing"
             )
             return null
@@ -174,7 +174,7 @@ open class DependencyResolutionStage(
                 .distinct()
                 .toList()
         } catch (e: Exception) {
-            log.warning("Failed to parse settings file for subprojects: ${e.message}")
+            log.warn("Failed to parse settings file for subprojects: ${e.message}")
             emptyList()
         }
     }
@@ -243,7 +243,7 @@ open class DependencyResolutionStage(
 
             coordinates.distinct()
         } catch (e: Exception) {
-            log.warning("Failed to parse Gradle build file: ${e.message}")
+            log.warn("Failed to parse Gradle build file: ${e.message}")
             emptyList()
         }
     }
@@ -329,7 +329,7 @@ open class DependencyResolutionStage(
             try {
                 pb.start()
             } catch (e: Exception) {
-                log.warning("Failed to start process ${command.first()}: ${e.message}")
+                log.warn("Failed to start process ${command.first()}: ${e.message}")
                 return null
             }
 
@@ -340,7 +340,7 @@ open class DependencyResolutionStage(
         val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
         if (!finished) {
             process.destroyForcibly()
-            log.warning("Process ${command.first()} timed out after ${timeoutSeconds}s")
+            log.warn("Process ${command.first()} timed out after ${timeoutSeconds}s")
             return null
         }
 

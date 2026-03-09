@@ -3,8 +3,8 @@ package org.example.lst
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
-import java.util.logging.Logger
 import kotlin.io.path.exists
+import org.slf4j.LoggerFactory
 
 /**
  * Stage 1: Extract classpath by invoking the project's own build tool (Maven or Gradle).
@@ -12,7 +12,7 @@ import kotlin.io.path.exists
  * that the pipeline should fall through to Stage 2.
  */
 open class BuildToolStage {
-    private val log = Logger.getLogger(BuildToolStage::class.java.name)
+    private val log = LoggerFactory.getLogger(BuildToolStage::class.java.name)
 
     open fun extractClasspath(projectDir: Path): List<Path>? = when {
         projectDir.resolve("pom.xml").exists() -> extractMavenClasspath(projectDir)
@@ -39,7 +39,7 @@ open class BuildToolStage {
             ) ?: return null
 
             if (result != 0) {
-                log.warning(
+                log.warn(
                     "Maven classpath extraction failed with exit code $result — falling through to Stage 2"
                 )
                 return null
@@ -54,7 +54,7 @@ open class BuildToolStage {
                 log.info("Stage 1: Maven classpath resolved — ${it.size} JAR(s)")
             }
         } catch (e: Exception) {
-            log.warning(
+            log.warn(
                 "Maven classpath extraction threw an exception: ${e.message} — falling through to Stage 2"
             )
             return null
@@ -91,7 +91,7 @@ open class BuildToolStage {
             ) ?: return null
 
             if (result != 0) {
-                log.warning(
+                log.warn(
                     "Gradle classpath extraction failed with exit code $result — falling through to Stage 2"
                 )
                 return null
@@ -105,7 +105,7 @@ open class BuildToolStage {
                     log.info("Stage 1: Gradle classpath resolved — ${it.size} JAR(s)")
                 }
         } catch (e: Exception) {
-            log.warning(
+            log.warn(
                 "Gradle classpath extraction threw an exception: ${e.message} — falling through to Stage 2"
             )
             return null
@@ -135,11 +135,11 @@ open class BuildToolStage {
                 log.info("Maven compilation succeeded")
                 true
             } else {
-                log.warning("Maven compilation failed with exit code $result")
+                log.warn("Maven compilation failed with exit code $result")
                 false
             }
         } catch (e: Exception) {
-            log.warning("Maven compilation threw an exception: ${e.message}")
+            log.warn("Maven compilation threw an exception: ${e.message}")
             false
         }
     }
@@ -156,11 +156,11 @@ open class BuildToolStage {
                 log.info("Gradle compilation succeeded")
                 true
             } else {
-                log.warning("Gradle compilation failed with exit code $result")
+                log.warn("Gradle compilation failed with exit code $result")
                 false
             }
         } catch (e: Exception) {
-            log.warning("Gradle compilation threw an exception: ${e.message}")
+            log.warn("Gradle compilation threw an exception: ${e.message}")
             false
         }
     }
@@ -193,7 +193,7 @@ open class BuildToolStage {
         val process = try {
             pb.start()
         } catch (e: Exception) {
-            log.warning("Failed to start process ${command.first()}: ${e.message}")
+            log.warn("Failed to start process ${command.first()}: ${e.message}")
             return null
         }
 
@@ -205,7 +205,7 @@ open class BuildToolStage {
         val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
         if (!finished) {
             process.destroyForcibly()
-            log.warning("Process ${command.first()} timed out after ${timeoutSeconds}s")
+            log.warn("Process ${command.first()} timed out after ${timeoutSeconds}s")
             return null
         }
 

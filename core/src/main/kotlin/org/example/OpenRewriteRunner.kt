@@ -3,12 +3,12 @@ package org.example
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.logging.Logger
 import org.example.config.ToolConfig
 import org.example.lst.LstBuilder
 import org.example.recipe.RecipeArtifactResolver
 import org.example.recipe.RecipeLoader
 import org.example.recipe.RecipeRunner
+import org.slf4j.LoggerFactory
 
 /**
  * Programmatic entry point for running OpenRewrite recipes from library code.
@@ -45,7 +45,7 @@ import org.example.recipe.RecipeRunner
  */
 class OpenRewriteRunner private constructor(private val config: Builder) {
 
-    private val log = Logger.getLogger(OpenRewriteRunner::class.java.name)
+    private val log = LoggerFactory.getLogger(OpenRewriteRunner::class.java.name)
 
     /**
      * Execute the configured recipe against the project directory.
@@ -142,7 +142,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
                             Files.deleteIfExists(beforePath)
                             log.info("      Deleted ${result.before!!.sourcePath}")
                         } catch (e: Exception) {
-                            log.warning("Failed to delete file $beforePath: ${e.message}")
+                            log.warn("Failed to delete file $beforePath: ${e.message}")
                         }
                     }
                 } else {
