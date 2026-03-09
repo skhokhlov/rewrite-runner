@@ -289,15 +289,11 @@ open class DependencyResolutionStage(
     private fun newRepositorySystem(): RepositorySystem = RepositorySystemSupplier().get()
 
     private fun newSession(system: RepositorySystem): RepositorySystemSession {
-        val repoDir = cacheDir.resolve("repository").toFile().also { it.mkdirs() }
+        val repoDir = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
         val localRepo = LocalRepository(repoDir)
-        val localRepoManager =
-            system.createSessionBuilder().build().use { bootstrap ->
-                system.newLocalRepositoryManager(bootstrap, localRepo)
-            }
         return system
             .createSessionBuilder()
-            .setLocalRepositoryManager(localRepoManager)
+            .withLocalRepositories(localRepo)
             .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 30_000)
             .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 60_000)
             .setConfigProperty("aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles", false)

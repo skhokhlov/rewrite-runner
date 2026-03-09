@@ -448,6 +448,66 @@ class DependencyResolutionStageTest :
             assertEquals(0, subs.size)
         }
 
+        // ─── Maven Resolver session configuration ─────────────────────────────────
+
+        test("resolveClasspath resolves artifact from local repository without 'No local repository manager' error") {
+            // Regression test: newSession() previously closed the bootstrap session via .use{}
+            // which could invalidate the LocalRepositoryManager, resulting in
+            // "No local repository manager or local repositories set on session" for every
+            // artifact — so Stage 2 always produced an empty classpath.
+            //
+            // We seed a minimal JAR into cacheDir/repository at the expected Maven path,
+            // declare it as a dependency in pom.xml, and verify resolveClasspath finds it.
+
+            val group = "com.example.test"
+            val artifact = "fake-lib"
+            val version = "1.0"
+            val groupPath = group.replace('.', '/')
+            val artifactDir = cacheDir.resolve("repository/$groupPath/$artifact/$version").toFile()
+            artifactDir.mkdirs()
+            // Create a minimal valid JAR (ZIP with MANIFEST.MF)
+            val jarFile = java.io.File(artifactDir, "$artifact-$version.jar")
+            java.util.zip.ZipOutputStream(jarFile.outputStream()).use { zip ->
+                zip.putNextEntry(java.util.zip.ZipEntry("META-INF/MANIFEST.MF"))
+                zip.write("Manifest-Version: 1.0\n".toByteArray())
+                zip.closeEntry()
+            }
+            // Also seed a minimal POM so Maven Resolver can find the artifact metadata
+            val pomFile = java.io.File(artifactDir, "$artifact-$version.pom")
+            pomFile.writeText(
+                """<project>
+                       <modelVersion>4.0.0</modelVersion>
+                       <groupId>$group</groupId>
+                       <artifactId>$artifact</artifactId>
+                       <version>$version</version>
+                   </project>"""
+            )
+
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>my-app</artifactId>
+                    <version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>$group</groupId>
+                            <artifactId>$artifact</artifactId>
+                            <version>$version</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """.trimIndent()
+            )
+
+            val resolved = stage().resolveClasspath(projectDir)
+            assertTrue(
+                resolved.any { it.fileName.toString() == "$artifact-$version.jar" },
+                "Should resolve the local artifact; resolved: $resolved"
+            )
+        }
+
         test("discoverSubprojects deduplicates repeated entries") {
             projectDir.resolve("settings.gradle.kts").writeText(
                 """
