@@ -7,6 +7,7 @@ import java.util.Properties
 import java.util.logging.Logger
 import kotlin.io.path.exists
 import org.openrewrite.Recipe
+import org.openrewrite.RecipeException
 import org.openrewrite.config.ClasspathScanningLoader
 import org.openrewrite.config.Environment
 import org.openrewrite.config.YamlResourceLoader
@@ -75,7 +76,16 @@ class RecipeLoader {
         }
 
         val env = builder.build()
-        val recipe = env.activateRecipes(activeRecipeName)
+        val recipe =
+            try {
+                env.activateRecipes(activeRecipeName)
+            } catch (e: RecipeException) {
+                throw IllegalArgumentException(
+                    "Recipe '$activeRecipeName' not found. " +
+                        "Verify the recipe name and that the correct recipe artifact is supplied via --recipe-artifact.",
+                    e
+                )
+            }
         require(recipe.recipeList.isNotEmpty() || recipe.name == activeRecipeName) {
             "Recipe '$activeRecipeName' not found. Verify the recipe name and that the correct recipe JAR is supplied via --recipe-artifact."
         }

@@ -5,6 +5,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.internal.InMemoryLargeSourceSet
@@ -93,6 +94,32 @@ class RecipeLoaderTest :
                 true,
                 result.isFailure,
                 "Loading a nonexistent recipe should throw an exception"
+            )
+        }
+
+        test(
+            "load converts RecipeException to IllegalArgumentException when recipe is not in provided JARs"
+        ) {
+            // Regression: when OpenRewrite's env.activateRecipes() throws RecipeException
+            // (recipe name not found in the scanned JARs), RecipeLoader must convert it to
+            // IllegalArgumentException so the CLI shows a clear, actionable error message
+            // instead of "Unhandled exception: org.openrewrite.RecipeException".
+            val result = runCatching {
+                RecipeLoader().load(
+                    recipeJars = emptyList(),
+                    activeRecipeName = "org.openrewrite.gradle.MigrateDependenciesToVersionCatalog",
+                    rewriteYaml = null
+                )
+            }
+            val ex = result.exceptionOrNull()
+            assertTrue(
+                ex is IllegalArgumentException,
+                "Should throw IllegalArgumentException; got ${ex?.javaClass?.name}: ${ex?.message}"
+            )
+            val msg = (ex as IllegalArgumentException).message ?: ""
+            assertTrue(
+                msg.contains("not found", ignoreCase = true),
+                "Exception message should explain the recipe was not found: $msg"
             )
         }
     })
