@@ -106,6 +106,10 @@ class RecipeArtifactResolver(
     private fun newSession(system: RepositorySystem): RepositorySystemSession {
         val repoDir = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
         val localRepo = LocalRepository(repoDir)
-        return system.createSessionBuilder().withLocalRepositories(localRepo).build()
+        return system
+            .createSessionBuilder()
+            .withLocalRepositories(localRepo)
+            .setSystemProperties(System.getProperties())
+            .build()
     }
 }

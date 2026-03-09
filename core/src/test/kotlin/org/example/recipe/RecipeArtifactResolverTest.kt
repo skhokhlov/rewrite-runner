@@ -3,6 +3,7 @@ package org.example.recipe
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.jar.JarOutputStream
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -80,6 +81,80 @@ class RecipeArtifactResolverTest :
                 assertFalse(
                     ex.message?.contains("local repositor", ignoreCase = true) == true,
                     "Session init must not fail with: ${ex.message}"
+                )
+            }
+        }
+
+        test(
+            "resolve succeeds for locally cached artifact whose POM has JDK-version profile activations"
+        ) {
+            // Regression test: without System.getProperties() on the session, Maven Resolver
+            // model builder cannot evaluate profiles like <jdk>[9,)</jdk> and throws:
+            // "Failed to determine Java version for profile jdk9plus"
+            //
+            // This test pre-populates the local Maven cache (cacheDir/repository) with a
+            // minimal POM that contains a <jdk> profile — no network access required.
+            val groupId = "test.example"
+            val artifactId = "profile-jdk-test"
+            val version = "1.0.0"
+
+            val pomContent =
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>$groupId</groupId>
+                  <artifactId>$artifactId</artifactId>
+                  <version>$version</version>
+                  <packaging>jar</packaging>
+                  <profiles>
+                    <profile>
+                      <id>jdk9plus</id>
+                      <activation><jdk>[9,)</jdk></activation>
+                    </profile>
+                    <profile>
+                      <id>jdk17plus</id>
+                      <activation><jdk>[17,)</jdk></activation>
+                    </profile>
+                  </profiles>
+                </project>
+                """.trimIndent()
+
+            // Pre-populate the local Maven repository inside cacheDir
+            val artifactDir =
+                cacheDir
+                    .resolve("repository")
+                    .resolve(groupId.replace('.', '/'))
+                    .resolve(artifactId)
+                    .resolve(version)
+            Files.createDirectories(artifactDir)
+
+            val pomName = "$artifactId-$version.pom"
+            val jarName = "$artifactId-$version.jar"
+            artifactDir.resolve(pomName).toFile().writeText(pomContent)
+            JarOutputStream(artifactDir.resolve(jarName).toFile().outputStream()).close()
+            // _remote.repositories marks these files as originating from "central" so that
+            // EnhancedLocalRepositoryManager doesn't attempt to re-download them.
+            artifactDir
+                .resolve("_remote.repositories")
+                .toFile()
+                .writeText("$pomName>central=\n$jarName>central=\n")
+
+            val resolver = RecipeArtifactResolver(cacheDir)
+            val result = runCatching { resolver.resolve("$groupId:$artifactId:$version") }
+
+            val ex = result.exceptionOrNull()
+            if (ex != null) {
+                // Walk the full exception chain (including suppressed) to detect the bug
+                fun collectMessages(t: Throwable): String = buildString {
+                    appendLine("${t::class.simpleName}: ${t.message}")
+                    t.suppressed.forEach { appendLine(collectMessages(it)) }
+                    t.cause?.let { appendLine(collectMessages(it)) }
+                }
+                val fullMessage = collectMessages(ex)
+                assertFalse(
+                    fullMessage.contains("Failed to determine Java version", ignoreCase = true),
+                    "Resolution must not fail with profile evaluation error.\nFull chain:\n$fullMessage"
                 )
             }
         }
