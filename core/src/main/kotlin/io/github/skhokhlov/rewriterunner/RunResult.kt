@@ -4,13 +4,13 @@ import java.nio.file.Path
 import org.openrewrite.Result
 
 /**
- * The result of a single [OpenRewriteRunner] invocation.
+ * The result of a single [RewriteRunner] invocation.
  *
  * @property results The raw OpenRewrite [Result] list produced by the recipe run.
  *   Each entry holds the before/after [org.openrewrite.SourceFile] pair and a precomputed
  *   unified diff. An empty list means the recipe made no changes.
  * @property changedFiles Paths of files that were written to disk during this run.
- *   Empty when [OpenRewriteRunner.Builder.dryRun] is `true` or when [results] is empty.
+ *   Empty when [RewriteRunner.Builder.dryRun] is `true` or when [results] is empty.
  * @property projectDir The project directory that was analysed, for reference.
  */
 data class RunResult(

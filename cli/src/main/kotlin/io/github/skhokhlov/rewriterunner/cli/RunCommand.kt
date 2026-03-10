@@ -1,6 +1,6 @@
 package io.github.skhokhlov.rewriterunner.cli
 
-import io.github.skhokhlov.rewriterunner.OpenRewriteRunner
+import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.output.OutputMode
 import io.github.skhokhlov.rewriterunner.output.ResultFormatter
 import io.github.skhokhlov.rewriterunner.setLogLevel
@@ -127,7 +127,7 @@ class RunCommand : Callable<Int> {
         }
 
         return try {
-            val builder = OpenRewriteRunner.builder()
+            val builder = RewriteRunner.builder()
                 .projectDir(projectDir)
                 .activeRecipe(activeRecipe)
                 .recipeArtifacts(recipeArtifacts)

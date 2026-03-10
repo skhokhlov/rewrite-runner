@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory
  *
  * Obtain an instance through the [Builder]:
  * ```kotlin
- * val runner = OpenRewriteRunner.builder()
+ * val runner = RewriteRunner.builder()
  *     .projectDir(Paths.get("/path/to/project"))
  *     .activeRecipe("org.openrewrite.java.format.AutoFormat")
  *     .build()
@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory
  *
  * Java usage:
  * ```java
- * RunResult result = OpenRewriteRunner.builder()
+ * RunResult result = RewriteRunner.builder()
  *     .projectDir(Paths.get("/path/to/project"))
  *     .activeRecipe("org.openrewrite.java.format.AutoFormat")
  *     .build()
@@ -44,9 +44,9 @@ import org.slf4j.LoggerFactory
  * different [Builder.projectDir]. Sharing the same project directory across concurrent
  * runs is not supported.
  */
-class OpenRewriteRunner private constructor(private val config: Builder) {
+class RewriteRunner private constructor(private val config: Builder) {
 
-    private val log = LoggerFactory.getLogger(OpenRewriteRunner::class.java.name)
+    private val log = LoggerFactory.getLogger(RewriteRunner::class.java.name)
 
     /**
      * Execute the configured recipe against the project directory.
@@ -106,7 +106,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         // 4. Build LST (3-stage pipeline)
         // OpenRewrite requires all source files in memory simultaneously to support
         // cross-file analysis. For large projects set -Xmx accordingly, e.g.:
-        //   java -Xmx6g -jar openrewrite-runner-all.jar …
+        //   java -Xmx6g -jar rewrite-runner-all.jar …
         log.info("[4/6] Building LST for ${config.projectDir}")
         val lstBuilder = LstBuilder(
             cacheDir = effectiveCacheDir,
@@ -177,7 +177,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
     }
 
     /**
-     * Builder for [OpenRewriteRunner].
+     * Builder for [RewriteRunner].
      *
      * All setter methods return `this` for fluent chaining. The only required properties
      * are [projectDir] and [activeRecipe].
@@ -210,7 +210,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
 
         /**
          * The root directory of the project to analyse. Defaults to the current working
-         * directory. Must be an existing directory when [OpenRewriteRunner.run] is called.
+         * directory. Must be an existing directory when [RewriteRunner.run] is called.
          */
         fun projectDir(path: Path): Builder = apply { projectDir = path }
 
@@ -276,24 +276,24 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         }
 
         /**
-         * Construct the [OpenRewriteRunner].
+         * Construct the [RewriteRunner].
          *
          * @throws IllegalStateException if [activeRecipe] has not been set.
          */
-        fun build(): OpenRewriteRunner {
+        fun build(): RewriteRunner {
             check(activeRecipe.isNotBlank()) {
                 "activeRecipe must be set before calling build()"
             }
-            return OpenRewriteRunner(this)
+            return RewriteRunner(this)
         }
     }
 
     companion object {
         /**
-         * Create a new [Builder] to configure an [OpenRewriteRunner].
+         * Create a new [Builder] to configure an [RewriteRunner].
          *
          * Annotated with [@JvmStatic][JvmStatic] so Java callers can write
-         * `OpenRewriteRunner.builder()` rather than `OpenRewriteRunner.Companion.builder()`.
+         * `RewriteRunner.builder()` rather than `RewriteRunner.Companion.builder()`.
          */
         @JvmStatic
         fun builder(): Builder = Builder()
