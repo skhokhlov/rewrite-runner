@@ -1,13 +1,7 @@
 plugins {
-    kotlin("jvm")
+    id("kotlin-convention")
+    id("publishing-convention")
     id("com.gradleup.shadow")
-}
-
-group = "io.github.skhokhlov.rewriterunner"
-version = "1.0-SNAPSHOT"
-
-kotlin {
-    jvmToolchain(21)
 }
 
 dependencies {
@@ -36,9 +30,4 @@ tasks.shadowJar {
     manifest {
         attributes["Main-Class"] = "io.github.skhokhlov.rewriterunner.MainKt"
     }
-}
-
-tasks.test {
-    useJUnitPlatform()
-    jvmArgs("-Xmx2g")
 }
