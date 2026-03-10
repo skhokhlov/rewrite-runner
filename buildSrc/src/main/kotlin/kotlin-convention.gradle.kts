@@ -1,3 +1,4 @@
+import org.gradle.api.attributes.Bundling
 import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
@@ -20,11 +21,25 @@ tasks.withType<Test> {
     jvmArgs("-Xmx2g")
 }
 
+// Resolve ktlint CLI locally in each subproject to avoid cross-project configuration resolution
+// (required for Gradle 9 project isolation / configuration cache compatibility).
+val ktlintCli by configurations.creating {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+    attributes {
+        attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling.SHADOWED))
+    }
+}
+
+dependencies {
+    ktlintCli("com.pinterest.ktlint:ktlint-cli:1.8.0")
+}
+
 // ktlintCheck — verifies code style; wired into the standard `check` lifecycle task.
 tasks.register<JavaExec>("ktlintCheck") {
     group = "verification"
     description = "Check Kotlin code style with ktlint (Google Android code style)."
-    classpath = rootProject.configurations["ktlintCli"]
+    classpath = ktlintCli
     mainClass.set("com.pinterest.ktlint.Main")
     args("--reporter=plain", "src/**/*.kt")
     workingDir = projectDir
@@ -34,7 +49,7 @@ tasks.register<JavaExec>("ktlintCheck") {
 tasks.register<JavaExec>("ktlintFormat") {
     group = "formatting"
     description = "Auto-fix Kotlin code style issues with ktlint (Google Android code style)."
-    classpath = rootProject.configurations["ktlintCli"]
+    classpath = ktlintCli
     mainClass.set("com.pinterest.ktlint.Main")
     jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
     args("--format", "src/**/*.kt")
