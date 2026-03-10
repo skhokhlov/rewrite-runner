@@ -69,8 +69,8 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 
 **Supported file types and parsers**:
 - `.java` → `JavaParser` (with full classpath)
-- `.kt`, `.kts` → `KotlinParser`
-- `.groovy` → `GroovyParser`
+- `.kt`, `.kts` → `KotlinParser` (`.kts` augmented with Gradle DSL classpath)
+- `.groovy`, `.gradle` → `GroovyParser` (`.gradle` augmented with Gradle DSL classpath)
 - `.yaml` / `.yml` → `YamlParser`
 - `.json` → `JsonParser`
 - `.xml` → `XmlParser`

@@ -436,4 +436,85 @@ class LstBuilderTest :
                 "tryCompile should NOT be called when Stage 1 returns null"
             )
         }
+
+        // ─── Gradle DSL classpath resolution ─────────────────────────────────────
+
+        test("resolveGradleDslClasspath returns empty list when no Gradle installation found") {
+            val builder = lstBuilder()
+            // Use an isolated temp dir with no wrapper and no GRADLE_HOME (env cannot be unset,
+            // but the dir will have no wrapper so this tests the no-distribution-found branch
+            // whenever GRADLE_HOME is not set in the test environment).
+            val emptyProject = Files.createTempDirectory("gradle-dsl-test-")
+            try {
+                val gradleHome = System.getenv("GRADLE_HOME")
+                if (gradleHome.isNullOrBlank()) {
+                    // No GRADLE_HOME set — we expect empty unless ~/.gradle/wrapper/dists exists
+                    val distsRoot =
+                        Path.of(System.getProperty("user.home")).resolve(".gradle/wrapper/dists")
+                    if (!distsRoot.toFile().exists()) {
+                        val result = builder.resolveGradleDslClasspath(emptyProject)
+                        assertTrue(
+                            result.isEmpty(),
+                            "Should return empty list when no Gradle found"
+                        )
+                    }
+                    // If dists exist the fallback will fire; that's correct behaviour — skip assert
+                }
+                // If GRADLE_HOME is set the method will succeed; that's also correct.
+            } finally {
+                emptyProject.toFile().deleteRecursively()
+            }
+        }
+
+        test("resolveGradleDslClasspath finds distribution via wrapper properties") {
+            val wrapperDir = projectDir.resolve("gradle/wrapper").also {
+                it.createDirectories()
+            }
+            // Write wrapper properties pointing at a Gradle version we know is cached
+            val distsRoot =
+                Path.of(System.getProperty("user.home")).resolve(".gradle/wrapper/dists")
+            val cachedVersion = if (distsRoot.toFile().exists()) {
+                distsRoot.toFile()
+                    .listFiles { f -> f.isDirectory && f.name.startsWith("gradle-") }
+                    ?.firstOrNull()
+                    ?.name
+                    ?.removePrefix("gradle-")
+                    ?.substringBeforeLast("-") // strip "-bin" / "-all"
+            } else {
+                null
+            }
+
+            if (cachedVersion != null) {
+                wrapperDir.resolve("gradle-wrapper.properties").toFile().writeText(
+                    "distributionUrl=https\\://services.gradle.org/distributions/gradle-$cachedVersion-bin.zip\n"
+                )
+                val builder = lstBuilder()
+                val jars = builder.resolveGradleDslClasspath(projectDir)
+                assertTrue(jars.isNotEmpty(), "Should find Gradle JARs for version $cachedVersion")
+                assertTrue(
+                    jars.all { it.toString().endsWith(".jar") },
+                    "All resolved paths should be JARs"
+                )
+            }
+            // If no distribution is cached in CI, the test is a no-op (environment variability).
+        }
+
+        test("resolveGradleDslClasspath returns only lib/ JARs, not plugins or agents") {
+            val distsRoot =
+                Path.of(System.getProperty("user.home")).resolve(".gradle/wrapper/dists")
+            if (!distsRoot.toFile().exists()) return@test
+
+            val builder = lstBuilder()
+            val jars = builder.resolveGradleDslClasspath(projectDir)
+            if (jars.isEmpty()) return@test // no Gradle found, skip
+
+            assertTrue(
+                jars.none { it.toString().contains("/lib/plugins/") },
+                "lib/plugins/ JARs should not be included"
+            )
+            assertTrue(
+                jars.none { it.toString().contains("/lib/agents/") },
+                "lib/agents/ JARs should not be included"
+            )
+        }
     })

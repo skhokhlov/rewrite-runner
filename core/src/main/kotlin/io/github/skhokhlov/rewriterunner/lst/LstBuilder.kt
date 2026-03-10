@@ -44,7 +44,18 @@ class LstBuilder(
 
     /** Default set of extensions supported out of the box. */
     private val defaultExtensions =
-        setOf(".java", ".kt", ".kts", ".groovy", ".yaml", ".yml", ".json", ".xml", ".properties")
+        setOf(
+            ".java",
+            ".kt",
+            ".kts",
+            ".groovy",
+            ".gradle",
+            ".yaml",
+            ".yml",
+            ".json",
+            ".xml",
+            ".properties"
+        )
 
     /** Directories excluded from the recursive walk. */
     private val excludedDirNames = setOf(
@@ -126,16 +137,39 @@ class LstBuilder(
             }
         }
 
-        val kotlinFiles = ((filesByExt[".kt"] ?: emptyList()) + (filesByExt[".kts"] ?: emptyList()))
-        if (kotlinFiles.isNotEmpty()) {
-            log.info("Parsing ${kotlinFiles.size} Kotlin file(s)")
+        filesByExt[".kt"]?.let { files ->
+            log.info("Parsing ${files.size} Kotlin file(s)")
             val parser = KotlinParser.builder().classpath(classpath).build()
-            parser.parse(kotlinFiles, projectDir, ctx).forEach { allSources.add(it) }
+            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+        }
+
+        filesByExt[".kts"]?.let { files ->
+            log.info("Parsing ${files.size} Kotlin Script file(s)")
+            val gradleDslClasspath = resolveGradleDslClasspath(projectDir)
+            if (gradleDslClasspath.isNotEmpty()) {
+                log.info(
+                    "Augmenting KotlinParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
+                )
+            }
+            val parser = KotlinParser.builder().classpath(classpath + gradleDslClasspath).build()
+            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".groovy"]?.let { files ->
             log.info("Parsing ${files.size} Groovy file(s)")
             val parser = GroovyParser.builder().classpath(classpath).build()
+            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+        }
+
+        filesByExt[".gradle"]?.let { files ->
+            log.info("Parsing ${files.size} Gradle Groovy DSL file(s)")
+            val gradleDslClasspath = resolveGradleDslClasspath(projectDir)
+            if (gradleDslClasspath.isNotEmpty()) {
+                log.info(
+                    "Augmenting GroovyParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
+                )
+            }
+            val parser = GroovyParser.builder().classpath(classpath + gradleDslClasspath).build()
             parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
         }
 
@@ -458,6 +492,144 @@ class LstBuilder(
         }
     } catch (_: Exception) {
         emptyList()
+    }
+
+    // ─── Gradle DSL classpath resolution ─────────────────────────────────────
+
+    /**
+     * Resolves the Gradle DSL classpath for `.kts` script parsing.
+     *
+     * Lookup order:
+     * 1. `GRADLE_HOME` environment variable — use `$GRADLE_HOME/lib/`.
+     * 2. Gradle wrapper properties (`gradle/wrapper/gradle-wrapper.properties`) in
+     *    [projectDir] — parse the declared Gradle version and locate the unpacked
+     *    distribution under `~/.gradle/wrapper/dists/`.
+     * 3. Any available distribution under `~/.gradle/wrapper/dists/` — picks the
+     *    most recently modified one as a best-effort fallback.
+     *
+     * Only JARs directly inside `lib/` are included (not `lib/plugins/` or
+     * `lib/agents/`) to keep the classpath focused on the core Gradle API and
+     * Kotlin DSL types used in build scripts.
+     *
+     * Returns an empty list (and logs a warning) when no Gradle installation can be found.
+     */
+    internal fun resolveGradleDslClasspath(projectDir: Path): List<Path> {
+        val gradleHome = findGradleHome(projectDir)
+        if (gradleHome == null) {
+            log.warn(
+                "Gradle DSL classpath not added: no Gradle installation found " +
+                    "(set GRADLE_HOME or add a Gradle wrapper to the project)"
+            )
+            return emptyList()
+        }
+        val libDir = gradleHome.resolve("lib")
+        if (!Files.isDirectory(libDir)) {
+            log.warn("Gradle lib/ directory not found at $libDir")
+            return emptyList()
+        }
+        return Files.list(libDir).use { stream ->
+            stream
+                .filter { it.fileName.toString().endsWith(".jar") }
+                .filter { Files.isRegularFile(it) }
+                .toList()
+        }
+    }
+
+    /**
+     * Resolves the root directory of a Gradle installation, trying (in order):
+     * 1. `GRADLE_HOME` env var.
+     * 2. Gradle version declared in the project's wrapper properties.
+     * 3. Any distribution cached under `~/.gradle/wrapper/dists/` (most recently modified).
+     */
+    private fun findGradleHome(projectDir: Path): Path? {
+        // 1. Explicit GRADLE_HOME
+        val gradleHomeEnv = System.getenv("GRADLE_HOME")
+        if (!gradleHomeEnv.isNullOrBlank()) {
+            val path = Path.of(gradleHomeEnv)
+            if (Files.isDirectory(path)) {
+                log.info("Using Gradle installation from GRADLE_HOME: $path")
+                return path
+            }
+        }
+
+        val gradleUserHome = Path.of(System.getProperty("user.home")).resolve(".gradle")
+        val distsRoot = gradleUserHome.resolve("wrapper/dists")
+
+        // 2. Wrapper properties — extract version and find matching distribution
+        val wrapperProps = projectDir.resolve("gradle/wrapper/gradle-wrapper.properties")
+        if (Files.isRegularFile(wrapperProps)) {
+            val gradleVersion = parseGradleVersionFromWrapper(wrapperProps)
+            if (gradleVersion != null && Files.isDirectory(distsRoot)) {
+                val match = findGradleDistribution(distsRoot, gradleVersion)
+                if (match != null) {
+                    log.info("Using Gradle $gradleVersion distribution from wrapper cache: $match")
+                    return match
+                }
+            }
+        }
+
+        // 3. Best-effort: newest distribution in ~/.gradle/wrapper/dists/
+        if (Files.isDirectory(distsRoot)) {
+            val newest = Files.list(distsRoot).use { stream ->
+                stream
+                    .filter { Files.isDirectory(it) }
+                    .filter { it.fileName.toString().startsWith("gradle-") }
+                    .flatMap { distDir ->
+                        // Each dist dir contains a hash sub-dir with the unpacked distribution
+                        Files.list(distDir).use { hashDirs ->
+                            hashDirs.filter { Files.isDirectory(it) }.toList().stream()
+                        }
+                    }
+                    .filter { hashDir -> Files.isDirectory(hashDir.resolve("lib")) }
+                    .max(Comparator.comparingLong { Files.getLastModifiedTime(it).toMillis() })
+                    .orElse(null)
+            }
+            if (newest != null) {
+                log.info("Using Gradle distribution (best-effort fallback): $newest")
+                return newest
+            }
+        }
+
+        return null
+    }
+
+    /**
+     * Parses the Gradle version string from `gradle-wrapper.properties`.
+     * Extracts the version from the `distributionUrl` value, e.g.
+     * `https://services.gradle.org/distributions/gradle-8.7-bin.zip` → `"8.7"`.
+     */
+    private fun parseGradleVersionFromWrapper(wrapperProps: Path): String? = try {
+        val props = java.util.Properties()
+        wrapperProps.toFile().inputStream().use { props.load(it) }
+        val url = props.getProperty("distributionUrl") ?: return null
+        // Match "gradle-X.Y.Z-bin" or "gradle-X.Y.Z-all"
+        Regex("""gradle-(\d+\.\d+(?:\.\d+)?)-(?:bin|all)""").find(url)?.groupValues?.get(1)
+    } catch (e: Exception) {
+        log.warn("Failed to parse Gradle wrapper properties: ${e.message}")
+        null
+    }
+
+    /**
+     * Scans [distsRoot] for an unpacked Gradle distribution matching [version].
+     * Each entry under [distsRoot] is named `gradle-<version>-<type>` and contains
+     * a hash sub-directory with the actual unpacked distribution.
+     *
+     * Returns the unpacked distribution root (containing `lib/`) or null if not found.
+     */
+    private fun findGradleDistribution(distsRoot: Path, version: String): Path? {
+        if (!Files.isDirectory(distsRoot)) return null
+        return Files.list(distsRoot).use { stream ->
+            stream
+                .filter { Files.isDirectory(it) }
+                .filter { it.fileName.toString().startsWith("gradle-$version-") }
+                .flatMap { distDir ->
+                    Files.list(distDir).use { hashDirs ->
+                        hashDirs.filter { Files.isDirectory(it.resolve("lib")) }.toList().stream()
+                    }
+                }
+                .findFirst()
+                .orElse(null)
+        }
     }
 
     // ─── File collection ──────────────────────────────────────────────────────
