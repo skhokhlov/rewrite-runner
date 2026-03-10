@@ -19,7 +19,7 @@ dependencies {
 
     // Tests
     testImplementation(project(":core"))
-    testImplementation("io.kotest:kotest-runner-junit5:6.1.4")
+    testImplementation("io.kotest:kotest-runner-junit5:6.1.6")
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     // OpenRewrite needed in test scope for integration tests (Result, SourceFile, etc.)
