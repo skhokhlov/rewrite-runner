@@ -11,8 +11,8 @@ import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.eclipse.aether.util.repository.AuthenticationBuilder
 
 /**
- * Bundles the three Maven Resolver objects needed by both [recipe.RecipeArtifactResolver]
- * and [lst.DependencyResolutionStage]: a [RepositorySystem], a [RepositorySystemSession],
+ * Bundles the three Maven Resolver objects needed by both [io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver]
+ * and [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage]: a [RepositorySystem], a [RepositorySystemSession],
  * and the list of configured [RemoteRepository] instances.
  *
  * Create an instance via the [build] factory so both consumers share a single session

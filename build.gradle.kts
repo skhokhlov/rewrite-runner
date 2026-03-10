@@ -1,7 +1,10 @@
+import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
+
 plugins {
     kotlin("jvm") apply false
     id("com.gradleup.shadow") apply false
     id("org.jetbrains.dokka") // applied at root for multi-module HTML aggregation
+    id("dokka-convention")
 }
 
 // Resolve ktlint CLI directly from Maven Central — no third-party Gradle plugin needed.
@@ -38,4 +41,23 @@ val projectVersion = tagVersion ?: gitDescribe ?: "1.0-SNAPSHOT"
 
 allprojects {
     version = projectVersion
+}
+
+dokka {
+    // Sets properties for the whole project
+    dokkaPublications.html {
+        moduleName.set("rewrite-runner")
+        includes.from("README.md")
+    }
+
+    dokkaSourceSets.configureEach {
+        documentedVisibilities.set(setOf(VisibilityModifier.Public))
+    }
+
+}
+
+// Aggregates subproject documentation
+dependencies {
+    dokka(project(":core"))
+    dokka(project(":cli"))
 }

@@ -33,7 +33,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
 
       - name: Generate Dokka HTML docs
-        run: ./gradlew dokkaGeneratePublicationHtml
+        run: ./gradlew dokkaGenerate
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
