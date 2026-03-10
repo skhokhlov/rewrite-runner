@@ -9,6 +9,7 @@ import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.codehaus.plexus.util.xml.Xpp3Dom
+import org.example.AetherContext
 import org.example.config.ParseConfig
 import org.example.config.ToolConfig
 import org.openrewrite.ExecutionContext
@@ -36,8 +37,7 @@ class LstBuilder(
     private val toolConfig: ToolConfig,
     private val buildToolStage: BuildToolStage = BuildToolStage(),
     private val depResolutionStage: DependencyResolutionStage = DependencyResolutionStage(
-        cacheDir = cacheDir,
-        extraRepositories = toolConfig.resolvedRepositories()
+        AetherContext.build(cacheDir, toolConfig.resolvedRepositories())
     )
 ) {
     private val log = LoggerFactory.getLogger(LstBuilder::class.java.name)

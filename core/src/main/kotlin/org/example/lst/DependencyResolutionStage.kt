@@ -4,17 +4,11 @@ import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
-import org.eclipse.aether.ConfigurationProperties
-import org.eclipse.aether.RepositorySystem
-import org.eclipse.aether.RepositorySystemSession
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.collection.CollectRequest
 import org.eclipse.aether.graph.Dependency
-import org.eclipse.aether.repository.LocalRepository
-import org.eclipse.aether.repository.RemoteRepository
 import org.eclipse.aether.resolution.DependencyRequest
-import org.eclipse.aether.supplier.RepositorySystemSupplier
-import org.example.config.RepositoryConfig
+import org.example.AetherContext
 import org.slf4j.LoggerFactory
 
 /**
@@ -24,16 +18,12 @@ import org.slf4j.LoggerFactory
  * For Gradle projects, first attempts to run `gradle dependencies` for the root
  * project and all declared subprojects to obtain accurately resolved coordinates.
  * Falls back to best-effort static regex parsing if Gradle cannot be invoked.
+ *
+ * @param context Shared Maven Resolver context (system, session, remote repositories).
+ *   Use [AetherContext.build] to create one.
  */
-open class DependencyResolutionStage(
-    private val cacheDir: Path,
-    private val extraRepositories: List<RepositoryConfig> = emptyList()
-) {
+open class DependencyResolutionStage(private val context: AetherContext) {
     private val log = LoggerFactory.getLogger(DependencyResolutionStage::class.java.name)
-
-    private val system: RepositorySystem by lazy { newRepositorySystem() }
-    private val session: RepositorySystemSession by lazy { newSession(system) }
-    private val remoteRepos: List<RemoteRepository> by lazy { buildRemoteRepos() }
 
     open fun resolveClasspath(projectDir: Path): List<Path> {
         val coordinates = when {
@@ -253,52 +243,10 @@ open class DependencyResolutionStage(
     private fun resolveSingle(coordinate: String): List<Path> {
         val artifact = DefaultArtifact(coordinate)
         val dep = Dependency(artifact, "runtime")
-        val collectRequest = CollectRequest(dep, remoteRepos)
+        val collectRequest = CollectRequest(dep, context.remoteRepos)
         val depRequest = DependencyRequest(collectRequest, null)
-        val result = system.resolveDependencies(session, depRequest)
+        val result = context.system.resolveDependencies(context.session, depRequest)
         return result.artifactResults.mapNotNull { it.artifact?.path }
-    }
-
-    private fun buildRemoteRepos(): List<RemoteRepository> {
-        val repos = mutableListOf(
-            RemoteRepository.Builder(
-                "central",
-                "default",
-                "https://repo.maven.apache.org/maven2"
-            ).build()
-        )
-        extraRepositories.forEach { cfg ->
-            val builder = RemoteRepository.Builder(
-                cfg.url.hashCode().toString(),
-                "default",
-                cfg.url
-            )
-            if (cfg.username != null && cfg.password != null) {
-                builder.setAuthentication(
-                    org.eclipse.aether.util.repository.AuthenticationBuilder()
-                        .addUsername(cfg.username)
-                        .addPassword(cfg.password)
-                        .build()
-                )
-            }
-            repos.add(builder.build())
-        }
-        return repos
-    }
-
-    private fun newRepositorySystem(): RepositorySystem = RepositorySystemSupplier().get()
-
-    private fun newSession(system: RepositorySystem): RepositorySystemSession {
-        val repoDir = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
-        val localRepo = LocalRepository(repoDir)
-        return system
-            .createSessionBuilder()
-            .withLocalRepositories(localRepo)
-            .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 30_000)
-            .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 60_000)
-            .setConfigProperty("aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles", false)
-            .setIgnoreArtifactDescriptorRepositories(true)
-            .build()
     }
 
     private fun hasBuildGradle(dir: Path): Boolean =

@@ -7,6 +7,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import org.example.AetherContext
 import org.example.config.ToolConfig
 import org.openrewrite.java.marker.JavaVersion
 
@@ -40,11 +41,9 @@ class MultiModuleJavaVersionTest :
 
         fun lstBuilder(): LstBuilder {
             val noOpDepStage =
-                object :
-                    DependencyResolutionStage(
-                        cacheDir = projectDir.resolve("cache"),
-                        extraRepositories = emptyList()
-                    ) {
+                object : DependencyResolutionStage(
+                    AetherContext.build(projectDir.resolve("cache"))
+                ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             return LstBuilder(

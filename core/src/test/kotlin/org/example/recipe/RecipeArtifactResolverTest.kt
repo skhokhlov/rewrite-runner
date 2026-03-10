@@ -9,10 +9,11 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import org.eclipse.aether.RepositorySystem
-import org.eclipse.aether.RepositorySystemSession
+import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
+import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.example.AetherContext
 import org.example.config.RepositoryConfig
 
 class RecipeArtifactResolverTest :
@@ -26,7 +27,7 @@ class RecipeArtifactResolverTest :
         // ─── Construction ─────────────────────────────────────────────────────────
 
         test("constructor succeeds with minimal arguments") {
-            val resolver = RecipeArtifactResolver(cacheDir)
+            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
             assertNotNull(resolver)
         }
 
@@ -39,7 +40,8 @@ class RecipeArtifactResolverTest :
                         password = null
                     )
                 )
-            val resolver = RecipeArtifactResolver(cacheDir, extraRepositories = repos)
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir, extraRepositories = repos))
             assertNotNull(resolver)
         }
 
@@ -52,19 +54,20 @@ class RecipeArtifactResolverTest :
                         password = "secret"
                     )
                 )
-            val resolver = RecipeArtifactResolver(cacheDir, extraRepositories = repos)
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir, extraRepositories = repos))
             assertNotNull(resolver)
         }
 
         // ─── Coordinate validation ────────────────────────────────────────────────
 
         test("resolve throws IllegalArgumentException for single-segment coordinate") {
-            val resolver = RecipeArtifactResolver(cacheDir)
+            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
             assertFailsWith<IllegalArgumentException> { resolver.resolve("groupIdOnly") }
         }
 
         test("resolve throws IllegalArgumentException for empty coordinate") {
-            val resolver = RecipeArtifactResolver(cacheDir)
+            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
             assertFailsWith<IllegalArgumentException> { resolver.resolve("") }
         }
 
@@ -76,7 +79,7 @@ class RecipeArtifactResolverTest :
             // Regression test: Maven Resolver 2.x SessionBuilder requires withLocalRepositories()
             // rather than a bootstrap-then-createLocalRepositoryManager approach.
             // The bug manifested as: "No local repository manager or local repositories set on session"
-            val resolver = RecipeArtifactResolver(cacheDir)
+            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
             val ex =
                 runCatching {
                     resolver.resolve("org.example:nonexistent-artifact-xyz:99.99.99")
@@ -145,7 +148,7 @@ class RecipeArtifactResolverTest :
                 .toFile()
                 .writeText("$pomName>central=\n$jarName>central=\n")
 
-            val resolver = RecipeArtifactResolver(cacheDir)
+            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
             val result = runCatching { resolver.resolve("$groupId:$artifactId:$version") }
 
             val ex = result.exceptionOrNull()
@@ -167,7 +170,7 @@ class RecipeArtifactResolverTest :
         // ─── Cache directory setup ────────────────────────────────────────────────
 
         test("resolve creates repository subdirectory inside cacheDir") {
-            val resolver = RecipeArtifactResolver(cacheDir)
+            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
             // Trigger lazy initialization by calling resolve (it will fail on network but
             // the local repository directory is created before the network call)
             runCatching {
@@ -200,19 +203,27 @@ class RecipeArtifactResolverTest :
                 } catch (_: Exception) {}
             }.also { it.isDaemon = true }.start()
 
-            // Subclass routes ONLY to the black-hole server so network access to
-            // Maven Central cannot mask a missing timeout configuration.
-            val resolver =
-                object : RecipeArtifactResolver(cacheDir, requestTimeoutMs = 2_000) {
-                    override fun buildRemoteRepos() = listOf(
-                        RemoteRepository.Builder(
-                            "blackhole",
-                            "default",
-                            "http://127.0.0.1:$port"
-                        )
-                            .build()
+            // Pass a custom AetherContext routing ONLY to the black-hole server so network
+            // access to Maven Central cannot mask a missing timeout configuration.
+            val system = RepositorySystemSupplier().get()
+            val repoDir = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
+            val session =
+                system
+                    .createSessionBuilder()
+                    .withLocalRepositories(org.eclipse.aether.repository.LocalRepository(repoDir))
+                    .setSystemProperties(System.getProperties())
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 2_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 2_000)
+                    .setConfigProperty(
+                        "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
+                        false
                     )
-                }
+                    .setIgnoreArtifactDescriptorRepositories(true)
+                    .build()
+            val blackHoleRepo = listOf(
+                RemoteRepository.Builder("blackhole", "default", "http://127.0.0.1:$port").build()
+            )
+            val resolver = RecipeArtifactResolver(AetherContext(system, session, blackHoleRepo))
 
             val startMs = System.currentTimeMillis()
             runCatching { resolver.resolve("test:missing-artifact:1.0.0") }
@@ -285,38 +296,24 @@ class RecipeArtifactResolverTest :
                 .also { it.isDaemon = true }
                 .start()
 
-            // Subclass using a "simple" local repository so the pre-cached root artifact
-            // is used as-is and only the missing transitive dep hits the black-hole remote.
-            val resolver =
-                object : RecipeArtifactResolver(cacheDir, requestTimeoutMs = 2_000) {
-                    override fun buildRemoteRepos() = listOf(
-                        RemoteRepository.Builder(
-                            "blackhole",
-                            "default",
-                            "http://127.0.0.1:$port"
-                        )
-                            .build()
-                    )
-
-                    override fun buildSession(system: RepositorySystem): RepositorySystemSession {
-                        val repoDir = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
-                        // "simple" type: reads cached files without _remote.repositories checks
-                        val localRepo = LocalRepository(repoDir.toFile(), "simple")
-                        return system
-                            .createSessionBuilder()
-                            .withLocalRepositories(localRepo)
-                            .setSystemProperties(System.getProperties())
-                            .setConfigProperty(
-                                org.eclipse.aether.ConfigurationProperties.CONNECT_TIMEOUT,
-                                2_000
-                            )
-                            .setConfigProperty(
-                                org.eclipse.aether.ConfigurationProperties.REQUEST_TIMEOUT,
-                                2_000
-                            )
-                            .build()
-                    }
-                }
+            // Build a custom AetherContext with a "simple" local repository so the pre-cached
+            // root artifact is used as-is, and only the missing transitive dep hits the black-hole.
+            val system2 = RepositorySystemSupplier().get()
+            val repoDir2 = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
+            // "simple" type: reads cached files without _remote.repositories checks
+            val localRepo2 = LocalRepository(repoDir2.toFile(), "simple")
+            val session2 =
+                system2
+                    .createSessionBuilder()
+                    .withLocalRepositories(localRepo2)
+                    .setSystemProperties(System.getProperties())
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 2_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 2_000)
+                    .build()
+            val blackHoleRepo2 = listOf(
+                RemoteRepository.Builder("blackhole", "default", "http://127.0.0.1:$port").build()
+            )
+            val resolver = RecipeArtifactResolver(AetherContext(system2, session2, blackHoleRepo2))
 
             // Should NOT throw — partial results (root artifact) are returned
             val paths = resolver.resolve("$rootGroupId:$rootArtifactId:$rootVersion")
@@ -337,7 +334,7 @@ class RecipeArtifactResolverTest :
             // Coordinate with only groupId:artifactId should default to LATEST.
             // We can't guarantee network access in all environments, so we only verify
             // the code path is entered (i.e. the call starts, may fail gracefully or succeed).
-            val resolver = RecipeArtifactResolver(cacheDir)
+            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
             val result = runCatching {
                 resolver.resolve("com.example.nonexistent:artifact-that-does-not-exist")
             }

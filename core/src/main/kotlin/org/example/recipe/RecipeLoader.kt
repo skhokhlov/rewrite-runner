@@ -45,7 +45,7 @@ class RecipeLoader {
 
         // Scan each recipe JAR for OpenRewrite recipes/styles/categories
         for (jar in recipeJars) {
-            log.info("Scanning recipe JAR: $jar")
+            log.debug("Scanning recipe JAR: $jar")
             try {
                 builder.load(ClasspathScanningLoader(jar, props, emptyList(), recipeClassLoader))
             } catch (e: Exception) {
