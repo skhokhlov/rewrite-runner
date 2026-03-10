@@ -14,7 +14,7 @@ A self-hosted CLI tool for running [OpenRewrite](https://docs.openrewrite.org/) 
 
 ## Installation
 
-`openrewrite-runner` is published to Maven Central. The `core` module is the library; the `cli` module ships a thin JAR plus a `-all` fat JAR for direct CLI use.
+`rewrite-runner` is published to Maven Central. The `core` module is the library; the `cli` module ships a thin JAR plus a `-all` fat JAR for direct CLI use.
 
 ### Gradle
 
@@ -40,9 +40,9 @@ dependencies {
 Download the `-all` jar directly from Maven Central:
 
 ```bash
-curl -L -o openrewrite-runner.jar \
+curl -L -o rewrite-runner.jar \
   "https://repo1.maven.org/maven2/io/github/skhokhlov/rewriterunner/cli/1.0.0/cli-1.0.0-all.jar"
-java -jar openrewrite-runner.jar --help
+java -jar rewrite-runner.jar --help
 ```
 
 ## Getting Started
@@ -78,7 +78,7 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar \
 
 ## Library Usage
 
-`openrewrite-runner` can be used as a library from Java and Kotlin code without the CLI layer. Use the plain JAR (not the `-all` fat JAR) as a dependency.
+`rewrite-runner` can be used as a library from Java and Kotlin code without the CLI layer. Use the plain JAR (not the `-all` fat JAR) as a dependency.
 
 ### Adding as a dependency
 
@@ -92,18 +92,18 @@ dependencies {
 ```kotlin
 // build.gradle.kts — local JAR (for development)
 dependencies {
-    implementation(files("libs/openrewrite-runner-core-1.0-SNAPSHOT.jar"))
+    implementation(files("libs/rewrite-runner-core-1.0-SNAPSHOT.jar"))
 }
 ```
 
 ### Kotlin usage
 
 ```kotlin
-import io.github.skhokhlov.rewriterunner.OpenRewriteRunner
+import io.github.skhokhlov.rewriterunner.RewriteRunner
 import java.nio.file.Paths
 
 fun main() {
-    val result = OpenRewriteRunner.builder()
+    val result = RewriteRunner.builder()
         .projectDir(Paths.get("/path/to/project"))
         .activeRecipe("org.openrewrite.java.format.AutoFormat")
         .dryRun(true)
@@ -118,13 +118,13 @@ fun main() {
 ### Java usage
 
 ```java
-import io.github.skhokhlov.rewriterunner.OpenRewriteRunner;
+import io.github.skhokhlov.rewriterunner.RewriteRunner;
 import io.github.skhokhlov.rewriterunner.RunResult;
 import java.nio.file.Paths;
 
 public class Example {
     public static void main(String[] args) {
-        RunResult result = OpenRewriteRunner.builder()
+        RunResult result = RewriteRunner.builder()
             .projectDir(Paths.get("/path/to/project"))
             .activeRecipe("org.openrewrite.java.format.AutoFormat")
             .recipeArtifact("org.openrewrite.recipe:rewrite-static-analysis:LATEST")
@@ -168,7 +168,7 @@ ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
 ## CLI Reference
 
 ```
-Usage: openrewrite-runner [-h] [--dry-run] [--active-recipe=<recipe>]
+Usage: rewrite-runner [-h] [--dry-run] [--active-recipe=<recipe>]
                           [--cache-dir=<path>] [--config=<path>]
                           [--output=<mode>] [--project-dir=<path>]
                           [--rewrite-config=<path>]
@@ -257,7 +257,7 @@ recipeList:
 Then run it:
 
 ```bash
-java -jar openrewrite-runner-all.jar \
+java -jar rewrite-runner-all.jar \
   --project-dir /path/to/project \
   --active-recipe com.example.MyMigration \
   --recipe-artifact org.openrewrite.recipe:rewrite-migrate-java:LATEST \
@@ -338,5 +338,5 @@ The parsed file set is configurable via `--include-extensions`, `--exclude-exten
 
 # Build and run locally
 ./gradlew shadowJar
-java -jar build/libs/openrewrite-runner-1.0-SNAPSHOT-all.jar --help
+java -jar build/libs/rewrite-runner-1.0-SNAPSHOT-all.jar --help
 ```

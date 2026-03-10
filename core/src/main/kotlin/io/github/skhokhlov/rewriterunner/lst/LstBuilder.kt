@@ -69,7 +69,7 @@ class LstBuilder(
      *   tool config file. CLI flags ([includeExtensionsCli], [excludeExtensionsCli]) take
      *   precedence when non-empty.
      * @param includeExtensionsCli File extensions to include, as specified via CLI or the
-     *   library [io.github.skhokhlov.rewriterunner.OpenRewriteRunner.Builder]. Overrides [parseConfig] when non-empty.
+     *   library [io.github.skhokhlov.rewriterunner.RewriteRunner.Builder]. Overrides [parseConfig] when non-empty.
      * @param excludeExtensionsCli File extensions to skip. Overrides [parseConfig] when non-empty.
      * @param ctx OpenRewrite execution context. Defaults to an [org.openrewrite.InMemoryExecutionContext]
      *   that logs parse warnings without aborting.

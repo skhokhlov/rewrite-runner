@@ -1,4 +1,4 @@
-# Contributing to openrewrite-runner
+# Contributing to rewrite-runner
 
 Thank you for your interest in contributing! This document outlines the process for contributing to this project.
 

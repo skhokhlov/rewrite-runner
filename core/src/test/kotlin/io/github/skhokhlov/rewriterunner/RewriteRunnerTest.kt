@@ -8,7 +8,7 @@ import kotlin.io.path.writeText
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class OpenRewriteRunnerTest :
+class RewriteRunnerTest :
     FunSpec({
         var projectDir: Path = Path.of("")
         var cacheDir: Path = Path.of("")
@@ -25,7 +25,7 @@ class OpenRewriteRunnerTest :
 
         /**
          * Builds a rewrite.yaml that uses DeleteSourceFiles to remove all .properties files,
-         * then runs OpenRewriteRunner against a project containing one such file.
+         * then runs RewriteRunner against a project containing one such file.
          */
         fun runDeletePropertiesRecipe(dryRun: Boolean = false) {
             projectDir.resolve("rewrite.yaml").writeText(
@@ -39,7 +39,7 @@ class OpenRewriteRunnerTest :
                 """.trimIndent()
             )
 
-            OpenRewriteRunner.builder()
+            RewriteRunner.builder()
                 .projectDir(projectDir)
                 .activeRecipe("com.test.DeleteProperties")
                 .cacheDir(cacheDir)

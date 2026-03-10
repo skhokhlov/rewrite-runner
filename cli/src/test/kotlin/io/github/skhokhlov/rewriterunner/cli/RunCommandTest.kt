@@ -237,7 +237,7 @@ class RunCommandTest :
                     .setErr(PrintWriter(errBaos))
                     .execute(
                         "--project-dir",
-                        "/tmp/this-directory-does-not-exist-openrewrite-runner-test",
+                        "/tmp/this-directory-does-not-exist-rewrite-runner-test",
                         "--active-recipe",
                         "org.openrewrite.java.format.AutoFormat",
                         "--cache-dir",

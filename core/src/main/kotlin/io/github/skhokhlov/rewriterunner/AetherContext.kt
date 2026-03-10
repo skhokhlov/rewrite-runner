@@ -16,7 +16,7 @@ import org.eclipse.aether.util.repository.AuthenticationBuilder
  * and the list of configured [RemoteRepository] instances.
  *
  * Create an instance via the [build] factory so both consumers share a single session
- * within a given [io.github.skhokhlov.rewriterunner.OpenRewriteRunner.run] invocation.
+ * within a given [io.github.skhokhlov.rewriterunner.RewriteRunner.run] invocation.
  *
  * @param system  The Maven Resolver [RepositorySystem].
  * @param session The Maven Resolver session (includes local repository, timeout config, etc.).

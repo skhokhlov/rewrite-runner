@@ -34,7 +34,7 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 
 **Entry point**: `Main.kt` → `CommandLine(RunCommand()).execute(*args)`. `RunCommand` is the **root command** (not a subcommand) — all options are passed directly without a "run" prefix.
 
-**Execution pipeline** (orchestrated by `OpenRewriteRunner.run()`, delegated to by `RunCommand.call()`):
+**Execution pipeline** (orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`):
 1. Load tool config (`ToolConfig`)
 2. Resolve recipe JARs from Maven coordinates (`RecipeArtifactResolver`)
 3. Load recipe from JARs + optional `rewrite.yaml` (`RecipeLoader`)
@@ -45,15 +45,15 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 
 ## Library API
 
-**`OpenRewriteRunner`** (`io.github.skhokhlov.rewriterunner`) — programmatic entry point; use `OpenRewriteRunner.builder()` to configure and `.build().run()` to execute. Returns a `RunResult`.
+**`RewriteRunner`** (`io.github.skhokhlov.rewriterunner`) — programmatic entry point; use `RewriteRunner.builder()` to configure and `.build().run()` to execute. Returns a `RunResult`.
 
 **`RunResult`** (`io.github.skhokhlov.rewriterunner`) — holds `results: List<Result>`, `changedFiles: List<Path>`, `projectDir: Path`, and convenience properties `hasChanges`, `changeCount`.
 
-**`RunCommand.call()`** now delegates entirely to `OpenRewriteRunner`, then passes `runResult.results` to `ResultFormatter` for CLI output. All orchestration logic lives in `OpenRewriteRunner.run()`.
+**`RunCommand.call()`** now delegates entirely to `RewriteRunner`, then passes `runResult.results` to `ResultFormatter` for CLI output. All orchestration logic lives in `RewriteRunner.run()`.
 
-**Builder options** mirror CLI flags 1:1 (see `OpenRewriteRunner.Builder` KDoc and README Library Usage section for the full table).
+**Builder options** mirror CLI flags 1:1 (see `RewriteRunner.Builder` KDoc and README Library Usage section for the full table).
 
-**KotlinDoc** is present on all public classes and methods in: `OpenRewriteRunner`, `RunResult`, `RecipeArtifactResolver`, `RecipeLoader`, `RecipeRunner`, `LstBuilder`, `ToolConfig`, `ParseConfig`, `RepositoryConfig`, `ResultFormatter`, `OutputMode`.
+**KotlinDoc** is present on all public classes and methods in: `RewriteRunner`, `RunResult`, `RecipeArtifactResolver`, `RecipeLoader`, `RecipeRunner`, `LstBuilder`, `ToolConfig`, `ParseConfig`, `RepositoryConfig`, `ResultFormatter`, `OutputMode`.
 
 **Build artifacts**:
 - `core/build/libs/core-1.0-SNAPSHOT.jar` — library JAR (no embedded deps)
@@ -112,9 +112,9 @@ The project is split into two Gradle submodules:
 
 ```
 core/src/
-├── main/kotlin/org/example/
-│   ├── OpenRewriteRunner.kt            # Library facade — builder API, orchestrates the full pipeline
-│   ├── RunResult.kt                    # Return type for OpenRewriteRunner.run()
+├── main/kotlin/io/github/skhokhlov/rewriterunner/
+│   ├── RewriteRunner.kt            # Library facade — builder API, orchestrates the full pipeline
+│   ├── RunResult.kt                    # Return type for RewriteRunner.run()
 │   ├── config/ToolConfig.kt            # YAML config + env var interpolation
 │   ├── lst/
 │   │   ├── LstBuilder.kt               # Orchestrates 3-stage pipeline + multi-language parsing
@@ -127,7 +127,7 @@ core/src/
 │       ├── RecipeLoader.kt             # Load + activate recipe by name
 │       └── RecipeRunner.kt             # Execute recipe, return Results
 │
-└── test/kotlin/org/example/
+└── test/kotlin/io/github/skhokhlov/rewriterunner/
     ├── config/ToolConfigTest.kt
     ├── lst/
     │   ├── LstBuilderTest.kt
@@ -138,11 +138,11 @@ core/src/
     └── output/ResultFormatterTest.kt
 
 cli/src/
-├── main/kotlin/org/example/
+├── main/kotlin/io/github/skhokhlov/rewriterunner/
 │   ├── Main.kt                         # Entry point
-│   └── cli/RunCommand.kt               # Picocli command (root, not subcommand); delegates to OpenRewriteRunner
+│   └── cli/RunCommand.kt               # Picocli command (root, not subcommand); delegates to RewriteRunner
 │
-└── test/kotlin/org/example/
+└── test/kotlin/io/github/skhokhlov/rewriterunner/
     ├── cli/RunCommandTest.kt
     └── integration/
         ├── BaseIntegrationTest.kt      # runCli() helper, temp dir setup
