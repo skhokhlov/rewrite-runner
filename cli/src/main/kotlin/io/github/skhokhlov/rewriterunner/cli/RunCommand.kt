@@ -67,7 +67,7 @@ class RunCommand : Callable<Int> {
 
     @Option(
         names = ["--config"],
-        description = ["Path to tool config file (openrewrite-runner.yml)."]
+        description = ["Path to tool config file (rewrite-runner.yml)."]
     )
     var configFile: Path? = null
 

@@ -43,4 +43,4 @@ bin/
 .DS_Store
 
 ### Tool config (may contain credentials) ###
-openrewrite-runner.yml
+rewrite-runner.yml

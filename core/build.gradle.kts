@@ -1,17 +1,7 @@
 plugins {
-    kotlin("jvm")
+    id("kotlin-convention")
+    id("publishing-convention")
     `java-library`
-}
-
-group = "io.github.skhokhlov.rewriterunner"
-version = "1.0-SNAPSHOT"
-
-kotlin {
-    jvmToolchain(21)
-}
-
-java {
-    withSourcesJar()
 }
 
 dependencies {
@@ -46,9 +36,4 @@ dependencies {
     testImplementation("io.kotest:kotest-runner-junit5:6.1.4")
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-}
-
-tasks.test {
-    useJUnitPlatform()
-    jvmArgs("-Xmx2g")
 }

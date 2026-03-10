@@ -48,7 +48,7 @@ data class ParseConfig(
 )
 
 /**
- * Top-level tool configuration, typically loaded from `openrewrite-runner.yml`.
+ * Top-level tool configuration, typically loaded from `rewrite-runner.yml`.
  *
  * Supports environment variable interpolation (`${VAR_NAME}`) and tilde expansion in all
  * string fields. Loaded via [ToolConfig.load]; programmatic library users may also
@@ -97,7 +97,7 @@ data class ToolConfig(
          * The YAML text is pre-processed to expand `${VAR_NAME}` placeholders before parsing.
          * Unknown YAML keys are silently ignored.
          *
-         * @param configFile Path to `openrewrite-runner.yml`. May be `null` or point to a
+         * @param configFile Path to `rewrite-runner.yml`. May be `null` or point to a
          *   non-existent file; in either case a default [ToolConfig] is returned.
          */
         fun load(configFile: Path?): ToolConfig {

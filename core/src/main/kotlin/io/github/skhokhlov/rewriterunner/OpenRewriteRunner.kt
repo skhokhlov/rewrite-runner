@@ -248,7 +248,7 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         fun cacheDir(path: Path): Builder = apply { cacheDir = path }
 
         /**
-         * Path to the `openrewrite-runner.yml` tool config file for repository and cache
+         * Path to the `rewrite-runner.yml` tool config file for repository and cache
          * configuration. If not set, a default [ToolConfig] is used.
          */
         fun configFile(path: Path): Builder = apply { configFile = path }

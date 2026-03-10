@@ -12,6 +12,39 @@ A self-hosted CLI tool for running [OpenRewrite](https://docs.openrewrite.org/) 
 - Composable recipes via `rewrite.yaml`
 - Configurable Maven repositories for enterprise environments with private Nexus/Artifactory
 
+## Installation
+
+`openrewrite-runner` is published to Maven Central. The `core` module is the library; the `cli` module ships a thin JAR plus a `-all` fat JAR for direct CLI use.
+
+### Gradle
+
+```kotlin
+// build.gradle.kts
+dependencies {
+    implementation("io.github.skhokhlov.rewriterunner:core:1.0.0")
+}
+```
+
+### Maven
+
+```xml
+<dependency>
+    <groupId>io.github.skhokhlov.rewriterunner</groupId>
+    <artifactId>core</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+### CLI fat JAR
+
+Download the `-all` jar directly from Maven Central:
+
+```bash
+curl -L -o openrewrite-runner.jar \
+  "https://repo1.maven.org/maven2/io/github/skhokhlov/rewriterunner/cli/1.0.0/cli-1.0.0-all.jar"
+java -jar openrewrite-runner.jar --help
+```
+
 ## Getting Started
 
 ### Build
@@ -47,12 +80,19 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar \
 
 `openrewrite-runner` can be used as a library from Java and Kotlin code without the CLI layer. Use the plain JAR (not the `-all` fat JAR) as a dependency.
 
-### Adding as a dependency (local JAR)
+### Adding as a dependency
 
 ```kotlin
-// build.gradle.kts
+// build.gradle.kts — Maven Central (recommended)
 dependencies {
-    implementation(files("libs/openrewrite-runner-1.0-SNAPSHOT.jar"))
+    implementation("io.github.skhokhlov.rewriterunner:core:1.0.0")
+}
+```
+
+```kotlin
+// build.gradle.kts — local JAR (for development)
+dependencies {
+    implementation(files("libs/openrewrite-runner-core-1.0-SNAPSHOT.jar"))
 }
 ```
 
@@ -120,7 +160,7 @@ ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
 | `recipeArtifacts(List<String>)` | optional | — | Set all recipe artifact coordinates at once |
 | `rewriteConfig(Path)` | optional | `<projectDir>/rewrite.yaml` | Custom `rewrite.yaml` path |
 | `cacheDir(Path)` | optional | `~/.rewriterunner/cache` | JAR download cache directory |
-| `configFile(Path)` | optional | — | Path to `openrewrite-runner.yml` |
+| `configFile(Path)` | optional | — | Path to `rewrite-runner.yml` |
 | `dryRun(Boolean)` | optional | `false` | Analyse without writing to disk |
 | `includeExtensions(List<String>)` | optional | all supported | File extensions to parse |
 | `excludeExtensions(List<String>)` | optional | — | File extensions to skip |
@@ -145,7 +185,7 @@ Usage: openrewrite-runner [-h] [--dry-run] [--active-recipe=<recipe>]
 | `--rewrite-config` | Path to `rewrite.yaml` for custom recipe compositions | `<project-dir>/rewrite.yaml` |
 | `--output`, `-o` | Output mode: `diff`, `files`, or `report` | `diff` |
 | `--cache-dir` | Directory for caching downloaded JARs | `~/.rewriterunner/cache` |
-| `--config` | Path to tool config file (`openrewrite-runner.yml`) | — |
+| `--config` | Path to tool config file (`rewrite-runner.yml`) | — |
 | `--dry-run` | Run recipe but do not write changes to disk | `false` |
 | `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
 | `--exclude-extensions` | Comma-separated file extensions to skip | — |
@@ -226,7 +266,7 @@ java -jar openrewrite-runner-all.jar \
 
 ## Tool Config File
 
-Create `openrewrite-runner.yml` to configure repositories and caching for your environment:
+Create `rewrite-runner.yml` to configure repositories and caching for your environment:
 
 ```yaml
 repositories:
@@ -244,7 +284,7 @@ parse:
     - "**/build/**"
 ```
 
-Environment variable placeholders (`${VAR_NAME}`) are expanded at runtime. Pass the config file with `--config openrewrite-runner.yml`.
+Environment variable placeholders (`${VAR_NAME}`) are expanded at runtime. Pass the config file with `--config rewrite-runner.yml`.
 
 ## Resilient Parsing Pipeline
 
@@ -285,7 +325,7 @@ Unresolved types appear as `JavaType.Unknown` in the LST, but all structural, te
 | `.xml` | `XmlParser` |
 | `.properties` | `PropertiesParser` |
 
-The parsed file set is configurable via `--include-extensions`, `--exclude-extensions`, and the `parse` section of `openrewrite-runner.yml`.
+The parsed file set is configurable via `--include-extensions`, `--exclude-extensions`, and the `parse` section of `rewrite-runner.yml`.
 
 ## Development
 
