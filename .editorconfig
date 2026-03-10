@@ -10,3 +10,6 @@ trim_trailing_whitespace = true
 
 [*.{kt,kts}]
 ktlint_code_style = android_studio
+
+[*.{yaml,yml}]
+indent_size = 2
