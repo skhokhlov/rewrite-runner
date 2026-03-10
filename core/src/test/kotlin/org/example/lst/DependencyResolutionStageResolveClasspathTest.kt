@@ -6,6 +6,7 @@ import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.example.AetherContext
 import org.example.config.RepositoryConfig
 
 /**
@@ -34,7 +35,7 @@ class DependencyResolutionStageResolveClasspathTest :
         test("resolveClasspath returns empty list when no build file is present") {
             // A real DependencyResolutionStage with no pom.xml / build.gradle returns empty
             val stage =
-                object : DependencyResolutionStage(cacheDir, emptyList()) {
+                object : DependencyResolutionStage(AetherContext.build(cacheDir)) {
                     override fun resolveClasspath(projectDir: Path): List<Path> =
                         super.resolveClasspath(projectDir)
                 }
@@ -60,7 +61,7 @@ class DependencyResolutionStageResolveClasspathTest :
 
             var parsedMaven = false
             val stage =
-                object : DependencyResolutionStage(cacheDir, emptyList()) {
+                object : DependencyResolutionStage(AetherContext.build(cacheDir)) {
                     override fun resolveClasspath(projectDir: Path): List<Path> {
                         parsedMaven =
                             parseMavenDependencies(projectDir).isNotEmpty() ||
@@ -81,7 +82,7 @@ class DependencyResolutionStageResolveClasspathTest :
 
             var parsedGradle = false
             val stage =
-                object : DependencyResolutionStage(cacheDir, emptyList()) {
+                object : DependencyResolutionStage(AetherContext.build(cacheDir)) {
                     override fun resolveClasspath(projectDir: Path): List<Path> {
                         parsedGradle =
                             parseGradleDependencies(projectDir).isEmpty() ||
@@ -119,7 +120,7 @@ class DependencyResolutionStageResolveClasspathTest :
                 </project>
                 """.trimIndent()
             )
-            val stage = DependencyResolutionStage(cacheDir)
+            val stage = DependencyResolutionStage(AetherContext.build(cacheDir))
             val coords = stage.parseMavenDependencies(projectDir)
             assertTrue(
                 coords.none { it.contains("servlet-api") },
@@ -151,7 +152,7 @@ class DependencyResolutionStageResolveClasspathTest :
                 </project>
                 """.trimIndent()
             )
-            val stage = DependencyResolutionStage(cacheDir)
+            val stage = DependencyResolutionStage(AetherContext.build(cacheDir))
             val coords = stage.parseMavenDependencies(projectDir)
             assertTrue(coords.isEmpty(), "system scope should be excluded")
         }
@@ -167,7 +168,7 @@ class DependencyResolutionStageResolveClasspathTest :
                 }
                 """.trimIndent()
             )
-            val stage = DependencyResolutionStage(cacheDir)
+            val stage = DependencyResolutionStage(AetherContext.build(cacheDir))
             val coords = stage.parseGradleDependencies(projectDir)
             assertTrue(coords.contains("org.springframework:spring-core:6.1.0"))
             assertTrue(coords.contains("com.fasterxml.jackson.core:jackson-databind:2.16.0"))
@@ -181,7 +182,7 @@ class DependencyResolutionStageResolveClasspathTest :
                 }
                 """.trimIndent()
             )
-            val stage = DependencyResolutionStage(cacheDir)
+            val stage = DependencyResolutionStage(AetherContext.build(cacheDir))
             val coords = stage.parseGradleDependencies(projectDir)
             assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
         }
@@ -197,7 +198,8 @@ class DependencyResolutionStageResolveClasspathTest :
                         password = "secret"
                     )
                 )
-            val stage = DependencyResolutionStage(cacheDir, extraRepositories = repos)
+            val stage =
+                DependencyResolutionStage(AetherContext.build(cacheDir, extraRepositories = repos))
             // Accessing the stage without an actual resolve call; we can call resolveClasspath
             // on an empty dir to exercise the lazy initializers (repos are built on first use)
             val result = stage.resolveClasspath(projectDir)
@@ -213,7 +215,8 @@ class DependencyResolutionStageResolveClasspathTest :
                         password = null
                     )
                 )
-            val stage = DependencyResolutionStage(cacheDir, extraRepositories = repos)
+            val stage =
+                DependencyResolutionStage(AetherContext.build(cacheDir, extraRepositories = repos))
             val result = stage.resolveClasspath(projectDir)
             assertTrue(result.isEmpty())
         }

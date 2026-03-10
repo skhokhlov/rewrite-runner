@@ -9,16 +9,25 @@ import org.slf4j.LoggerFactory
 
 /**
  * Stage 3: Assemble the best available classpath from local caches without
- * downloading anything. Uses entries already present in ~/.m2 and ~/.gradle/caches.
+ * downloading anything. Uses entries already present in:
+ * - `~/.m2/repository` and `[projectDir]/.m2/repository`
+ * - `~/.gradle/caches` and `[projectDir]/.gradle/caches`
+ *
+ * Project-local roots support Gradle's `gradle.user.home` being set to a directory
+ * inside the project (e.g. `gradle.properties: gradle.user.home=.gradle`), which places
+ * the Gradle dependency cache under the project tree rather than the global home directory.
  */
 class DirectParseStage(private val projectDir: Path) {
     private val log = LoggerFactory.getLogger(DirectParseStage::class.java.name)
 
-    private val m2Root: Path = Paths.get(System.getProperty("user.home"), ".m2", "repository")
-    private val gradleCacheRoot: Path = Paths.get(
-        System.getProperty("user.home"),
-        ".gradle",
-        "caches"
+    private val m2Roots: List<Path> = listOf(
+        Paths.get(System.getProperty("user.home"), ".m2", "repository"),
+        projectDir.resolve(".m2").resolve("repository")
+    )
+
+    private val gradleCacheRoots: List<Path> = listOf(
+        Paths.get(System.getProperty("user.home"), ".gradle", "caches"),
+        projectDir.resolve(".gradle").resolve("caches")
     )
 
     /**
@@ -49,37 +58,43 @@ class DirectParseStage(private val projectDir: Path) {
         return found
     }
 
-    // ─── ~/.m2 ────────────────────────────────────────────────────────────────
+    // ─── ~/.m2 + projectDir/.m2 ───────────────────────────────────────────────
 
     private fun findInM2(coordinate: String): Path? {
         val (groupId, artifactId, version) = parseCoord(coordinate) ?: return null
-        val jar = m2Root
-            .resolve(groupId.replace('.', '/'))
-            .resolve(artifactId)
-            .resolve(version)
-            .resolve("$artifactId-$version.jar")
-        return jar.takeIf { it.exists() }
+        for (root in m2Roots) {
+            val jar = root
+                .resolve(groupId.replace('.', '/'))
+                .resolve(artifactId)
+                .resolve(version)
+                .resolve("$artifactId-$version.jar")
+            if (jar.exists()) return jar
+        }
+        return null
     }
 
-    // ─── ~/.gradle/caches ────────────────────────────────────────────────────
+    // ─── ~/.gradle/caches + projectDir/.gradle/caches ────────────────────────
 
     private fun findInGradleCache(coordinate: String): Path? {
         val (groupId, artifactId, version) = parseCoord(coordinate) ?: return null
-        if (!gradleCacheRoot.exists()) return null
-
-        // Walk modules-*/files-*/<groupId>/<artifactId>/<version>/**/*.jar
-        return gradleCacheRoot.toFile()
-            .walkTopDown()
-            .maxDepth(8)
-            .filter { file ->
-                file.isFile &&
-                    file.extension == "jar" &&
-                    file.name.startsWith("$artifactId-$version") &&
-                    file.path.contains("/$groupId/") &&
-                    file.path.contains("/$artifactId/")
-            }
-            .map { it.toPath() }
-            .firstOrNull()
+        for (root in gradleCacheRoots) {
+            if (!root.exists()) continue
+            // Walk modules-*/files-*/<groupId>/<artifactId>/<version>/**/*.jar
+            val jar = root.toFile()
+                .walkTopDown()
+                .maxDepth(8)
+                .filter { file ->
+                    file.isFile &&
+                        file.extension == "jar" &&
+                        file.name.startsWith("$artifactId-$version") &&
+                        file.path.contains("/$groupId/") &&
+                        file.path.contains("/$artifactId/")
+                }
+                .map { it.toPath() }
+                .firstOrNull()
+            if (jar != null) return jar
+        }
+        return null
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

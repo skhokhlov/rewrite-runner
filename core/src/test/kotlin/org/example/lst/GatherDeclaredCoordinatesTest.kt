@@ -7,6 +7,7 @@ import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.example.AetherContext
 import org.example.config.ToolConfig
 
 /**
@@ -56,10 +57,7 @@ class GatherDeclaredCoordinatesTest :
 
             val noOpDepStage =
                 object :
-                    DependencyResolutionStage(
-                        cacheDir = projectDir.resolve("cache"),
-                        extraRepositories = emptyList()
-                    ) {
+                    DependencyResolutionStage(AetherContext.build(projectDir.resolve("cache"))) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
 
@@ -102,10 +100,7 @@ class GatherDeclaredCoordinatesTest :
 
             val noOpDepStage =
                 object :
-                    DependencyResolutionStage(
-                        cacheDir = projectDir.resolve("cache"),
-                        extraRepositories = emptyList()
-                    ) {
+                    DependencyResolutionStage(AetherContext.build(projectDir.resolve("cache"))) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
 
@@ -136,10 +131,7 @@ class GatherDeclaredCoordinatesTest :
         test("returns empty list when no build file exists") {
             val noOpDepStage =
                 object :
-                    DependencyResolutionStage(
-                        cacheDir = projectDir.resolve("cache"),
-                        extraRepositories = emptyList()
-                    ) {
+                    DependencyResolutionStage(AetherContext.build(projectDir.resolve("cache"))) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
 
@@ -152,10 +144,7 @@ class GatherDeclaredCoordinatesTest :
 
             val throwingDepStage =
                 object :
-                    DependencyResolutionStage(
-                        cacheDir = projectDir.resolve("cache"),
-                        extraRepositories = emptyList()
-                    ) {
+                    DependencyResolutionStage(AetherContext.build(projectDir.resolve("cache"))) {
                     override fun resolveClasspath(projectDir: Path): List<Path> =
                         throw RuntimeException("Simulated failure")
                 }
@@ -182,10 +171,7 @@ class GatherDeclaredCoordinatesTest :
 
             val noOpDepStage =
                 object :
-                    DependencyResolutionStage(
-                        cacheDir = projectDir.resolve("cache"),
-                        extraRepositories = emptyList()
-                    ) {
+                    DependencyResolutionStage(AetherContext.build(projectDir.resolve("cache"))) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
 

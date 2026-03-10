@@ -4,6 +4,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import org.example.config.ToolConfig
+import org.example.lst.DependencyResolutionStage
 import org.example.lst.LstBuilder
 import org.example.recipe.RecipeArtifactResolver
 import org.example.recipe.RecipeLoader
@@ -71,13 +72,15 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
             log.info("      Cache dir: $it")
         }
 
+        val sharedContext = AetherContext.build(
+            cacheDir = effectiveCacheDir,
+            extraRepositories = toolConfig.resolvedRepositories()
+        )
+
         // 2. Resolve recipe JARs
         val recipeJars = if (config.recipeArtifacts.isNotEmpty()) {
             log.info("[2/6] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
-            val resolver = RecipeArtifactResolver(
-                cacheDir = effectiveCacheDir,
-                extraRepositories = toolConfig.resolvedRepositories()
-            )
+            val resolver = RecipeArtifactResolver(sharedContext)
             config.recipeArtifacts.flatMap { coord ->
                 log.info("      Resolving $coord")
                 resolver.resolve(coord)
@@ -107,7 +110,8 @@ class OpenRewriteRunner private constructor(private val config: Builder) {
         log.info("[4/6] Building LST for ${config.projectDir}")
         val lstBuilder = LstBuilder(
             cacheDir = effectiveCacheDir,
-            toolConfig = toolConfig
+            toolConfig = toolConfig,
+            depResolutionStage = DependencyResolutionStage(sharedContext)
         )
         val lstStart = System.currentTimeMillis()
         val sourceFiles = lstBuilder.build(

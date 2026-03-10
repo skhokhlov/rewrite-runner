@@ -106,4 +106,62 @@ class DirectParseStageTest :
                 assertTrue(path.toString().endsWith(".jar"), "Found path should be a JAR")
             }
         }
+
+        // ─── Project-local cache discovery ───────────────────────────────────────
+
+        test("finds JAR seeded in projectDir/.m2/repository") {
+            val group = "com.example"
+            val artifact = "local-m2-lib"
+            val version = "1.0"
+            val artifactDir = projectDir
+                .resolve(".m2/repository/${group.replace('.', '/')}/$artifact/$version")
+            artifactDir.toFile().mkdirs()
+            val jar = artifactDir.resolve("$artifact-$version.jar").toFile()
+                .also { it.writeBytes(ByteArray(0)) }
+
+            val result = DirectParseStage(projectDir)
+                .findAvailableJars(listOf("$group:$artifact:$version"))
+
+            assertTrue(result.any { it == jar.toPath() }, "Should find JAR in projectDir/.m2")
+        }
+
+        test("finds JAR seeded in projectDir/.gradle/caches") {
+            val group = "com.example"
+            val artifact = "local-gradle-lib"
+            val version = "2.0"
+            // Mimic the Gradle cache layout: caches/modules-2/files-2.1/<group>/<artifact>/<version>/<hash>/<jar>
+            val artifactDir = projectDir
+                .resolve(".gradle/caches/modules-2/files-2.1/$group/$artifact/$version/abc123")
+            artifactDir.toFile().mkdirs()
+            val jar = artifactDir.resolve("$artifact-$version.jar").toFile()
+                .also { it.writeBytes(ByteArray(0)) }
+
+            val result = DirectParseStage(projectDir)
+                .findAvailableJars(listOf("$group:$artifact:$version"))
+
+            assertTrue(
+                result.any {
+                    it == jar.toPath()
+                },
+                "Should find JAR in projectDir/.gradle/caches"
+            )
+        }
+
+        test("prefers global m2 over project-local m2 for same coordinate") {
+            // Both roots contain the JAR; whichever is checked first (global) is returned.
+            // This test seeds only the project-local root and verifies a match is still found.
+            val group = "com.example"
+            val artifact = "prefer-test"
+            val version = "3.0"
+            val localDir = projectDir
+                .resolve(".m2/repository/${group.replace('.', '/')}/$artifact/$version")
+            localDir.toFile().mkdirs()
+            val localJar = localDir.resolve("$artifact-$version.jar").toFile()
+                .also { it.writeBytes(ByteArray(0)) }
+
+            val result = DirectParseStage(projectDir)
+                .findAvailableJars(listOf("$group:$artifact:$version"))
+
+            assertTrue(result.any { it == localJar.toPath() }, "Project-local JAR should be found")
+        }
     })

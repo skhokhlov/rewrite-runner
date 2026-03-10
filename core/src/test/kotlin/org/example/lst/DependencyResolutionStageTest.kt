@@ -7,6 +7,7 @@ import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.example.AetherContext
 
 /**
  * Tests the pom.xml / build.gradle parsing logic in DependencyResolutionStage
@@ -27,7 +28,7 @@ class DependencyResolutionStageTest :
             cacheDir.toFile().deleteRecursively()
         }
 
-        fun stage() = DependencyResolutionStage(cacheDir, emptyList())
+        fun stage() = DependencyResolutionStage(AetherContext.build(cacheDir))
 
         // ─── Maven pom.xml parsing ────────────────────────────────────────────────
 
@@ -450,7 +451,9 @@ class DependencyResolutionStageTest :
 
         // ─── Maven Resolver session configuration ─────────────────────────────────
 
-        test("resolveClasspath resolves artifact from local repository without 'No local repository manager' error") {
+        test(
+            "resolveClasspath resolves artifact from local repository without 'No local repository manager' error"
+        ) {
             // Regression test: newSession() previously closed the bootstrap session via .use{}
             // which could invalidate the LocalRepositoryManager, resulting in
             // "No local repository manager or local repositories set on session" for every
