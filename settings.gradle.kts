@@ -6,7 +6,6 @@ pluginManagement {
     plugins {
         kotlin("jvm") version "2.3.10"
         id("com.gradleup.shadow") version "9.3.2"
-        id("org.jetbrains.dokka") version "2.0.0" apply false
     }
 }
 

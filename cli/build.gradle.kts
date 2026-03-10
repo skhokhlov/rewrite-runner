@@ -1,3 +1,5 @@
+description = "CLI tool for running OpenRewrite recipes against arbitrary project directories without requiring a working build system"
+
 plugins {
     id("kotlin-convention")
     id("publishing-convention")
