@@ -3,7 +3,7 @@ plugins {
     `java-library`
 }
 
-group = "org.example"
+group = "io.github.skhokhlov.rewriterunner"
 version = "1.0-SNAPSHOT"
 
 kotlin {

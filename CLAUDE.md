@@ -13,10 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew test
 
 # Run a single test class
-./gradlew test --tests "org.example.output.ResultFormatterTest"
+./gradlew test --tests "io.github.skhokhlov.rewriterunner.output.ResultFormatterTest"
 
 # Run a single test method (use backtick-quoted name for Kotlin)
-./gradlew test --tests "org.example.cli.RunCommandTest.default output mode is diff"
+./gradlew test --tests "io.github.skhokhlov.rewriterunner.cli.RunCommandTest.default output mode is diff"
 
 # Run the tool locally
 java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
@@ -45,9 +45,9 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 
 ## Library API
 
-**`OpenRewriteRunner`** (`org.example`) — programmatic entry point; use `OpenRewriteRunner.builder()` to configure and `.build().run()` to execute. Returns a `RunResult`.
+**`OpenRewriteRunner`** (`io.github.skhokhlov.rewriterunner`) — programmatic entry point; use `OpenRewriteRunner.builder()` to configure and `.build().run()` to execute. Returns a `RunResult`.
 
-**`RunResult`** (`org.example`) — holds `results: List<Result>`, `changedFiles: List<Path>`, `projectDir: Path`, and convenience properties `hasChanges`, `changeCount`.
+**`RunResult`** (`io.github.skhokhlov.rewriterunner`) — holds `results: List<Result>`, `changedFiles: List<Path>`, `projectDir: Path`, and convenience properties `hasChanges`, `changeCount`.
 
 **`RunCommand.call()`** now delegates entirely to `OpenRewriteRunner`, then passes `runResult.results` to `ResultFormatter` for CLI output. All orchestration logic lives in `OpenRewriteRunner.run()`.
 

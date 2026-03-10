@@ -6,8 +6,8 @@
         </encoder>
     </appender>
 
-    <!-- Show org.example logs at INFO and above on stderr -->
-    <logger name="org.example" level="INFO" additivity="false">
+    <!-- Show io.github.skhokhlov.rewriterunner logs at INFO and above on stderr -->
+    <logger name="io.github.skhokhlov.rewriterunner" level="INFO" additivity="false">
         <appender-ref ref="STDERR"/>
     </logger>
 
