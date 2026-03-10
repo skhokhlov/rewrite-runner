@@ -318,7 +318,7 @@ Unresolved types appear as `JavaType.Unknown` in the LST, but all structural, te
 | Extension | Parser |
 |-----------|--------|
 | `.java` | `JavaParser` (with classpath from 3-stage pipeline) |
-| `.kt` | `KotlinParser` |
+| `.kt`, `.kts` | `KotlinParser` |
 | `.groovy` | `GroovyParser` |
 | `.yaml`, `.yml` | `YamlParser` |
 | `.json` | `JsonParser` |

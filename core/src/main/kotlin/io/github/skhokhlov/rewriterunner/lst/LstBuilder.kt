@@ -44,7 +44,7 @@ class LstBuilder(
 
     /** Default set of extensions supported out of the box. */
     private val defaultExtensions =
-        setOf(".java", ".kt", ".groovy", ".yaml", ".yml", ".json", ".xml", ".properties")
+        setOf(".java", ".kt", ".kts", ".groovy", ".yaml", ".yml", ".json", ".xml", ".properties")
 
     /** Directories excluded from the recursive walk. */
     private val excludedDirNames = setOf(
@@ -126,10 +126,11 @@ class LstBuilder(
             }
         }
 
-        filesByExt[".kt"]?.let { files ->
-            log.info("Parsing ${files.size} Kotlin file(s)")
+        val kotlinFiles = ((filesByExt[".kt"] ?: emptyList()) + (filesByExt[".kts"] ?: emptyList()))
+        if (kotlinFiles.isNotEmpty()) {
+            log.info("Parsing ${kotlinFiles.size} Kotlin file(s)")
             val parser = KotlinParser.builder().classpath(classpath).build()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            parser.parse(kotlinFiles, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".groovy"]?.let { files ->

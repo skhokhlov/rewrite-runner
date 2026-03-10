@@ -145,6 +145,149 @@ class KotlinProjectIntegrationTest :
             )
         }
 
+        // ─── Kotlin Script (.kts) support ────────────────────────────────────────
+
+        test("FindAndReplace modifies kts script file content") {
+            val ktsFile = projectDir.resolve("build.gradle.kts")
+            ktsFile.writeText(
+                """
+                plugins {
+                    kotlin("jvm") version "PLACEHOLDER"
+                }
+                """.trimIndent()
+            )
+            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "2.0.0")
+
+            val result =
+                runCli(
+                    "--project-dir",
+                    projectDir.toString(),
+                    "--active-recipe",
+                    "com.example.integration.FindAndReplace",
+                    "--rewrite-config",
+                    projectDir.resolve("rewrite.yaml").toString(),
+                    "--cache-dir",
+                    cacheDir.toString(),
+                    "--include-extensions",
+                    ".kts"
+                )
+
+            assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
+            val content = ktsFile.readText()
+            assertTrue(content.contains("2.0.0"), "PLACEHOLDER should be replaced in .kts file")
+            assertTrue(!content.contains("PLACEHOLDER"), "Original placeholder should not remain")
+        }
+
+        test("kts files are included by default without explicit include-extensions") {
+            val ktsFile = projectDir.resolve("settings.gradle.kts")
+            ktsFile.writeText("rootProject.name = \"PLACEHOLDER\"")
+            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "my-project")
+
+            val result =
+                runCli(
+                    "--project-dir",
+                    projectDir.toString(),
+                    "--active-recipe",
+                    "com.example.integration.FindAndReplace",
+                    "--rewrite-config",
+                    projectDir.resolve("rewrite.yaml").toString(),
+                    "--cache-dir",
+                    cacheDir.toString()
+                )
+
+            assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
+            assertTrue(
+                ktsFile.readText().contains("my-project"),
+                ".kts file should be processed by default"
+            )
+        }
+
+        test("FindAndReplace with --dry-run does not modify kts file") {
+            val ktsFile = projectDir.resolve("build.gradle.kts")
+            val original = "val version = \"PLACEHOLDER\""
+            ktsFile.writeText(original)
+            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "1.0.0")
+
+            runCli(
+                "--project-dir",
+                projectDir.toString(),
+                "--active-recipe",
+                "com.example.integration.FindAndReplace",
+                "--rewrite-config",
+                projectDir.resolve("rewrite.yaml").toString(),
+                "--cache-dir",
+                cacheDir.toString(),
+                "--include-extensions",
+                ".kts",
+                "--dry-run"
+            )
+
+            assertEquals(
+                original,
+                ktsFile.readText(),
+                "--dry-run must not write changes for .kts files"
+            )
+        }
+
+        test("both kt and kts files are processed when no include-extensions is set") {
+            val ktFile = projectDir.resolve("Main.kt")
+            val ktsFile = projectDir.resolve("build.gradle.kts")
+            ktFile.writeText("val url = \"PLACEHOLDER\"")
+            ktsFile.writeText("val url = \"PLACEHOLDER\"")
+            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "REPLACED")
+
+            runCli(
+                "--project-dir",
+                projectDir.toString(),
+                "--active-recipe",
+                "com.example.integration.FindAndReplace",
+                "--rewrite-config",
+                projectDir.resolve("rewrite.yaml").toString(),
+                "--cache-dir",
+                cacheDir.toString()
+            )
+
+            assertTrue(
+                ktFile.readText().contains("REPLACED"),
+                ".kt file should be modified"
+            )
+            assertTrue(
+                ktsFile.readText().contains("REPLACED"),
+                ".kts file should be modified"
+            )
+        }
+
+        test("only kts files are modified when include-extensions is dot-kts") {
+            val ktFile = projectDir.resolve("App.kt")
+            val ktsFile = projectDir.resolve("build.gradle.kts")
+            ktFile.writeText("val url = \"PLACEHOLDER\"")
+            ktsFile.writeText("val version = \"PLACEHOLDER\"")
+            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "REPLACED")
+
+            runCli(
+                "--project-dir",
+                projectDir.toString(),
+                "--active-recipe",
+                "com.example.integration.FindAndReplace",
+                "--rewrite-config",
+                projectDir.resolve("rewrite.yaml").toString(),
+                "--cache-dir",
+                cacheDir.toString(),
+                "--include-extensions",
+                ".kts"
+            )
+
+            assertEquals(
+                "val url = \"PLACEHOLDER\"",
+                ktFile.readText(),
+                ".kt file should not be touched when only .kts is included"
+            )
+            assertTrue(
+                ktsFile.readText().contains("REPLACED"),
+                ".kts file should be modified"
+            )
+        }
+
         // ─── Extension filtering ──────────────────────────────────────────────────
 
         test("only kt files are processed when include-extensions is dot-kt") {
