@@ -1,13 +1,11 @@
 plugins {
     `maven-publish`
     signing
-    id("org.jetbrains.dokka")
     java
 }
 
 java {
     withSourcesJar()
-    withJavadocJar()
 }
 
 publishing {
