@@ -1,4 +1,4 @@
-# openrewrite-runner
+# rewrite-runner
 
 A self-hosted CLI tool for running [OpenRewrite](https://docs.openrewrite.org/) recipes against arbitrary repositories — without requiring the target project's build to be working.
 
@@ -59,7 +59,7 @@ dependencies {
 ### Kotlin usage
 
 ```kotlin
-import org.example.OpenRewriteRunner
+import io.github.skhokhlov.rewriterunner.OpenRewriteRunner
 import java.nio.file.Paths
 
 fun main() {
@@ -78,8 +78,8 @@ fun main() {
 ### Java usage
 
 ```java
-import org.example.OpenRewriteRunner;
-import org.example.RunResult;
+import io.github.skhokhlov.rewriterunner.OpenRewriteRunner;
+import io.github.skhokhlov.rewriterunner.RunResult;
 import java.nio.file.Paths;
 
 public class Example {
@@ -103,8 +103,8 @@ public class Example {
 If you want formatted output (diff, file list, or JSON report), use `ResultFormatter` directly:
 
 ```kotlin
-import org.example.output.OutputMode
-import org.example.output.ResultFormatter
+import io.github.skhokhlov.rewriterunner.output.OutputMode
+import io.github.skhokhlov.rewriterunner.output.ResultFormatter
 
 val result = runner.run()
 ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
@@ -119,7 +119,7 @@ ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
 | `recipeArtifact(String)` | optional (repeatable) | — | Maven coordinate of a recipe JAR |
 | `recipeArtifacts(List<String>)` | optional | — | Set all recipe artifact coordinates at once |
 | `rewriteConfig(Path)` | optional | `<projectDir>/rewrite.yaml` | Custom `rewrite.yaml` path |
-| `cacheDir(Path)` | optional | `~/.openscript/cache` | JAR download cache directory |
+| `cacheDir(Path)` | optional | `~/.rewriterunner/cache` | JAR download cache directory |
 | `configFile(Path)` | optional | — | Path to `openrewrite-runner.yml` |
 | `dryRun(Boolean)` | optional | `false` | Analyse without writing to disk |
 | `includeExtensions(List<String>)` | optional | all supported | File extensions to parse |
@@ -144,7 +144,7 @@ Usage: openrewrite-runner [-h] [--dry-run] [--active-recipe=<recipe>]
 | `--recipe-artifact` | Maven coordinate of a recipe JAR to load (repeatable) | — |
 | `--rewrite-config` | Path to `rewrite.yaml` for custom recipe compositions | `<project-dir>/rewrite.yaml` |
 | `--output`, `-o` | Output mode: `diff`, `files`, or `report` | `diff` |
-| `--cache-dir` | Directory for caching downloaded JARs | `~/.openscript/cache` |
+| `--cache-dir` | Directory for caching downloaded JARs | `~/.rewriterunner/cache` |
 | `--config` | Path to tool config file (`openrewrite-runner.yml`) | — |
 | `--dry-run` | Run recipe but do not write changes to disk | `false` |
 | `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
@@ -197,7 +197,7 @@ Specify recipe JARs using Maven coordinates. The `--recipe-artifact` flag can be
 
 `LATEST` resolves to the most recent release. Specific versions (e.g. `2.21.0`) are also accepted.
 
-Downloaded JARs are cached in `~/.openscript/cache` (or `--cache-dir`) and reused on subsequent runs.
+Downloaded JARs are cached in `~/.rewriterunner/cache` (or `--cache-dir`) and reused on subsequent runs.
 
 ## Custom Recipe Compositions
 
@@ -234,7 +234,7 @@ repositories:
     username: ${NEXUS_USER}
     password: ${NEXUS_PASSWORD}
 
-cacheDir: ~/.openscript/cache
+cacheDir: ~/.rewriterunner/cache
 
 parse:
   includeExtensions: [".java", ".kt", ".xml"]
@@ -294,7 +294,7 @@ The parsed file set is configurable via `--include-extensions`, `--exclude-exten
 ./gradlew test
 
 # Run a specific test class
-./gradlew test --tests "org.example.output.ResultFormatterTest"
+./gradlew test --tests "io.github.skhokhlov.rewriterunner.output.ResultFormatterTest"
 
 # Build and run locally
 ./gradlew shadowJar

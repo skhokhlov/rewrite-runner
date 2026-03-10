@@ -3,7 +3,7 @@ plugins {
     id("com.gradleup.shadow")
 }
 
-group = "org.example"
+group = "io.github.skhokhlov.rewriterunner"
 version = "1.0-SNAPSHOT"
 
 kotlin {
@@ -34,7 +34,7 @@ tasks.shadowJar {
     archiveClassifier.set("all")
     mergeServiceFiles()
     manifest {
-        attributes["Main-Class"] = "org.example.MainKt"
+        attributes["Main-Class"] = "io.github.skhokhlov.rewriterunner.MainKt"
     }
 }
 

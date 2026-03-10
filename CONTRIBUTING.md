@@ -36,7 +36,7 @@ Thank you for your interest in contributing! This document outlines the process 
 ./gradlew test
 
 # Run a single test class
-./gradlew test --tests "org.example.output.ResultFormatterTest"
+./gradlew test --tests "io.github.skhokhlov.rewriterunner.output.ResultFormatterTest"
 
 # Run the tool locally
 java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
