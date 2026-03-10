@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm") apply false
     id("com.gradleup.shadow") apply false
+    id("org.jetbrains.dokka") // applied at root for multi-module HTML aggregation
 }
 
 // Resolve ktlint CLI directly from Maven Central — no third-party Gradle plugin needed.
