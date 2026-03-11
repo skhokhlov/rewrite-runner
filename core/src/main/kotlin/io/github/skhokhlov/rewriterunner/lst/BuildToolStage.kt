@@ -156,17 +156,22 @@ open class BuildToolStage {
     }
 
     companion object {
+        // Uses tasks.register() (lazy) instead of the deprecated eager `task` syntax.
+        // Uses configuration.incoming.files instead of the deprecated
+        // resolvedConfiguration.resolvedArtifacts API (removed in Gradle 9 without --rerun).
         private val GRADLE_INIT_SCRIPT = """
             allprojects {
-                task printClasspathForOpenRewrite {
+                tasks.register('printClasspathForOpenRewrite') {
                     doLast {
                         def cp = configurations.findByName('testRuntimeClasspath')
                             ?: configurations.findByName('runtimeClasspath')
                             ?: configurations.findByName('testCompileClasspath')
                             ?: configurations.findByName('compileClasspath')
                             ?: configurations.findByName('default')
-                        cp?.resolvedConfiguration?.resolvedArtifacts?.each { artifact ->
-                            println artifact.file.absolutePath
+                        cp?.incoming?.files?.each { file ->
+                            if (file.name.endsWith('.jar')) {
+                                println file.absolutePath
+                            }
                         }
                     }
                 }
