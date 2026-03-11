@@ -152,6 +152,11 @@ class LstBuilder(
             "Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)"
         )
 
+        // ── Gradle DSL classpath (resolved at most once per build() call) ─────
+        // Populated lazily; only incurs the filesystem walk when .gradle or .gradle.kts
+        // files are actually present in the project.
+        val gradleDslClasspath: List<Path> by lazy { resolveGradleDslClasspath(projectDir) }
+
         // ── Parse each language ───────────────────────────────────────────────
         val allSources = mutableListOf<SourceFile>()
 
@@ -221,7 +226,6 @@ class LstBuilder(
 
             if (gradleKtsFiles.isNotEmpty()) {
                 log.info("Parsing ${gradleKtsFiles.size} Gradle Kotlin DSL script(s)")
-                val gradleDslClasspath = resolveGradleDslClasspath(projectDir)
                 if (gradleDslClasspath.isNotEmpty()) {
                     log.info(
                         "Augmenting KotlinParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
@@ -242,7 +246,6 @@ class LstBuilder(
 
         filesByExt[".gradle"]?.let { files ->
             log.info("Parsing ${files.size} Gradle Groovy DSL file(s)")
-            val gradleDslClasspath = resolveGradleDslClasspath(projectDir)
             if (gradleDslClasspath.isNotEmpty()) {
                 log.info(
                     "Augmenting GroovyParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
