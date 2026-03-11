@@ -39,12 +39,16 @@ class ResultFormatter(
             outputMode,
             PrintStream(
                 object : OutputStream() {
+                    // OutputStream.write(int) receives a single byte (0–255); Writer.write(int)
+                    // treats its argument as a Unicode codepoint, so we must convert explicitly.
                     override fun write(b: Int) {
-                        writer.write(b)
+                        writer.write(String(byteArrayOf(b.toByte()), Charsets.UTF_8))
                     }
+
                     override fun write(b: ByteArray, off: Int, len: Int) {
-                        writer.write(String(b, off, len))
+                        writer.write(String(b, off, len, Charsets.UTF_8))
                     }
+
                     override fun flush() {
                         writer.flush()
                     }
