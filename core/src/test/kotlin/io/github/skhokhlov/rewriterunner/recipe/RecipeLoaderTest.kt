@@ -122,4 +122,38 @@ class RecipeLoaderTest :
                 "Exception message should explain the recipe was not found: $msg"
             )
         }
+
+        // ─── YAML content string overload ────────────────────────────────────────
+
+        test("load with yaml content string activates composite recipe") {
+            val yamlContent =
+                """
+                ---
+                type: specs.openrewrite.org/v1beta/recipe
+                name: com.example.test.FindTxtFiles
+                recipeList:
+                  - org.openrewrite.FindSourceFiles:
+                      filePattern: "**/*.txt"
+                """.trimIndent()
+
+            val recipe =
+                RecipeLoader().load(
+                    recipeJars = emptyList(),
+                    activeRecipeName = "com.example.test.FindTxtFiles",
+                    rewriteYamlContent = yamlContent
+                )
+
+            assertNotNull(recipe)
+            assertEquals("com.example.test.FindTxtFiles", recipe.name)
+        }
+
+        test("load with null yaml content string falls back to classpath scan") {
+            val recipe =
+                RecipeLoader().load(
+                    recipeJars = emptyList(),
+                    activeRecipeName = "org.openrewrite.FindSourceFiles",
+                    rewriteYamlContent = null
+                )
+            assertNotNull(recipe)
+        }
     })

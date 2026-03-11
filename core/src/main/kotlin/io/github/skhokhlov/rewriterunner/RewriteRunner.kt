@@ -92,15 +92,23 @@ class RewriteRunner private constructor(private val config: Builder) {
             emptyList()
         }
 
-        // 3. Load recipe
+        // 3. Load recipe (precedence: string content > explicit path > implicit projectDir/rewrite.yaml)
         log.info("[3/6] Loading recipe '${config.activeRecipe}'")
-        val effectiveRewriteConfig = config.rewriteConfig
-            ?: config.projectDir.resolve("rewrite.yaml")
-        val recipe = RecipeLoader().load(
-            recipeJars = recipeJars,
-            activeRecipeName = config.activeRecipe,
-            rewriteYaml = effectiveRewriteConfig
-        )
+        val recipe = if (config.rewriteConfigContent != null) {
+            RecipeLoader().load(
+                recipeJars = recipeJars,
+                activeRecipeName = config.activeRecipe,
+                rewriteYamlContent = config.rewriteConfigContent
+            )
+        } else {
+            val effectiveRewriteConfig =
+                config.rewriteConfig ?: config.projectDir.resolve("rewrite.yaml")
+            RecipeLoader().load(
+                recipeJars = recipeJars,
+                activeRecipeName = config.activeRecipe,
+                rewriteYaml = effectiveRewriteConfig
+            )
+        }
         log.info("      Recipe ready: ${recipe.name}")
 
         // 4. Build LST (3-stage pipeline)
@@ -197,6 +205,8 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var rewriteConfig: Path? = null
             private set
+        internal var rewriteConfigContent: String? = null
+            private set
         internal var cacheDir: Path? = null
             private set
         internal var configFile: Path? = null
@@ -239,6 +249,10 @@ class RewriteRunner private constructor(private val config: Builder) {
 
         /** Path to a `rewrite.yaml` file for custom composite recipes. */
         fun rewriteConfig(path: Path): Builder = apply { rewriteConfig = path }
+
+        /** Raw `rewrite.yaml` content. Takes precedence over [rewriteConfig] when both are set. */
+        fun rewriteConfigContent(content: String): Builder =
+            apply { rewriteConfigContent = content }
 
         /**
          * Directory used to cache downloaded recipe JARs.
