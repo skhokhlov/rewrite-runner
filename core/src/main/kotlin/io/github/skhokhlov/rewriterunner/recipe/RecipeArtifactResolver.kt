@@ -8,6 +8,8 @@ import org.eclipse.aether.graph.Dependency
 import org.eclipse.aether.resolution.DependencyRequest
 import org.eclipse.aether.resolution.DependencyResolutionException
 import org.eclipse.aether.resolution.VersionRangeRequest
+import org.eclipse.aether.util.artifact.JavaScopes
+import org.eclipse.aether.util.filter.DependencyFilterUtils
 import org.slf4j.LoggerFactory
 
 /**
@@ -50,9 +52,13 @@ open class RecipeArtifactResolver(private val context: AetherContext) {
         log.info("Resolving $groupId:$artifactId:$resolvedVersion")
 
         val artifact = DefaultArtifact("$groupId:$artifactId:$resolvedVersion")
-        val dep = Dependency(artifact, "runtime")
+        val dep = Dependency(artifact, JavaScopes.RUNTIME)
         val collectRequest = CollectRequest(dep, context.remoteRepos)
-        val depRequest = DependencyRequest(collectRequest, null)
+        val classpathFilter = DependencyFilterUtils.classpathFilter(
+            JavaScopes.COMPILE,
+            JavaScopes.RUNTIME
+        )
+        val depRequest = DependencyRequest(collectRequest, classpathFilter)
 
         val paths =
             try {

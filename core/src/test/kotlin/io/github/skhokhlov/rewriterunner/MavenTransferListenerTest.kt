@@ -6,9 +6,15 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.eclipse.aether.artifact.DefaultArtifact
+import org.eclipse.aether.metadata.DefaultMetadata
+import org.eclipse.aether.metadata.Metadata
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.eclipse.aether.transfer.ArtifactNotFoundException
+import org.eclipse.aether.transfer.MetadataNotFoundException
 import org.eclipse.aether.transfer.TransferEvent
 import org.eclipse.aether.transfer.TransferResource
 import org.slf4j.LoggerFactory
@@ -28,20 +34,19 @@ class MavenTransferListenerTest :
 
         afterEach { logger.detachAppender(appender) }
 
-        fun session() =
-            RepositorySystemSupplier()
-                .get()
-                .createSessionBuilder()
-                .withLocalRepositories(
-                    LocalRepository(Files.createTempDirectory("aether-test-"))
-                )
-                .build()
+        fun session() = RepositorySystemSupplier()
+            .get()
+            .createSessionBuilder()
+            .withLocalRepositories(
+                LocalRepository(Files.createTempDirectory("aether-test-"))
+            )
+            .build()
 
         fun resource(
             repoId: String = "central",
             repoUrl: String = "https://repo.maven.apache.org/maven2/",
             resourceName: String = "org/openrewrite/rewrite-core/8.75.3/rewrite-core-8.75.3.jar",
-            contentLength: Long = 0L,
+            contentLength: Long = 0L
         ): TransferResource =
             TransferResource(repoId, repoUrl, resourceName, null as java.nio.file.Path?, null, null)
                 .setContentLength(contentLength)
@@ -161,5 +166,36 @@ class MavenTransferListenerTest :
                 },
                 "Expected failed message with URL and error; got: $messages"
             )
+        }
+
+        test("transferFailed logs ArtifactNotFoundException at DEBUG not WARN") {
+            val r = resource()
+            val artifact = DefaultArtifact("log4j:log4j:1.2.17.redhat-00008")
+            MavenTransferListener().transferFailed(
+                failedEvent(r, cause = ArtifactNotFoundException(artifact, "not found in central"))
+            )
+
+            val levels = appender.list.map { it.level }
+            assertTrue(Level.DEBUG in levels, "Expected DEBUG level; got: $levels")
+            assertFalse(Level.WARN in levels, "Expected no WARN level; got: $levels")
+        }
+
+        test("transferFailed logs MetadataNotFoundException at DEBUG not WARN") {
+            val r = resource()
+            val metadata =
+                DefaultMetadata(
+                    "org.springframework.osgi",
+                    "log4j.osgi",
+                    "1.2.15-SNAPSHOT",
+                    "maven-metadata.xml",
+                    Metadata.Nature.RELEASE_OR_SNAPSHOT
+                )
+            MavenTransferListener().transferFailed(
+                failedEvent(r, cause = MetadataNotFoundException(metadata, null, "not found"))
+            )
+
+            val levels = appender.list.map { it.level }
+            assertTrue(Level.DEBUG in levels, "Expected DEBUG level; got: $levels")
+            assertFalse(Level.WARN in levels, "Expected no WARN level; got: $levels")
         }
     })

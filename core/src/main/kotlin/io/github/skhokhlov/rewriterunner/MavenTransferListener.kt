@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner
 
 import org.eclipse.aether.transfer.AbstractTransferListener
+import org.eclipse.aether.transfer.ArtifactNotFoundException
+import org.eclipse.aether.transfer.MetadataNotFoundException
 import org.eclipse.aether.transfer.TransferEvent
 import org.slf4j.LoggerFactory
 
@@ -36,24 +38,27 @@ class MavenTransferListener : AbstractTransferListener() {
             r.repositoryUrl,
             r.resourceName,
             size,
-            speed,
+            speed
         )
     }
 
     override fun transferFailed(event: TransferEvent) {
         val r = event.resource
-        log.warn(
-            "Failed to download {}{}: {}",
+        val msg = "Failed to download {}{}: {}"
+        val args = arrayOf(
             r.repositoryUrl,
             r.resourceName,
-            event.exception?.message ?: "unknown error",
+            event.exception?.message ?: "unknown error"
         )
+        when (event.exception) {
+            is ArtifactNotFoundException, is MetadataNotFoundException -> log.debug(msg, *args)
+            else -> log.warn(msg, *args)
+        }
     }
 
-    private fun formatBytes(bytes: Long): String =
-        when {
-            bytes < 1_024 -> "$bytes B"
-            bytes < 1_024 * 1_024 -> "${bytes / 1_024} kB"
-            else -> String.format("%.1f MB", bytes.toDouble() / (1_024 * 1_024))
-        }
+    private fun formatBytes(bytes: Long): String = when {
+        bytes < 1_024 -> "$bytes B"
+        bytes < 1_024 * 1_024 -> "${bytes / 1_024} kB"
+        else -> String.format("%.1f MB", bytes.toDouble() / (1_024 * 1_024))
+    }
 }
