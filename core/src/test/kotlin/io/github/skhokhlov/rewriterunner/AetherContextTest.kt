@@ -36,6 +36,15 @@ class AetherContextTest :
             )
         }
 
+        test("build configures a DependencyGraphTransformer for conflict resolution") {
+            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            assertNotNull(
+                ctx.session.dependencyGraphTransformer,
+                "Session must have a DependencyGraphTransformer so Maven conflict " +
+                    "resolution selects one version per artifact"
+            )
+        }
+
         test("build with different localRepoDir values produces independent contexts") {
             val repoA = tempDir.resolve("repo-a")
             val repoB = tempDir.resolve("repo-b")

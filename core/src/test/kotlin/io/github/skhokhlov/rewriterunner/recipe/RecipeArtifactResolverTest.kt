@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package io.github.skhokhlov.rewriterunner.recipe
 
 import ch.qos.logback.classic.Level
@@ -12,6 +14,7 @@ import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.jar.JarOutputStream
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -20,6 +23,11 @@ import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
 import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.eclipse.aether.util.graph.transformer.ClassicConflictResolver
+import org.eclipse.aether.util.graph.transformer.JavaScopeDeriver
+import org.eclipse.aether.util.graph.transformer.JavaScopeSelector
+import org.eclipse.aether.util.graph.transformer.NearestVersionSelector
+import org.eclipse.aether.util.graph.transformer.SimpleOptionalitySelector
 import org.slf4j.LoggerFactory
 
 class RecipeArtifactResolverTest :
@@ -576,6 +584,102 @@ class RecipeArtifactResolverTest :
             assertTrue(
                 messages.any { it.startsWith("Downloaded from fake-central:") },
                 "Expected 'Downloaded from fake-central:' log line; got: $messages"
+            )
+        }
+
+        // ─── resolveAll (multi-artifact batch resolution) ─────────────────────────
+
+        test(
+            "resolveAll applies conflict resolution when multiple recipe artifacts share a common transitive dependency at different versions"
+        ) {
+            // When multiple --recipe-artifact flags are passed, resolving each independently
+            // causes both versions of a shared transitive dep to appear on the classpath
+            // (e.g. jackson:2.14 from recipe-alpha AND jackson:2.15 from recipe-beta).
+            // resolveAll() builds a single CollectRequest so Maven's ConflictResolver picks one.
+            val group = "recipe.conflict"
+            val groupPath = group.replace('.', '/')
+            val fakeRemote = cacheDir.resolve("fake-remote")
+
+            fun publishArtifact(
+                artifactId: String,
+                version: String,
+                deps: List<Pair<String, String>> = emptyList()
+            ) {
+                val dir = fakeRemote.resolve("$groupPath/$artifactId/$version")
+                Files.createDirectories(dir)
+                val depsXml =
+                    deps.joinToString("\n") { (a, v) ->
+                        "<dependency><groupId>$group</groupId>" +
+                            "<artifactId>$a</artifactId><version>$v</version></dependency>"
+                    }
+                dir
+                    .resolve("$artifactId-$version.pom")
+                    .toFile()
+                    .writeText(
+                        """<?xml version="1.0"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>$group</groupId>
+  <artifactId>$artifactId</artifactId>
+  <version>$version</version>
+  ${if (depsXml.isNotEmpty()) "<dependencies>$depsXml</dependencies>" else ""}
+</project>"""
+                    )
+                JarOutputStream(
+                    dir.resolve("$artifactId-$version.jar").toFile().outputStream()
+                ).close()
+            }
+
+            publishArtifact("shared-lib", "1.0")
+            publishArtifact("shared-lib", "2.0")
+            publishArtifact("recipe-alpha", "1.0", listOf("shared-lib" to "1.0"))
+            publishArtifact("recipe-beta", "1.0", listOf("shared-lib" to "2.0"))
+
+            val system = RepositorySystemSupplier().get()
+            val localCache = cacheDir.resolve("local-cache")
+            Files.createDirectories(localCache)
+            val session =
+                system
+                    .createSessionBuilder()
+                    .withLocalRepositories(LocalRepository(localCache))
+                    .setSystemProperties(System.getProperties())
+                    .setDependencyGraphTransformer(
+                        @Suppress("DEPRECATION")
+                        ClassicConflictResolver(
+                            NearestVersionSelector(),
+                            JavaScopeSelector(),
+                            SimpleOptionalitySelector(),
+                            JavaScopeDeriver()
+                        )
+                    )
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 5_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 5_000)
+                    .setConfigProperty(
+                        "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
+                        false
+                    )
+                    .setIgnoreArtifactDescriptorRepositories(true)
+                    .build()
+            val fakeRemoteRepo =
+                listOf(
+                    RemoteRepository.Builder(
+                        "fake-central",
+                        "default",
+                        fakeRemote.toUri().toString()
+                    )
+                        .build()
+                )
+            val resolver = RecipeArtifactResolver(AetherContext(system, session, fakeRemoteRepo))
+
+            val paths =
+                resolver.resolveAll(
+                    listOf("$group:recipe-alpha:1.0", "$group:recipe-beta:1.0")
+                )
+            val sharedLibJars = paths.filter { it.fileName.toString().startsWith("shared-lib") }
+            assertEquals(
+                1,
+                sharedLibJars.size,
+                "Conflict resolution should select exactly one version of shared-lib; got: $sharedLibJars"
             )
         }
     })

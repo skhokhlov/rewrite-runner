@@ -8,6 +8,8 @@ import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.collection.CollectRequest
 import org.eclipse.aether.graph.Dependency
 import org.eclipse.aether.resolution.DependencyRequest
+import org.eclipse.aether.resolution.DependencyResolutionException
+import org.eclipse.aether.util.filter.ScopeDependencyFilter
 import org.slf4j.LoggerFactory
 
 /**
@@ -37,25 +39,32 @@ open class DependencyResolutionStage(private val context: AetherContext) {
         }
 
         log.info("Resolving ${coordinates.size} declared dependencies via Maven Resolver")
-        val resolved = mutableListOf<Path>()
-        val failed = mutableListOf<String>()
-
-        for (coord in coordinates) {
-            try {
-                val paths = resolveSingle(coord)
-                resolved.addAll(paths)
-            } catch (e: Exception) {
-                failed.add("$coord (${e.message})")
+        val deps = coordinates.map { Dependency(DefaultArtifact(it), "runtime") }
+        val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
+        val scopeFilter = ScopeDependencyFilter(null, listOf("test", "provided"))
+        val depRequest = DependencyRequest(collectRequest, scopeFilter)
+        return try {
+            context.system
+                .resolveDependencies(context.session, depRequest)
+                .artifactResults
+                .mapNotNull { it.artifact?.path }
+        } catch (e: DependencyResolutionException) {
+            val partial = e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty()
+            if (partial.isNotEmpty()) {
+                val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
+                log.warn(
+                    "Partial classpath resolution " +
+                        "(${partial.size} JAR(s); some deps missing): $firstError"
+                )
+                partial
+            } else {
+                log.warn(
+                    "Could not resolve project classpath: " +
+                        e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
+                )
+                emptyList()
             }
         }
-
-        if (failed.isNotEmpty()) {
-            log.warn(
-                "Could not resolve ${failed.size} dependencies: ${failed.joinToString(", ")}"
-            )
-        }
-
-        return resolved
     }
 
     // ─── Maven pom.xml parsing ────────────────────────────────────────────────
@@ -230,16 +239,5 @@ open class DependencyResolutionStage(private val context: AetherContext) {
             log.warn("Failed to parse Gradle build file: ${e.message}")
             emptyList()
         }
-    }
-
-    // ─── Maven Resolver ───────────────────────────────────────────────────────
-
-    private fun resolveSingle(coordinate: String): List<Path> {
-        val artifact = DefaultArtifact(coordinate)
-        val dep = Dependency(artifact, "runtime")
-        val collectRequest = CollectRequest(dep, context.remoteRepos)
-        val depRequest = DependencyRequest(collectRequest, null)
-        val result = context.system.resolveDependencies(context.session, depRequest)
-        return result.artifactResults.mapNotNull { it.artifact?.path }
     }
 }

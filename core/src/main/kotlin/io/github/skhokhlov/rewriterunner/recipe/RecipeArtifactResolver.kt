@@ -8,8 +8,7 @@ import org.eclipse.aether.graph.Dependency
 import org.eclipse.aether.resolution.DependencyRequest
 import org.eclipse.aether.resolution.DependencyResolutionException
 import org.eclipse.aether.resolution.VersionRangeRequest
-import org.eclipse.aether.util.artifact.JavaScopes
-import org.eclipse.aether.util.filter.DependencyFilterUtils
+import org.eclipse.aether.util.filter.ScopeDependencyFilter
 import org.slf4j.LoggerFactory
 
 /**
@@ -24,6 +23,49 @@ import org.slf4j.LoggerFactory
  */
 open class RecipeArtifactResolver(private val context: AetherContext) {
     private val log = LoggerFactory.getLogger(RecipeArtifactResolver::class.java.name)
+    private val runtimeScopeFilter = ScopeDependencyFilter(null, listOf("test", "provided"))
+
+    /**
+     * Resolve multiple Maven coordinates together in a single dependency graph,
+     * so Maven's conflict resolution (highest version wins) applies across all
+     * transitive dependencies. Use this when resolving several recipe artifacts
+     * that may share common transitive dependencies at different versions.
+     *
+     * LATEST version is resolved per-coordinate before the combined resolution.
+     */
+    fun resolveAll(coordinates: List<String>): List<Path> {
+        if (coordinates.isEmpty()) return emptyList()
+
+        val deps =
+            coordinates.map { Dependency(DefaultArtifact(resolveCoordinate(it)), "runtime") }
+        val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
+        val depRequest = DependencyRequest(collectRequest, runtimeScopeFilter)
+
+        val paths =
+            try {
+                context.system
+                    .resolveDependencies(context.session, depRequest)
+                    .artifactResults
+                    .mapNotNull { it.artifact?.path }
+            } catch (e: DependencyResolutionException) {
+                val partial =
+                    e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty()
+                val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
+                if (partial.isNotEmpty()) {
+                    log.warn(
+                        "Partial resolution " +
+                            "(${partial.size} JAR(s) resolved; some transitive deps missing): $firstError"
+                    )
+                    partial
+                } else {
+                    log.error("Cannot resolve recipe artifacts: $firstError")
+                    throw e
+                }
+            }
+
+        log.info("Resolved ${paths.size} JAR(s) total")
+        return paths
+    }
 
     /**
      * Resolve a Maven coordinate (groupId:artifactId:version) to a list of JAR paths
@@ -35,30 +77,11 @@ open class RecipeArtifactResolver(private val context: AetherContext) {
      * and returns whichever JARs were successfully resolved, rather than throwing.
      */
     fun resolve(coordinate: String): List<Path> {
-        val parts = coordinate.split(":")
-        require(parts.size >= 2) { "Invalid coordinate: $coordinate" }
+        val resolvedCoord = resolveCoordinate(coordinate)
 
-        val groupId = parts[0]
-        val artifactId = parts[1]
-        val version = if (parts.size >= 3) parts[2] else "LATEST"
-
-        val resolvedVersion =
-            if (version.equals("LATEST", ignoreCase = true)) {
-                resolveLatestVersion(groupId, artifactId)
-            } else {
-                version
-            }
-
-        log.info("Resolving $groupId:$artifactId:$resolvedVersion")
-
-        val artifact = DefaultArtifact("$groupId:$artifactId:$resolvedVersion")
-        val dep = Dependency(artifact, JavaScopes.RUNTIME)
+        val dep = Dependency(DefaultArtifact(resolvedCoord), "runtime")
         val collectRequest = CollectRequest(dep, context.remoteRepos)
-        val classpathFilter = DependencyFilterUtils.classpathFilter(
-            JavaScopes.COMPILE,
-            JavaScopes.RUNTIME
-        )
-        val depRequest = DependencyRequest(collectRequest, classpathFilter)
+        val depRequest = DependencyRequest(collectRequest, runtimeScopeFilter)
 
         val paths =
             try {
@@ -71,20 +94,34 @@ open class RecipeArtifactResolver(private val context: AetherContext) {
                 val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
                 if (partial.isNotEmpty()) {
                     log.warn(
-                        "Partial resolution for $groupId:$artifactId:$resolvedVersion " +
+                        "Partial resolution for $resolvedCoord " +
                             "(${partial.size} JAR(s) resolved; some transitive deps missing): $firstError"
                     )
                     partial
                 } else {
-                    log.error(
-                        "Cannot resolve $groupId:$artifactId:$resolvedVersion: $firstError"
-                    )
+                    log.error("Cannot resolve $resolvedCoord: $firstError")
                     throw e
                 }
             }
 
-        log.info("      $groupId:$artifactId:$resolvedVersion → ${paths.size} JAR(s)")
+        log.info("      $resolvedCoord → ${paths.size} JAR(s)")
         return paths
+    }
+
+    private fun resolveCoordinate(coordinate: String): String {
+        val parts = coordinate.split(":")
+        require(parts.size >= 2) { "Invalid coordinate: $coordinate" }
+        val groupId = parts[0]
+        val artifactId = parts[1]
+        val version = if (parts.size >= 3) parts[2] else "LATEST"
+        val resolvedVersion =
+            if (version.equals("LATEST", ignoreCase = true)) {
+                resolveLatestVersion(groupId, artifactId)
+            } else {
+                version
+            }
+        log.info("Resolving $groupId:$artifactId:$resolvedVersion")
+        return "$groupId:$artifactId:$resolvedVersion"
     }
 
     private fun resolveLatestVersion(groupId: String, artifactId: String): String {
