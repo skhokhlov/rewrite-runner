@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import kotlin.io.path.exists
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("io.github.skhokhlov.rewriterunner.lst.ProcessRunner")
@@ -56,4 +57,20 @@ internal fun runProcess(
     }
 
     return process.exitValue()
+}
+
+/** Returns `true` when [dir] contains a `build.gradle` or `build.gradle.kts` file. */
+internal fun hasBuildGradle(dir: Path): Boolean =
+    dir.resolve("build.gradle").exists() || dir.resolve("build.gradle.kts").exists()
+
+/**
+ * Returns the Gradle executable to use for [projectDir]:
+ * - `./gradlew` if a Unix wrapper is present
+ * - `gradlew.bat` if a Windows wrapper is present
+ * - `gradle` as a fallback (must be on PATH)
+ */
+internal fun resolveGradleCommand(projectDir: Path): String = when {
+    projectDir.resolve("gradlew").exists() -> "./gradlew"
+    projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
+    else -> "gradle"
 }
