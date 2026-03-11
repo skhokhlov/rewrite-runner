@@ -1,0 +1,93 @@
+# Architecture
+
+## Overview
+
+Fat JAR CLI that runs OpenRewrite recipes against arbitrary project directories **without requiring a working build system**. Also usable as a library (`core` module).
+
+**Entry point**: `Main.kt` → `CommandLine(RunCommand()).execute(*args)`.
+`RunCommand` is the **root command** (not a subcommand) — all options are passed directly without a "run" prefix.
+
+## Execution Pipeline
+
+Orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`:
+
+| Step | Class | Description |
+|------|-------|-------------|
+| 1 | `ToolConfig` | Load YAML config (env var interpolation, tilde expansion) |
+| 2 | `RecipeArtifactResolver` | Resolve recipe JARs from Maven coordinates |
+| 3 | `RecipeLoader` | Load recipe from JARs + optional `rewrite.yaml` |
+| 4 | `LstBuilder` | Build LST via 3-stage classpath pipeline + multi-language parsing |
+| 5 | `RecipeRunner` | Execute recipe, collect `List<Result>` |
+| 6 | — | Write changed files to disk (skipped when `dryRun = true`) |
+| 7 | `ResultFormatter` | Format output (diff / files / report) |
+
+## 3-Stage LST Classpath Resolution
+
+`LstBuilder` runs these stages in order, falling through on failure:
+
+- **Stage 1** (`BuildToolStage`): Subprocess Maven/Gradle to extract compile classpath. Falls through on failure.
+- **Stage 2** (`DependencyResolutionStage`): Parse `pom.xml`/`build.gradle` + Maven Resolver to download JARs. Falls through on failure.
+- **Stage 3** (`DirectParseStage`): Scan `~/.m2` and `~/.gradle/caches` for already-cached JARs. Always succeeds (possibly empty).
+
+The resolved classpath is **shared across all language parsers** — `JavaParser`, `KotlinParser`, and `GroovyParser` all receive the same project classpath so cross-language type references resolve correctly.
+
+`LstBuilder` also adds project class directories (`target/classes`, `build/classes/java/main`, etc.) to the classpath for cross-module type resolution.
+
+## File Routing by Extension
+
+`LstBuilder` routes files by extension. Excludes `build/`, `target/`, `node_modules/`, `.git/`, `.gradle/`, `.idea/`, `out/`, `dist/` by default.
+
+| Extension | Parser | Classpath |
+|-----------|--------|-----------|
+| `.java` | `JavaParser` | Project classpath |
+| `.kt` | `KotlinParser` | Project classpath |
+| `*.gradle.kts` | `KotlinParser` | Project classpath + Gradle DSL |
+| `.kts` (other) | `KotlinParser` | Project classpath |
+| `.groovy` | `GroovyParser` | Project classpath |
+| `.gradle` | `GroovyParser` | Project classpath + Gradle DSL |
+| `.yaml` / `.yml` | `YamlParser` | — |
+| `.json` | `JsonParser` | — |
+| `.xml` | `XmlParser` | — |
+| `.properties` | `PropertiesParser` | — |
+
+## Gradle DSL Classpath
+
+Resolved from the Gradle installation:
+`GRADLE_HOME` env var → project Gradle wrapper → `~/.gradle/wrapper/dists/` best-effort fallback.
+
+Only JARs in `lib/` (not `lib/plugins/` or `lib/agents/`) are included — provides core Gradle API types needed to parse build scripts. Applied only to `.gradle` and `*.gradle.kts` files.
+
+## Java / Kotlin Version Detection
+
+`LstBuilder` attaches a `JavaVersion` marker to each source file using a **walk-up mechanism**: starts at the file's directory and walks up to project root, so subproject-specific config overrides root config.
+
+**For `.java` files** — reads from nearest build file:
+- Maven: `<source>`, `<target>`, `<release>` in `maven-compiler-plugin`
+- Gradle: `jvmToolchain()`, `sourceCompatibility`
+
+**For `.kt` / `.kts` files** — Kotlin-specific settings take priority, shared settings are fallback:
+- Priority: `kotlin-maven-plugin <jvmTarget>`, `kotlinOptions.jvmTarget`, `JvmTarget.JVM_N`
+- Fallback: `jvmToolchain`, `sourceCompatibility`, `maven-compiler-plugin`
+
+## Module Structure
+
+```
+settings.gradle.kts
+buildSrc/                          # Convention plugins (shared build config)
+│   └── src/main/kotlin/
+│       ├── kotlin-convention.gradle.kts      # Kotlin JVM 21, JaCoCo, ktlint tasks
+│       ├── publishing-convention.gradle.kts  # maven-publish, signing, Dokka, POM
+│       └── dokka-convention.gradle.kts       # Dokka HTML docs
+core/                              # Library module (no embedded deps)
+│   └── src/main/kotlin/.../
+│       ├── RewriteRunner.kt       # Library facade / builder API
+│       ├── RunResult.kt
+│       ├── config/ToolConfig.kt
+│       ├── lst/                   # LstBuilder + 3 stages
+│       ├── output/ResultFormatter.kt
+│       └── recipe/                # RecipeArtifactResolver, RecipeLoader, RecipeRunner
+cli/                               # Fat JAR module
+│   └── src/main/kotlin/.../
+│       ├── Main.kt
+│       └── cli/RunCommand.kt
+```
