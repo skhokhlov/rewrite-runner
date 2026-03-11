@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+import org.slf4j.LoggerFactory
 import tools.jackson.dataformat.yaml.YAMLMapper
 import tools.jackson.module.kotlin.KotlinModule
 
@@ -87,6 +88,7 @@ data class ToolConfig(
     }
 
     companion object {
+        private val log = LoggerFactory.getLogger(ToolConfig::class.java.name)
         private val yaml = YAMLMapper.builder()
             .addModule(KotlinModule.Builder().build())
             .build()
@@ -110,7 +112,15 @@ data class ToolConfig(
 
         private fun interpolateEnvVars(text: String): String =
             Regex("""\$\{([^}]+)}""").replace(text) { match ->
-                System.getenv(match.groupValues[1]) ?: match.value
+                val varName = match.groupValues[1]
+                val value = System.getenv(varName)
+                if (value == null) {
+                    log.warn(
+                        "Environment variable '$varName' is not set; " +
+                            "placeholder '${match.value}' left as-is in config"
+                    )
+                }
+                value ?: match.value
             }
     }
 }
