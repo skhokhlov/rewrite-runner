@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
+import java.io.ByteArrayInputStream
 import java.io.FileInputStream
+import java.net.URI
 import java.net.URLClassLoader
 import java.nio.file.Path
 import java.util.Properties
@@ -94,6 +96,76 @@ class RecipeLoader {
         // the recipe causes NoClassDefFoundError when those classes are first needed.
         // The loader is a short-lived object tied to a single CLI/library invocation and
         // will be GC'd once the run completes, so explicit close() is unnecessary.
+        return recipe
+    }
+
+    /**
+     * Overload that accepts raw YAML content as a [String] instead of a file path.
+     * Use this when the `rewrite.yaml` content is already in memory and writing it to
+     * disk would be unnecessary I/O.
+     *
+     * @param rewriteYamlContent Raw YAML string, or `null` to skip YAML loading and rely
+     *   solely on classpath-scanned recipes.
+     */
+    fun load(
+        recipeJars: List<Path>,
+        activeRecipeName: String,
+        rewriteYamlContent: String?
+    ): Recipe {
+        val props = Properties()
+        val parentLoader = Thread.currentThread().contextClassLoader
+
+        val recipeClassLoader = if (recipeJars.isNotEmpty()) {
+            URLClassLoader(
+                recipeJars.map { it.toUri().toURL() }.toTypedArray(),
+                parentLoader
+            )
+        } else {
+            parentLoader
+        }
+
+        val builder = Environment.builder()
+
+        for (jar in recipeJars) {
+            log.debug("Scanning recipe JAR: $jar")
+            try {
+                builder.load(ClasspathScanningLoader(jar, props, emptyList(), recipeClassLoader))
+            } catch (e: Exception) {
+                log.warn("Failed to scan recipe JAR $jar (skipping): ${e.message}")
+            }
+        }
+
+        if (recipeJars.isEmpty()) {
+            try {
+                builder.load(ClasspathScanningLoader(props, recipeClassLoader))
+            } catch (e: Exception) {
+                log.warn("Failed to scan tool classpath (skipping): ${e.message}")
+            }
+        }
+
+        if (rewriteYamlContent != null) {
+            log.info("Loading rewrite.yaml from string content")
+            ByteArrayInputStream(rewriteYamlContent.toByteArray(Charsets.UTF_8)).use { stream ->
+                builder.load(
+                    YamlResourceLoader(stream, URI("string:rewrite.yaml"), props, recipeClassLoader)
+                )
+            }
+        }
+
+        val env = builder.build()
+        val recipe =
+            try {
+                env.activateRecipes(activeRecipeName)
+            } catch (e: RecipeException) {
+                throw IllegalArgumentException(
+                    "Recipe '$activeRecipeName' not found. " +
+                        "Verify the recipe name and that the correct recipe artifact is supplied via --recipe-artifact.",
+                    e
+                )
+            }
+        require(recipe.recipeList.isNotEmpty() || recipe.name == activeRecipeName) {
+            "Recipe '$activeRecipeName' not found. Verify the recipe name and that the correct recipe JAR is supplied via --recipe-artifact."
+        }
         return recipe
     }
 }
