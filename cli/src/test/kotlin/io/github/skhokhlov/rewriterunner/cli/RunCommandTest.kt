@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.cli
 
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.output.OutputMode
 import io.kotest.core.spec.style.FunSpec
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
@@ -81,7 +82,7 @@ class RunCommandTest :
             CommandLine(
                 cmd
             ).parseArgs("--active-recipe", "io.github.skhokhlov.rewriterunner.MyRecipe")
-            assertEquals("diff", cmd.outputMode, "Default output mode should be 'diff'")
+            assertEquals(OutputMode.DIFF, cmd.outputMode, "Default output mode should be DIFF")
         }
 
         test("default project-dir is current directory") {
@@ -217,10 +218,10 @@ class RunCommandTest :
                         "foobar"
                     )
 
-            assertEquals(
-                1,
+            assertNotEquals(
+                0,
                 code,
-                "Unknown --output value should exit with code 1, not silently fall back to diff"
+                "Unknown --output value should exit with non-zero code, not silently fall back to diff"
             )
             assertTrue(
                 errBaos.toString().contains("foobar"),

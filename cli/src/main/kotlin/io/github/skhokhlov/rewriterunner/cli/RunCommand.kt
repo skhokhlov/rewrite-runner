@@ -9,6 +9,7 @@ import java.util.concurrent.Callable
 import org.slf4j.LoggerFactory
 import picocli.CommandLine
 import picocli.CommandLine.Command
+import picocli.CommandLine.ITypeConverter
 import picocli.CommandLine.Option
 import picocli.CommandLine.Spec
 
@@ -55,9 +56,10 @@ class RunCommand : Callable<Int> {
     @Option(
         names = ["--output", "-o"],
         description = ["Output mode: diff (default), files, or report."],
-        defaultValue = "diff"
+        defaultValue = "DIFF",
+        converter = [OutputModeConverter::class]
     )
-    lateinit var outputMode: String
+    lateinit var outputMode: OutputMode
 
     @Option(
         names = ["--cache-dir"],
@@ -109,23 +111,6 @@ class RunCommand : Callable<Int> {
             setLogLevel(debug = debugLogging)
         }
 
-        // Validate output mode before doing any expensive work (fail fast)
-        val mode = when (outputMode.lowercase()) {
-            "diff" -> OutputMode.DIFF
-
-            "files" -> OutputMode.FILES
-
-            "report" -> OutputMode.REPORT
-
-            else -> {
-                spec.commandLine().err.println(
-                    "Unknown output mode '$outputMode'. Valid values: diff, files, report."
-                )
-                spec.commandLine().err.flush()
-                return 1
-            }
-        }
-
         return try {
             val builder = RewriteRunner.builder()
                 .projectDir(projectDir)
@@ -141,7 +126,7 @@ class RunCommand : Callable<Int> {
             val runResult = builder.build().run()
 
             ResultFormatter(
-                mode,
+                outputMode,
                 spec.commandLine().out
             ).format(runResult.results, runResult.projectDir)
 
@@ -159,4 +144,14 @@ class RunCommand : Callable<Int> {
             1
         }
     }
+}
+
+/** Case-insensitive converter so both "diff" and "DIFF" are accepted on the CLI. */
+private class OutputModeConverter : ITypeConverter<OutputMode> {
+    override fun convert(value: String): OutputMode =
+        OutputMode.entries.firstOrNull { it.name.equals(value, ignoreCase = true) }
+            ?: throw CommandLine.TypeConversionException(
+                "Unknown output mode '$value'. Valid values: " +
+                    OutputMode.entries.joinToString(", ") { it.name.lowercase() }
+            )
 }
