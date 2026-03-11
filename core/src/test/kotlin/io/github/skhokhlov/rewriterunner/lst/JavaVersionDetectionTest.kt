@@ -66,6 +66,17 @@ class JavaVersionDetectionTest :
             return marker
         }
 
+        fun buildAndGetJavaVersionForFile(relativeFilePath: String): JavaVersion {
+            val absPath = projectDir.resolve(relativeFilePath)
+            Files.createDirectories(absPath.parent)
+            absPath.writeText("class ${absPath.toFile().nameWithoutExtension} {}")
+            val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+            val javaFile = sources.single { it.sourcePath.toString() == relativeFilePath }
+            val marker = javaFile.markers.findFirst(JavaVersion::class.java).orElse(null)
+            assertNotNull(marker, "JavaVersion marker must be present on parsed Java source file")
+            return marker
+        }
+
         // ─── Maven: maven-compiler-plugin <configuration> ─────────────────────────
 
         test("Maven compiler plugin release element sets source and target") {
@@ -717,6 +728,191 @@ class JavaVersionDetectionTest :
             val jvmMajor = jvmMajorVersion()
             assertEquals(jvmMajor, version.sourceCompatibility)
             assertEquals(jvmMajor, version.targetCompatibility)
+        }
+
+        // ─── Marker metadata ──────────────────────────────────────────────────────
+
+        // ─── Multi-subproject build file resolution ───────────────────────────────
+
+        test(
+            "no root build file Maven subproject pom sets version for files in that subproject"
+        ) {
+            Files.createDirectories(projectDir.resolve("subproject1"))
+            projectDir.resolve("subproject1/pom.xml").writeText(
+                """
+                <project>
+                  <properties>
+                    <maven.compiler.release>17</maven.compiler.release>
+                  </properties>
+                </project>
+                """.trimIndent()
+            )
+
+            val version =
+                buildAndGetJavaVersionForFile("subproject1/src/main/java/Hello.java")
+            assertEquals("17", version.sourceCompatibility)
+            assertEquals("17", version.targetCompatibility)
+        }
+
+        test(
+            "no root build file Gradle subproject build.gradle.kts sets version for files in that subproject"
+        ) {
+            Files.createDirectories(projectDir.resolve("subproject1"))
+            projectDir.resolve("subproject1/build.gradle.kts").writeText(
+                """
+                plugins { kotlin("jvm") }
+                kotlin { jvmToolchain(21) }
+                """.trimIndent()
+            )
+
+            val version = buildAndGetJavaVersionForFile("subproject1/src/Hello.java")
+            assertEquals("21", version.sourceCompatibility)
+            assertEquals("21", version.targetCompatibility)
+        }
+
+        test(
+            "two Maven subprojects each with different Java versions resolve independently"
+        ) {
+            Files.createDirectories(projectDir.resolve("subproject1"))
+            Files.createDirectories(projectDir.resolve("subproject2"))
+            projectDir.resolve("subproject1/pom.xml").writeText(
+                """
+                <project>
+                  <properties>
+                    <maven.compiler.release>17</maven.compiler.release>
+                  </properties>
+                </project>
+                """.trimIndent()
+            )
+            projectDir.resolve("subproject2/pom.xml").writeText(
+                """
+                <project>
+                  <properties>
+                    <maven.compiler.release>11</maven.compiler.release>
+                  </properties>
+                </project>
+                """.trimIndent()
+            )
+
+            val absHello = projectDir.resolve("subproject1/src/main/java/Hello.java")
+            Files.createDirectories(absHello.parent)
+            absHello.writeText("class Hello {}")
+            val absWorld = projectDir.resolve("subproject2/src/main/java/World.java")
+            Files.createDirectories(absWorld.parent)
+            absWorld.writeText("class World {}")
+
+            val sources =
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+            val helloMarker =
+                sources
+                    .single { it.sourcePath.toString() == "subproject1/src/main/java/Hello.java" }
+                    .markers
+                    .findFirst(JavaVersion::class.java)
+                    .orElse(null)
+            val worldMarker =
+                sources
+                    .single { it.sourcePath.toString() == "subproject2/src/main/java/World.java" }
+                    .markers
+                    .findFirst(JavaVersion::class.java)
+                    .orElse(null)
+            assertNotNull(helloMarker)
+            assertNotNull(worldMarker)
+            assertEquals("17", helloMarker.sourceCompatibility)
+            assertEquals("11", worldMarker.sourceCompatibility)
+        }
+
+        test(
+            "two Gradle subprojects each with different Java versions resolve independently"
+        ) {
+            Files.createDirectories(projectDir.resolve("subproject1"))
+            Files.createDirectories(projectDir.resolve("subproject2"))
+            projectDir.resolve("subproject1/build.gradle.kts").writeText(
+                """
+                plugins { kotlin("jvm") }
+                kotlin { jvmToolchain(21) }
+                """.trimIndent()
+            )
+            projectDir.resolve("subproject2/build.gradle").writeText(
+                """
+                plugins { id 'java' }
+                sourceCompatibility = '11'
+                targetCompatibility = '11'
+                """.trimIndent()
+            )
+
+            val absAlpha = projectDir.resolve("subproject1/src/Alpha.java")
+            Files.createDirectories(absAlpha.parent)
+            absAlpha.writeText("class Alpha {}")
+            val absBeta = projectDir.resolve("subproject2/src/Beta.java")
+            Files.createDirectories(absBeta.parent)
+            absBeta.writeText("class Beta {}")
+
+            val sources =
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+            val alphaMarker =
+                sources
+                    .single { it.sourcePath.toString() == "subproject1/src/Alpha.java" }
+                    .markers
+                    .findFirst(JavaVersion::class.java)
+                    .orElse(null)
+            val betaMarker =
+                sources
+                    .single { it.sourcePath.toString() == "subproject2/src/Beta.java" }
+                    .markers
+                    .findFirst(JavaVersion::class.java)
+                    .orElse(null)
+            assertNotNull(alphaMarker)
+            assertNotNull(betaMarker)
+            assertEquals("21", alphaMarker.sourceCompatibility)
+            assertEquals("11", betaMarker.sourceCompatibility)
+        }
+
+        test("subproject build file takes precedence over root build file") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <properties>
+                    <maven.compiler.release>11</maven.compiler.release>
+                  </properties>
+                </project>
+                """.trimIndent()
+            )
+            Files.createDirectories(projectDir.resolve("subproject1"))
+            projectDir.resolve("subproject1/pom.xml").writeText(
+                """
+                <project>
+                  <properties>
+                    <maven.compiler.release>17</maven.compiler.release>
+                  </properties>
+                </project>
+                """.trimIndent()
+            )
+
+            val version =
+                buildAndGetJavaVersionForFile("subproject1/src/main/java/Hello.java")
+            assertEquals("17", version.sourceCompatibility)
+        }
+
+        test("deeply nested file with no subproject build file falls back to root build file") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <properties>
+                    <maven.compiler.release>11</maven.compiler.release>
+                  </properties>
+                </project>
+                """.trimIndent()
+            )
+
+            val version =
+                buildAndGetJavaVersionForFile("subproject1/src/main/java/Hello.java")
+            assertEquals("11", version.sourceCompatibility)
+        }
+
+        test("no build file anywhere in subproject path falls back to JVM version") {
+            val version = buildAndGetJavaVersionForFile("subproject1/src/Hello.java")
+            val jvmMajor = jvmMajorVersion()
+            assertEquals(jvmMajor, version.sourceCompatibility)
         }
 
         // ─── Marker metadata ──────────────────────────────────────────────────────

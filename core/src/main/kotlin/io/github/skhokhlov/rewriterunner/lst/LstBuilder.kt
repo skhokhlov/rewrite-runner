@@ -41,6 +41,30 @@ import org.slf4j.LoggerFactory
  * - `*.gradle.kts` — Kotlin DSL build scripts (e.g. `build.gradle.kts`, `settings.gradle.kts`)
  *
  * Plain `.kt` sources and non-Gradle `.kts` scripts receive only the regular project classpath.
+ *
+ * **Java version detection** — each `.java` source file receives a [org.openrewrite.java.marker.JavaVersion]
+ * marker whose `sourceCompatibility`/`targetCompatibility` values reflect the **nearest** build
+ * descriptor found by walking up from the file's own directory toward [build]'s `projectDir`.
+ * This means each subproject's Java files automatically pick up that subproject's setting:
+ *
+ * ```
+ * root/
+ *   pom.xml                          ← Java 11
+ *   subproject1/
+ *     pom.xml                        ← Java 17   ← wins for files under subproject1/
+ *     src/main/java/Hello.java       ← gets JavaVersion("17", "17")
+ *   subproject2/
+ *     src/main/java/World.java       ← no subproject pom.xml → falls back to root → "11"
+ * ```
+ *
+ * Detection priority within a single build descriptor:
+ * - **Maven**: plugin `<release>` > plugin `<source>`/`<target>` > `<properties>` entries.
+ * - **Gradle**: `compileJava.options.release` > `sourceCompatibility`/`targetCompatibility` >
+ *   `jvmToolchain()` / `JavaLanguageVersion.of()`.
+ *
+ * Legacy `"1.8"` format is normalised to `"8"`. Unresolvable placeholders (e.g.
+ * `${java.version}`) are skipped, and the walk-up continues. If no explicit version is
+ * found anywhere in the ancestor chain, the running JVM's major version is used as fallback.
  */
 class LstBuilder(
     private val cacheDir: Path,
@@ -242,22 +266,43 @@ class LstBuilder(
      * Detects the Java source/target version for a specific source file by walking
      * up its directory tree until a build file with an explicit Java version is found.
      *
-     * Walk-up semantics:
-     * - The **nearest** ancestor directory whose build file carries an explicit Java
-     *   version wins (innermost explicit declaration takes priority).
-     * - If a build file is present but declares **no** explicit version, the walk
-     *   continues upward — this enables submodule → parent inheritance without
-     *   requiring full Maven/Gradle model resolution.
-     * - Stops at [projectDir]; returns the running JVM's major version as fallback.
+     * **Walk-up algorithm:**
+     * Starting from the file's immediate parent directory, each level is examined:
+     * 1. If the directory contains `pom.xml`, parse it for Maven compiler settings.
+     * 2. Otherwise if it contains `build.gradle.kts` or `build.gradle`, parse it for
+     *    Gradle compatibility settings.
+     * 3. If no build file exists at this level, step up to the parent and repeat.
+     * 4. If a build file is found but declares **no** explicit Java version (e.g. an
+     *    aggregator `pom.xml` with no compiler configuration), step up and continue —
+     *    this enables submodule → parent version inheritance without requiring full
+     *    Maven/Gradle model resolution.
+     * 5. If [projectDir] is reached without finding any explicit version, return the
+     *    running JVM's major version as fallback.
      *
-     * Results are cached per directory so each `pom.xml` or `build.gradle` is read
-     * at most once per [build] invocation, regardless of how many Java files reside
-     * under a given module.
+     * **Multi-subproject example:**
+     * ```
+     * root/
+     *   pom.xml                          ← Java 11 (root)
+     *   subproject1/
+     *     pom.xml                        ← Java 17
+     *     src/main/java/Hello.java  →  walk: subproject1/src/main/java/ (no pom)
+     *                                        subproject1/src/main/ (no pom)
+     *                                        subproject1/src/ (no pom)
+     *                                        subproject1/ → pom.xml found → "17" ✓
+     *   subproject2/
+     *     src/main/java/World.java  →  walk: ... no pom in subproject2/ ...
+     *                                        root/ → pom.xml found → "11" ✓
+     * ```
+     *
+     * **Caching:** results are stored per directory so each `pom.xml` / `build.gradle`
+     * is read at most once per [build] invocation regardless of how many Java files
+     * reside under a given module. A `null` cache entry means a build file was found
+     * but contained no explicit version (triggers continued walk-up on next access).
      *
      * @param absFilePath Absolute path of the Java source file being parsed.
-     * @param projectDir  Root directory of the project (inclusive upper bound).
-     * @param cache       Mutable cache: directory → detected pair, or `null` when a
-     *                    build file was found but contained no explicit Java version.
+     * @param projectDir  Root directory of the project (inclusive upper bound of the walk).
+     * @param cache       Mutable cache: directory → detected `(source, target)` pair,
+     *                    or `null` when a build file was present but had no explicit version.
      */
     private fun detectJavaVersionForFile(
         absFilePath: Path,
