@@ -69,12 +69,7 @@ open class BuildToolStage {
         try {
             initScript.toFile().writeText(GRADLE_INIT_SCRIPT)
 
-            val gradleCmd = when {
-                projectDir.resolve("gradlew").exists() -> "./gradlew"
-                projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
-                else -> "gradle"
-            }
-
+            val gradleCmd = resolveGradleCommand(projectDir)
             log.info("Stage 1: running '$gradleCmd printClasspathForOpenRewrite'")
             val output = StringBuilder()
             val result = runProcess(
@@ -144,11 +139,7 @@ open class BuildToolStage {
     }
 
     private fun tryGradleCompile(projectDir: Path): Boolean {
-        val gradleCmd = when {
-            projectDir.resolve("gradlew").exists() -> "./gradlew"
-            projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
-            else -> "gradle"
-        }
+        val gradleCmd = resolveGradleCommand(projectDir)
         return try {
             val result = runProcess(projectDir, listOf(gradleCmd, "classes", "-q")) ?: return false
             if (result == 0) {
@@ -163,11 +154,6 @@ open class BuildToolStage {
             false
         }
     }
-
-    // ─── Helpers ─────────────────────────────────────────────────────────────
-
-    private fun hasBuildGradle(dir: Path): Boolean =
-        dir.resolve("build.gradle").exists() || dir.resolve("build.gradle.kts").exists()
 
     companion object {
         private val GRADLE_INIT_SCRIPT = """

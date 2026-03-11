@@ -97,12 +97,7 @@ open class DependencyResolutionStage(private val context: AetherContext) {
      * (no Gradle wrapper, non-zero exit, or no coordinates found in the output).
      */
     protected open fun runGradleDependenciesTask(projectDir: Path): List<String>? {
-        val gradleCmd = when {
-            projectDir.resolve("gradlew").exists() -> "./gradlew"
-            projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
-            else -> "gradle"
-        }
-
+        val gradleCmd = resolveGradleCommand(projectDir)
         val subprojects = discoverSubprojects(projectDir)
         // Build task list: root 'dependencies' + ':sub:dependencies' for each subproject.
         // The `gradle dependencies` task only covers the project it is applied to, so
@@ -247,7 +242,4 @@ open class DependencyResolutionStage(private val context: AetherContext) {
         val result = context.system.resolveDependencies(context.session, depRequest)
         return result.artifactResults.mapNotNull { it.artifact?.path }
     }
-
-    private fun hasBuildGradle(dir: Path): Boolean =
-        dir.resolve("build.gradle").exists() || dir.resolve("build.gradle.kts").exists()
 }
