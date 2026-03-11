@@ -2,7 +2,6 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
 import java.nio.file.Path
-import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.eclipse.aether.artifact.DefaultArtifact
@@ -251,43 +250,4 @@ open class DependencyResolutionStage(private val context: AetherContext) {
 
     private fun hasBuildGradle(dir: Path): Boolean =
         dir.resolve("build.gradle").exists() || dir.resolve("build.gradle.kts").exists()
-
-    // ─── Process runner ───────────────────────────────────────────────────────
-
-    private fun runProcess(
-        workDir: Path,
-        command: List<String>,
-        captureStdout: StringBuilder? = null,
-        timeoutSeconds: Long = 120
-    ): Int? {
-        val pb = ProcessBuilder(command).directory(workDir.toFile())
-
-        if (captureStdout != null) {
-            pb.redirectError(ProcessBuilder.Redirect.DISCARD)
-        } else {
-            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
-            pb.redirectError(ProcessBuilder.Redirect.DISCARD)
-        }
-
-        val process =
-            try {
-                pb.start()
-            } catch (e: Exception) {
-                log.warn("Failed to start process ${command.first()}: ${e.message}")
-                return null
-            }
-
-        if (captureStdout != null) {
-            captureStdout.append(process.inputStream.bufferedReader().readText())
-        }
-
-        val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
-        if (!finished) {
-            process.destroyForcibly()
-            log.warn("Process ${command.first()} timed out after ${timeoutSeconds}s")
-            return null
-        }
-
-        return process.exitValue()
-    }
 }
