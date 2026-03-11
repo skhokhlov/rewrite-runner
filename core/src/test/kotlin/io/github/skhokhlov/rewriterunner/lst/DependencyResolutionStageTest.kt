@@ -1,13 +1,25 @@
+@file:Suppress("DEPRECATION")
+
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.jar.JarOutputStream
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.eclipse.aether.ConfigurationProperties
+import org.eclipse.aether.repository.LocalRepository
+import org.eclipse.aether.repository.RemoteRepository
+import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.eclipse.aether.util.graph.transformer.ClassicConflictResolver
+import org.eclipse.aether.util.graph.transformer.JavaScopeDeriver
+import org.eclipse.aether.util.graph.transformer.JavaScopeSelector
+import org.eclipse.aether.util.graph.transformer.NearestVersionSelector
+import org.eclipse.aether.util.graph.transformer.SimpleOptionalitySelector
 
 /**
  * Tests the pom.xml / build.gradle parsing logic in DependencyResolutionStage
@@ -508,6 +520,118 @@ class DependencyResolutionStageTest :
             assertTrue(
                 resolved.any { it.fileName.toString() == "$artifact-$version.jar" },
                 "Should resolve the local artifact; resolved: $resolved"
+            )
+        }
+
+        // ─── Conflict resolution (single-pass batch resolution) ──────────────────
+
+        test(
+            "resolveClasspath applies Maven conflict resolution when two declared deps transitively require different versions of a shared artifact"
+        ) {
+            // Regression test: the original per-coordinate loop called Maven Resolver once per
+            // declared dependency in isolation, so ConflictResolver never saw competing versions
+            // across the full graph — both bc-fips:1.0.2.1 and bc-fips:1.0.2.6 would each be
+            // downloaded and put on the classpath.
+            //
+            // Fix: build a single CollectRequest with all declared dependencies so Maven Resolver's
+            // ConflictResolver/HighestVersionSelector fires across the entire combined graph.
+            val group = "conflict.test"
+            val groupPath = group.replace('.', '/')
+            val fakeRemote = cacheDir.resolve("fake-remote")
+
+            fun publishArtifact(
+                artifactId: String,
+                version: String,
+                deps: List<Pair<String, String>> = emptyList()
+            ) {
+                val dir = fakeRemote.resolve("$groupPath/$artifactId/$version")
+                Files.createDirectories(dir)
+                val depsXml =
+                    deps.joinToString("\n") { (a, v) ->
+                        "<dependency><groupId>$group</groupId>" +
+                            "<artifactId>$a</artifactId><version>$v</version></dependency>"
+                    }
+                dir
+                    .resolve("$artifactId-$version.pom")
+                    .toFile()
+                    .writeText(
+                        """<?xml version="1.0"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>$group</groupId>
+  <artifactId>$artifactId</artifactId>
+  <version>$version</version>
+  ${if (depsXml.isNotEmpty()) "<dependencies>$depsXml</dependencies>" else ""}
+</project>"""
+                    )
+                JarOutputStream(
+                    dir.resolve("$artifactId-$version.jar").toFile().outputStream()
+                ).close()
+            }
+
+            publishArtifact("shared-util", "1.0")
+            publishArtifact("shared-util", "2.0")
+            publishArtifact("dep-alpha", "1.0", listOf("shared-util" to "1.0"))
+            publishArtifact("dep-beta", "1.0", listOf("shared-util" to "2.0"))
+
+            projectDir.resolve("pom.xml").writeText(
+                """<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>my-app</artifactId>
+  <version>1.0</version>
+  <dependencies>
+    <dependency><groupId>$group</groupId><artifactId>dep-alpha</artifactId><version>1.0</version></dependency>
+    <dependency><groupId>$group</groupId><artifactId>dep-beta</artifactId><version>1.0</version></dependency>
+  </dependencies>
+</project>"""
+            )
+
+            val system = RepositorySystemSupplier().get()
+            val localCache = cacheDir.resolve("local-cache")
+            Files.createDirectories(localCache)
+            val session =
+                system
+                    .createSessionBuilder()
+                    .withLocalRepositories(LocalRepository(localCache))
+                    .setSystemProperties(System.getProperties())
+                    .setDependencyGraphTransformer(
+                        @Suppress("DEPRECATION")
+                        ClassicConflictResolver(
+                            NearestVersionSelector(),
+                            JavaScopeSelector(),
+                            SimpleOptionalitySelector(),
+                            JavaScopeDeriver()
+                        )
+                    )
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 5_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 5_000)
+                    .setConfigProperty(
+                        "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
+                        false
+                    )
+                    .setIgnoreArtifactDescriptorRepositories(true)
+                    .build()
+            val fakeRemoteRepo =
+                listOf(
+                    RemoteRepository.Builder(
+                        "fake-central",
+                        "default",
+                        fakeRemote.toUri().toString()
+                    )
+                        .build()
+                )
+            val ctx = AetherContext(system, session, fakeRemoteRepo)
+
+            val resolved = DependencyResolutionStage(ctx).resolveClasspath(projectDir)
+
+            val sharedUtilJars = resolved.filter {
+                it.fileName.toString().startsWith("shared-util")
+            }
+            assertEquals(
+                1,
+                sharedUtilJars.size,
+                "Conflict resolution should select exactly one version of shared-util; got: $sharedUtilJars"
             )
         }
 

@@ -89,13 +89,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         // 2. Resolve recipe JARs
         val recipeJars = if (config.recipeArtifacts.isNotEmpty()) {
             log.info("[2/6] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
-            val resolver = RecipeArtifactResolver(recipeContext)
-            config.recipeArtifacts.flatMap { coord ->
-                log.info("      Resolving $coord")
-                resolver.resolve(coord)
-            }.distinct().also { jars ->
-                log.info("      Resolved ${jars.size} JAR(s) total")
-            }
+            RecipeArtifactResolver(recipeContext).resolveAll(config.recipeArtifacts)
         } else {
             log.info("[2/6] No recipe artifacts specified — using classpath recipes only")
             emptyList()

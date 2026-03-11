@@ -8,6 +8,11 @@ import org.eclipse.aether.RepositorySystemSession
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
 import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.eclipse.aether.util.graph.transformer.ClassicConflictResolver
+import org.eclipse.aether.util.graph.transformer.JavaScopeDeriver
+import org.eclipse.aether.util.graph.transformer.JavaScopeSelector
+import org.eclipse.aether.util.graph.transformer.NearestVersionSelector
+import org.eclipse.aether.util.graph.transformer.SimpleOptionalitySelector
 import org.eclipse.aether.util.repository.AuthenticationBuilder
 
 /**
@@ -63,6 +68,20 @@ class AetherContext(
                 .withLocalRepositories(localRepo)
                 .setSystemProperties(System.getProperties())
                 .setTransferListener(MavenTransferListener())
+                // Enable Maven's standard conflict resolution so that when the dependency
+                // graph contains the same artifact at different versions, only one version
+                // is selected (nearest-wins, matching Maven's default behavior). Without
+                // this, Maven Resolver 2.x returns ALL versions, causing duplicate JARs
+                // on the classpath and unnecessary downloads.
+                .setDependencyGraphTransformer(
+                    @Suppress("DEPRECATION")
+                    ClassicConflictResolver(
+                        NearestVersionSelector(),
+                        JavaScopeSelector(),
+                        SimpleOptionalitySelector(),
+                        JavaScopeDeriver()
+                    )
+                )
                 .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
                 .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
                 // Disable downloading remote prefix-filter index files (Maven Resolver 2.x).
