@@ -1,0 +1,59 @@
+package io.github.skhokhlov.rewriterunner.lst
+
+import java.nio.file.Path
+import java.util.concurrent.TimeUnit
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger("io.github.skhokhlov.rewriterunner.lst.ProcessRunner")
+
+/**
+ * Runs an external process in [workDir] and waits up to [timeoutSeconds] for it to finish.
+ *
+ * When [captureStdout] is non-null the child's stdout is appended to it; stderr is discarded.
+ * When [captureStdout] is null both stdout and stderr are discarded so the child can always
+ * write without blocking, regardless of how much it produces (prevents OS pipe-buffer deadlock).
+ *
+ * @return The process exit code, or `null` if the process could not be started or timed out.
+ */
+internal fun runProcess(
+    workDir: Path,
+    command: List<String>,
+    captureStdout: StringBuilder? = null,
+    timeoutSeconds: Long = 120
+): Int? {
+    val pb = ProcessBuilder(command).directory(workDir.toFile())
+
+    if (captureStdout != null) {
+        // Capture stdout; discard stderr so it never fills and blocks the child.
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+    } else {
+        // Output not needed — redirect both streams to DISCARD so the child process
+        // can always write without blocking, regardless of how much it produces.
+        // Previously redirectErrorStream(true) merged the streams but left the merged
+        // pipe unread, causing a deadlock once output exceeded the OS pipe buffer (~64 KB).
+        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+    }
+
+    val process =
+        try {
+            pb.start()
+        } catch (e: Exception) {
+            log.warn("Failed to start process ${command.first()}: ${e.message}")
+            return null
+        }
+
+    if (captureStdout != null) {
+        // Read all stdout before waitFor so the stdout pipe never fills up.
+        captureStdout.append(process.inputStream.bufferedReader().readText())
+    }
+
+    val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+    if (!finished) {
+        process.destroyForcibly()
+        log.warn("Process ${command.first()} timed out after ${timeoutSeconds}s")
+        return null
+    }
+
+    return process.exitValue()
+}
