@@ -373,6 +373,118 @@ class RecipeArtifactResolverTest :
 
         // ─── Download progress logging ─────────────────────────────────────────────
 
+        test("resolve excludes test-scoped transitive dependencies from the returned JAR list") {
+            // Regression test: without a DependencyFilter, Maven Resolver downloads test-scoped
+            // transitive deps (e.g. hazelcast → test deps → vendor-patched artifacts) causing
+            // hundreds of spurious WARNs and unnecessary downloads.
+            //
+            // Setup: a root artifact with one runtime dep and one test dep, both pre-cached.
+            // The test dep should NOT appear in the resolved JAR list.
+            val rootGroupId = "test.scope"
+            val rootArtifactId = "scope-root"
+            val rootVersion = "1.0.0"
+            val runtimeDepId = "scope-runtime-dep"
+            val testDepId = "scope-test-only-dep"
+
+            fun minimalPom(
+                groupId: String,
+                artifactId: String,
+                version: String,
+                extra: String = ""
+            ) = """<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>$groupId</groupId>
+  <artifactId>$artifactId</artifactId>
+  <version>$version</version>
+  <packaging>jar</packaging>$extra
+</project>"""
+
+            val rootPom =
+                minimalPom(
+                    rootGroupId,
+                    rootArtifactId,
+                    rootVersion,
+                    """
+  <dependencies>
+    <dependency>
+      <groupId>$rootGroupId</groupId>
+      <artifactId>$runtimeDepId</artifactId>
+      <version>1.0.0</version>
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>$rootGroupId</groupId>
+      <artifactId>$testDepId</artifactId>
+      <version>1.0.0</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>"""
+                )
+
+            val fakeRemote = cacheDir.resolve("fake-remote")
+
+            fun publishArtifact(groupId: String, artifactId: String, version: String, pom: String) {
+                val dir = fakeRemote.resolve("${groupId.replace('.', '/')}/$artifactId/$version")
+                Files.createDirectories(dir)
+                dir.resolve("$artifactId-$version.pom").toFile().writeText(pom)
+                JarOutputStream(
+                    dir.resolve("$artifactId-$version.jar").toFile().outputStream()
+                ).close()
+            }
+
+            publishArtifact(rootGroupId, rootArtifactId, rootVersion, rootPom)
+            publishArtifact(
+                rootGroupId,
+                runtimeDepId,
+                "1.0.0",
+                minimalPom(rootGroupId, runtimeDepId, "1.0.0")
+            )
+            publishArtifact(
+                rootGroupId,
+                testDepId,
+                "1.0.0",
+                minimalPom(rootGroupId, testDepId, "1.0.0")
+            )
+
+            val system = RepositorySystemSupplier().get()
+            val localCache = cacheDir.resolve("local-cache")
+            Files.createDirectories(localCache)
+            val session =
+                system
+                    .createSessionBuilder()
+                    .withLocalRepositories(LocalRepository(localCache))
+                    .setSystemProperties(System.getProperties())
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 5_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 5_000)
+                    .setConfigProperty(
+                        "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
+                        false
+                    )
+                    .setIgnoreArtifactDescriptorRepositories(true)
+                    .build()
+            val fakeRemoteRepo = listOf(
+                RemoteRepository.Builder(
+                    "fake-central",
+                    "default",
+                    fakeRemote.toUri().toString()
+                ).build()
+            )
+            val resolver = RecipeArtifactResolver(AetherContext(system, session, fakeRemoteRepo))
+
+            val paths = resolver.resolve("$rootGroupId:$rootArtifactId:$rootVersion")
+            val fileNames = paths.map { it.fileName.toString() }
+
+            assertTrue(
+                fileNames.any { it.contains(runtimeDepId) },
+                "Runtime dep JAR should be in resolved paths; got: $fileNames"
+            )
+            assertFalse(
+                fileNames.any { it.contains(testDepId) },
+                "Test-scoped dep JAR must NOT be in resolved paths; got: $fileNames"
+            )
+        }
+
         test(
             "resolve emits Downloading/Downloaded log lines when fetching from a remote repository"
         ) {
