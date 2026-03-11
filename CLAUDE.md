@@ -2,15 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Build & Test Commands
+**Deep-dive docs** (read these before working on the relevant area):
+- [`docs/architecture.md`](docs/architecture.md) — execution pipeline, 3-stage LST, file routing, version detection, module layout
+- [`docs/library-api.md`](docs/library-api.md) — `RewriteRunner` builder, `RunResult`, `ToolConfig` YAML schema, exit codes
+- [`docs/testing.md`](docs/testing.md) — TDD requirement, test patterns, gotchas, test file map
+- [`docs/build.md`](docs/build.md) — `buildSrc` convention plugins, dependency versions, CI/CD, known issues
+
+---
+
+## Quick Commands
 
 ```bash
-# Build fat JAR
-./gradlew shadowJar
-# Output: cli/build/libs/cli-1.0-SNAPSHOT-all.jar
-
-# Run all tests
-./gradlew test
+./gradlew shadowJar          # Build fat JAR → cli/build/libs/cli-1.0-SNAPSHOT-all.jar
+./gradlew test               # Run all tests
+./gradlew check              # tests + ktlintCheck
+./gradlew ktlintFormat       # Auto-fix formatting
 
 # Run a single test class
 ./gradlew test --tests "io.github.skhokhlov.rewriterunner.output.ResultFormatterTest"
@@ -20,77 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Run the tool locally
 java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
-
-# Lint Kotlin code (ktlint — Google Android code style)
-./gradlew ktlintCheck
-
-# Auto-format Kotlin code
-./gradlew ktlintFormat
 ```
-
-## Architecture
-
-The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary project directories without requiring a working build system.
-
-**Entry point**: `Main.kt` → `CommandLine(RunCommand()).execute(*args)`. `RunCommand` is the **root command** (not a subcommand) — all options are passed directly without a "run" prefix.
-
-**Execution pipeline** (orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`):
-1. Load tool config (`ToolConfig`)
-2. Resolve recipe JARs from Maven coordinates (`RecipeArtifactResolver`)
-3. Load recipe from JARs + optional `rewrite.yaml` (`RecipeLoader`)
-4. Build LST — parse source files into OpenRewrite's tree representation (`LstBuilder`)
-5. Run the recipe (`RecipeRunner`)
-6. Optionally write changes to disk (unless `--dry-run` / `dryRun = true`)
-7. Return `RunResult`; `RunCommand.call()` then formats output via `ResultFormatter`
-
-## Library API
-
-**`RewriteRunner`** (`io.github.skhokhlov.rewriterunner`) — programmatic entry point; use `RewriteRunner.builder()` to configure and `.build().run()` to execute. Returns a `RunResult`.
-
-**`RunResult`** (`io.github.skhokhlov.rewriterunner`) — holds `results: List<Result>`, `changedFiles: List<Path>`, `projectDir: Path`, and convenience properties `hasChanges`, `changeCount`.
-
-**`RunCommand.call()`** now delegates entirely to `RewriteRunner`, then passes `runResult.results` to `ResultFormatter` for CLI output. All orchestration logic lives in `RewriteRunner.run()`.
-
-**Builder options** mirror CLI flags 1:1 (see `RewriteRunner.Builder` KDoc and README Library Usage section for the full table).
-
-**KotlinDoc** is present on all public classes and methods in: `RewriteRunner`, `RunResult`, `RecipeArtifactResolver`, `RecipeLoader`, `RecipeRunner`, `LstBuilder`, `ToolConfig`, `ParseConfig`, `RepositoryConfig`, `ResultFormatter`, `OutputMode`.
-
-**Build artifacts**:
-- `core/build/libs/core-1.0-SNAPSHOT.jar` — library JAR (no embedded deps)
-- `core/build/libs/core-1.0-SNAPSHOT-sources.jar` — sources JAR
-- `cli/build/libs/cli-1.0-SNAPSHOT-all.jar` — fat JAR for CLI use
-
-**3-stage LST building** (`lst/` package):
-- **Stage 1** (`BuildToolStage`): Subprocess Maven/Gradle to extract compile classpath. Falls through on failure.
-- **Stage 2** (`DependencyResolutionStage`): Parse `pom.xml`/`build.gradle` + Maven Resolver to download JARs. Falls through on failure.
-- **Stage 3** (`DirectParseStage`): Scan `~/.m2` and `~/.gradle/caches` for already-cached JARs matching declared deps. Always succeeds (possibly with empty list).
-
-The classpath resolved by the 3-stage pipeline is shared across **all** language parsers — `JavaParser`, `KotlinParser`, and `GroovyParser` all receive the same project classpath so cross-language type references resolve correctly.
-
-`LstBuilder` routes files by extension to the correct OpenRewrite parser. Excludes `build/`, `target/`, `node_modules/`, `.git/`, `.gradle/`, `.idea/`, `out/`, `dist/` by default.
-
-**Supported file types and parsers**:
-- `.java` → `JavaParser` (with full project classpath)
-- `.kt` → `KotlinParser` (with full project classpath)
-- `.kts` → `KotlinParser`: files whose name ends with `.gradle.kts` (e.g. `build.gradle.kts`, `settings.gradle.kts`) receive the project classpath **plus** the Gradle DSL classpath; plain `.kts` scripts receive the project classpath only
-- `.groovy` → `GroovyParser` (with full project classpath)
-- `.gradle` → `GroovyParser` (project classpath **plus** Gradle DSL classpath)
-- `.yaml` / `.yml` → `YamlParser`
-- `.json` → `JsonParser`
-- `.xml` → `XmlParser`
-- `.properties` → `PropertiesParser`
-
-**Gradle DSL classpath**: resolved from the Gradle installation (`GRADLE_HOME` env var → project Gradle wrapper → `~/.gradle/wrapper/dists/` best-effort fallback). Only JARs in `lib/` (not `lib/plugins/` or `lib/agents/`) are included, providing the core Gradle API types needed to parse build scripts. Added only for `.gradle` and `*.gradle.kts` files; plain `.kt` and `.kts` files are not affected.
-
-**Key dependency versions** (chosen for Gradle 9.0.0 + JDK 25 compatibility):
-- Kotlin: `2.3.0` (2.1.x crashes on JDK 25)
-- Shadow plugin: `com.gradleup.shadow:9.0.0` (`com.github.johnrengelman.shadow` is incompatible with Gradle 9)
-- Maven Resolver: `2.0.16`
-- JVM toolchain: 21 (set via `kotlin { jvmToolchain(21) }`)
-- OpenRewrite: via `rewrite-recipe-bom:3.10.1`
-- Picocli: `4.7.6`
-- Jackson: `3.0.0`
-- Apache Maven Model: `3.9.12`
 
 ## CLI Options (`RunCommand`)
 
@@ -101,125 +37,90 @@ The classpath resolved by the 3-stage pipeline is shared across **all** language
 | `--recipe-artifact` | | Maven coordinates (repeatable) | — |
 | `--rewrite-config` | | Path to custom `rewrite.yaml` | — |
 | `--output` | `-o` | Output mode: `diff`, `files`, `report` | `diff` |
-| `--cache-dir` | | JAR cache directory | — |
-| `--config` | | Tool config file path | — |
-| `--dry-run` | | Run without writing to disk | false |
+| `--cache-dir` | | JAR cache directory | `~/.rewriterunner/cache` |
+| `--config` | | Path to `rewrite-runner.yml` | — |
+| `--dry-run` | | Run without writing to disk | `false` |
 | `--include-extensions` | | Comma-separated file types to parse | — |
 | `--exclude-extensions` | | Comma-separated file types to skip | — |
+| `--info` | | Enable INFO-level logging to stderr | `false` |
+| `--debug` | | Enable DEBUG-level logging (overrides `--info`) | `false` |
 
-**Output modes**:
-- `diff` (default): Unified diffs for all changed files
-- `files`: One changed file path per line, no diff markers
-- `report`: Writes structured JSON to `openrewrite-report.json`
+**Output modes**: `diff` (unified diffs) · `files` (one path per line) · `report` (JSON to `openrewrite-report.json`)
 
 ## Directory Structure
 
-The project is split into two Gradle submodules:
-
 ```
+buildSrc/src/main/kotlin/          # Convention plugins (kotlin-convention, publishing-convention, dokka-convention)
 core/src/
-├── main/kotlin/io/github/skhokhlov/rewriterunner/
+├── main/kotlin/.../rewriterunner/
 │   ├── RewriteRunner.kt            # Library facade — builder API, orchestrates the full pipeline
-│   ├── RunResult.kt                    # Return type for RewriteRunner.run()
-│   ├── config/ToolConfig.kt            # YAML config + env var interpolation
+│   ├── RunResult.kt
+│   ├── config/ToolConfig.kt        # YAML config + env var interpolation
 │   ├── lst/
-│   │   ├── LstBuilder.kt               # Orchestrates 3-stage pipeline + multi-language parsing
-│   │   ├── BuildToolStage.kt           # Stage 1: Maven/Gradle subprocess
-│   │   ├── DependencyResolutionStage.kt # Stage 2: Maven Resolver download
-│   │   └── DirectParseStage.kt         # Stage 3: Local cache scan
-│   ├── output/ResultFormatter.kt       # diff/files/report output modes
+│   │   ├── LstBuilder.kt           # Orchestrates 3-stage pipeline + multi-language parsing
+│   │   ├── BuildToolStage.kt       # Stage 1: Maven/Gradle subprocess
+│   │   ├── DependencyResolutionStage.kt  # Stage 2: Maven Resolver download
+│   │   └── DirectParseStage.kt     # Stage 3: Local cache scan
+│   ├── output/ResultFormatter.kt   # diff/files/report output modes
 │   └── recipe/
-│       ├── RecipeArtifactResolver.kt   # Resolve Maven coordinates to JARs
-│       ├── RecipeLoader.kt             # Load + activate recipe by name
-│       └── RecipeRunner.kt             # Execute recipe, return Results
-│
-└── test/kotlin/io/github/skhokhlov/rewriterunner/
+│       ├── RecipeArtifactResolver.kt
+│       ├── RecipeLoader.kt
+│       └── RecipeRunner.kt
+└── test/kotlin/.../rewriterunner/
     ├── config/ToolConfigTest.kt
-    ├── lst/
-    │   ├── LstBuilderTest.kt
-    │   ├── BuildToolStageTest.kt
-    │   ├── DependencyResolutionStageTest.kt
-    │   ├── DirectParseStageTest.kt
-    │   └── JavaVersionDetectionTest.kt
+    ├── lst/                        # LstBuilderTest, stage tests, JavaVersionDetectionTest, KotlinVersionDetectionTest
     └── output/ResultFormatterTest.kt
 
 cli/src/
-├── main/kotlin/io/github/skhokhlov/rewriterunner/
-│   ├── Main.kt                         # Entry point
-│   └── cli/RunCommand.kt               # Picocli command (root, not subcommand); delegates to RewriteRunner
-│
-└── test/kotlin/io/github/skhokhlov/rewriterunner/
+├── main/kotlin/.../
+│   ├── Main.kt                     # Entry point; setLogLevel() adjusts Logback at runtime
+│   └── cli/RunCommand.kt           # Picocli root command; delegates to RewriteRunner
+└── test/kotlin/.../
     ├── cli/RunCommandTest.kt
-    └── integration/
-        ├── BaseIntegrationTest.kt      # runCli() helper, temp dir setup
-        ├── JavaProjectIntegrationTest.kt
-        ├── KotlinProjectIntegrationTest.kt
-        ├── YamlProjectIntegrationTest.kt
-        ├── JsonProjectIntegrationTest.kt
-        ├── XmlProjectIntegrationTest.kt
-        ├── PropertiesProjectIntegrationTest.kt
-        └── MultiLanguageProjectIntegrationTest.kt
+    └── integration/                # BaseIntegrationTest + per-language integration tests
 ```
+
+## Development Approach
+
+**TDD is required**: write a failing test first, then implement. See [`docs/testing.md`](docs/testing.md).
 
 ## Important Implementation Notes
 
 - `InMemoryLargeSourceSet` is in `org.openrewrite.internal` (not the top-level package)
-- `BuildToolStage` and `DependencyResolutionStage` are `open` classes with `open` methods to allow test subclassing
-- `DependencyResolutionStage.parseMavenDependencies` and `parseGradleDependencies` are `internal` for direct test access
-- `ResultFormatter` has a secondary constructor accepting `PrintWriter` for picocli integration; `RunCommand` uses `@Spec` to get picocli's output `PrintWriter` and passes it to `ResultFormatter`
-- Creating OpenRewrite `Result` objects in tests **requires** running through a real recipe pipeline (`Recipe.run()` with `PlainTextVisitor`) — calling `PlainText.withText()` outside a visitor context throws `UnknownSourceFileChangeException`
-- Java version detection in `LstBuilder` reads `<source>`/`<target>`/`<release>` from `pom.xml` and `jvmToolchain()`/`sourceCompatibility` from `build.gradle`
-- `LstBuilder` adds project class directories (`target/classes`, `build/classes/java/main`, etc.) to the classpath for cross-module type resolution
-- Extension filtering: CLI flags (`--include-extensions`, `--exclude-extensions`) take precedence over config file settings
-- `ToolConfig` supports environment variable interpolation (`${VAR_NAME}`) and tilde expansion in paths at load time
+- `BuildToolStage` and `DependencyResolutionStage` are `open` with `open` methods — subclass in tests instead of mocking
+- `ResultFormatter` has a secondary constructor accepting `PrintWriter`; `RunCommand` passes picocli's `@Spec` output writer
+- Extension filtering: CLI flags take precedence over config file settings
+- OpenRewrite requires all source files in memory simultaneously — for large projects use `-Xmx6g`
 
-## Testing Conventions
+## Logging
 
-- Use `@TempDir` (JUnit 5) for temporary directories in tests
-- Use `kotlin.test` assertions: `assertEquals`, `assertTrue`, `assertFalse`, `assertNull`, `assertNotEquals`
-- Integration tests use `BaseIntegrationTest.runCli()` to capture stdout/stderr and exit code
-- Subclass `BuildToolStage`/`DependencyResolutionStage` in tests to override behavior without mocks
-- Some integration tests accept "success path OR expected fallback" to handle environment variability (e.g., no Maven installed in CI)
+SLF4J + Logback. `logback.xml` in `cli/src/main/resources/` (root OFF by default, pattern `[%-5level] %message%n` on stderr). `logback-test.xml` in `core/src/test/resources/` (WARN only). See [`docs/testing.md`](docs/testing.md) for log capture patterns.
 
 ## Commit Message Convention
 
-This project enforces **[Conventional Commits](https://www.conventionalcommits.org/)**. All commit messages **must** follow this format:
+Format: `<type>(<scope>): <description>` (lowercase, imperative, no trailing period)
 
-```
-<type>(<scope>): <description>
-```
+**Types**: `feat` `fix` `docs` `style` `refactor` `test` `chore` `perf` `ci`
+**Scopes**: `cli` `core` `lst` `recipe` `config` `output` `deps`
 
-**Required types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`
-
-**Common scopes**: `cli`, `core`, `lst`, `recipe`, `config`, `output`, `deps`
-
-**Rules**:
-- Description must be lowercase and imperative mood ("add feature", not "added feature")
-- No period at the end of the description
-- Breaking changes: append `!` after type/scope and include `BREAKING CHANGE:` footer
-
-**Examples**:
 ```
 feat(lst): add Scala source file parser
 fix(cli): correct default output mode when --output is omitted
-test(recipe): add integration test for composite recipe execution
 chore(deps): upgrade OpenRewrite BOM to 3.11.0
-docs: add library usage examples to README
 ```
 
-See `CONTRIBUTING.md` for the full convention details.
+Breaking changes: append `!` after type/scope, add `BREAKING CHANGE:` footer. See `CONTRIBUTING.md`.
 
 ## Code Style
 
-Kotlin code is formatted with **ktlint** (`com.pinterest.ktlint:ktlint-cli:1.8.0`) using the **Google Android** code style, configured via `.editorconfig` (`ktlint_code_style = android_studio`).
+ktlint (`com.pinterest.ktlint:ktlint-cli:1.8.0`) with **Google Android** code style (`.editorconfig`: `ktlint_code_style = android_studio`). CI fails on violations — run `./gradlew ktlintFormat` before pushing.
 
-- Run `./gradlew ktlintCheck` to verify formatting
-- Run `./gradlew ktlintFormat` to auto-fix formatting issues
-- CI fails on ktlint violations — fix them before pushing
+## Keeping CLAUDE.md and docs/ Current
 
-## CI/CD
+Update the relevant file whenever:
+- A new feature, parser, CLI flag, or output mode is added
+- An architectural or dependency decision changes
+- A new test pattern or convention is established
+- A recurring bug or workaround is discovered
 
-GitHub Actions workflow (`.github/workflows/build.yml`) triggers on push/PR to `main`/`master`:
-1. Sets up JDK 21 (Temurin)
-2. Runs `./gradlew check shadowJar` (`check` includes `ktlintCheck` + `test`)
-3. Uploads fat JAR as a build artifact
+Prefer updating existing entries over appending. Keep CLAUDE.md as an index — details belong in `docs/`.
