@@ -38,6 +38,8 @@ jobs:
 
       - name: Build
         run: ./gradlew classes testClasses --no-build-cache
+        env:
+          GRADLE_OPTS: "-Xmx2g -Dkotlin.daemon.jvm.options=-Xmx2g"
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
