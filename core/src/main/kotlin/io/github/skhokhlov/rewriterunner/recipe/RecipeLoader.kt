@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.recipe
 
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
+import java.io.InputStream
 import java.net.URI
 import java.net.URLClassLoader
 import java.nio.file.Path
@@ -28,20 +29,74 @@ class RecipeLoader {
     /**
      * Build an OpenRewrite [Environment] from the given recipe JARs and optional rewrite.yaml.
      * Returns the activated [Recipe] ready for execution.
+     *
+     * @param rewriteYaml Path to the rewrite.yaml file, or `null` to rely solely on
+     *   classpath-scanned recipes.
      */
     fun load(recipeJars: List<Path>, activeRecipeName: String, rewriteYaml: Path?): Recipe {
+        val yamlSource: YamlSource? =
+            if (rewriteYaml != null && rewriteYaml.exists()) {
+                log.info("Loading rewrite.yaml: $rewriteYaml")
+                YamlSource(
+                    stream = { FileInputStream(rewriteYaml.toFile()) },
+                    uri = rewriteYaml.toUri()
+                )
+            } else {
+                null
+            }
+        return buildAndActivate(recipeJars, activeRecipeName, yamlSource)
+    }
+
+    /**
+     * Overload that accepts raw YAML content as a [String] instead of a file path.
+     * Use this when the `rewrite.yaml` content is already in memory and writing it to
+     * disk would be unnecessary I/O.
+     *
+     * @param rewriteYamlContent Raw YAML string, or `null` to rely solely on
+     *   classpath-scanned recipes.
+     */
+    fun load(
+        recipeJars: List<Path>,
+        activeRecipeName: String,
+        rewriteYamlContent: String?
+    ): Recipe {
+        val yamlSource: YamlSource? =
+            if (rewriteYamlContent != null) {
+                log.info("Loading rewrite.yaml from string content")
+                YamlSource(
+                    stream = {
+                        ByteArrayInputStream(rewriteYamlContent.toByteArray(Charsets.UTF_8))
+                    },
+                    uri = URI("string:rewrite.yaml")
+                )
+            } else {
+                null
+            }
+        return buildAndActivate(recipeJars, activeRecipeName, yamlSource)
+    }
+
+    // ─── Private helpers ──────────────────────────────────────────────────────
+
+    private data class YamlSource(val stream: () -> InputStream, val uri: URI)
+
+    private fun buildAndActivate(
+        recipeJars: List<Path>,
+        activeRecipeName: String,
+        yamlSource: YamlSource?
+    ): Recipe {
         val props = Properties()
         val parentLoader = Thread.currentThread().contextClassLoader
 
         // Build a class loader that includes all recipe JARs
-        val recipeClassLoader = if (recipeJars.isNotEmpty()) {
-            URLClassLoader(
-                recipeJars.map { it.toUri().toURL() }.toTypedArray(),
+        val recipeClassLoader =
+            if (recipeJars.isNotEmpty()) {
+                URLClassLoader(
+                    recipeJars.map { it.toUri().toURL() }.toTypedArray(),
+                    parentLoader
+                )
+            } else {
                 parentLoader
-            )
-        } else {
-            parentLoader
-        }
+            }
 
         val builder = Environment.builder()
 
@@ -67,13 +122,10 @@ class RecipeLoader {
             }
         }
 
-        // Load rewrite.yaml if present
-        if (rewriteYaml != null && rewriteYaml.exists()) {
-            log.info("Loading rewrite.yaml: $rewriteYaml")
-            FileInputStream(rewriteYaml.toFile()).use { stream ->
-                builder.load(
-                    YamlResourceLoader(stream, rewriteYaml.toUri(), props, recipeClassLoader)
-                )
+        // Load rewrite.yaml if provided
+        if (yamlSource != null) {
+            yamlSource.stream().use { stream ->
+                builder.load(YamlResourceLoader(stream, yamlSource.uri, props, recipeClassLoader))
             }
         }
 
@@ -96,76 +148,6 @@ class RecipeLoader {
         // the recipe causes NoClassDefFoundError when those classes are first needed.
         // The loader is a short-lived object tied to a single CLI/library invocation and
         // will be GC'd once the run completes, so explicit close() is unnecessary.
-        return recipe
-    }
-
-    /**
-     * Overload that accepts raw YAML content as a [String] instead of a file path.
-     * Use this when the `rewrite.yaml` content is already in memory and writing it to
-     * disk would be unnecessary I/O.
-     *
-     * @param rewriteYamlContent Raw YAML string, or `null` to skip YAML loading and rely
-     *   solely on classpath-scanned recipes.
-     */
-    fun load(
-        recipeJars: List<Path>,
-        activeRecipeName: String,
-        rewriteYamlContent: String?
-    ): Recipe {
-        val props = Properties()
-        val parentLoader = Thread.currentThread().contextClassLoader
-
-        val recipeClassLoader = if (recipeJars.isNotEmpty()) {
-            URLClassLoader(
-                recipeJars.map { it.toUri().toURL() }.toTypedArray(),
-                parentLoader
-            )
-        } else {
-            parentLoader
-        }
-
-        val builder = Environment.builder()
-
-        for (jar in recipeJars) {
-            log.debug("Scanning recipe JAR: $jar")
-            try {
-                builder.load(ClasspathScanningLoader(jar, props, emptyList(), recipeClassLoader))
-            } catch (e: Exception) {
-                log.warn("Failed to scan recipe JAR $jar (skipping): ${e.message}")
-            }
-        }
-
-        if (recipeJars.isEmpty()) {
-            try {
-                builder.load(ClasspathScanningLoader(props, recipeClassLoader))
-            } catch (e: Exception) {
-                log.warn("Failed to scan tool classpath (skipping): ${e.message}")
-            }
-        }
-
-        if (rewriteYamlContent != null) {
-            log.info("Loading rewrite.yaml from string content")
-            ByteArrayInputStream(rewriteYamlContent.toByteArray(Charsets.UTF_8)).use { stream ->
-                builder.load(
-                    YamlResourceLoader(stream, URI("string:rewrite.yaml"), props, recipeClassLoader)
-                )
-            }
-        }
-
-        val env = builder.build()
-        val recipe =
-            try {
-                env.activateRecipes(activeRecipeName)
-            } catch (e: RecipeException) {
-                throw IllegalArgumentException(
-                    "Recipe '$activeRecipeName' not found. " +
-                        "Verify the recipe name and that the correct recipe artifact is supplied via --recipe-artifact.",
-                    e
-                )
-            }
-        require(recipe.recipeList.isNotEmpty() || recipe.name == activeRecipeName) {
-            "Recipe '$activeRecipeName' not found. Verify the recipe name and that the correct recipe JAR is supplied via --recipe-artifact."
-        }
         return recipe
     }
 }
