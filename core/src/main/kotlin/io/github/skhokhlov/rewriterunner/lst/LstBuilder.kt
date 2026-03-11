@@ -7,6 +7,7 @@ import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
@@ -352,10 +353,10 @@ class LstBuilder(
                 // null → build file here but no explicit version; keep walking up
             } else {
                 val pomFile = dir.resolve("pom.xml")
-                val buildFile = dir.resolve("build.gradle.kts").takeIf { it.toFile().exists() }
-                    ?: dir.resolve("build.gradle").takeIf { it.toFile().exists() }
+                val buildFile = dir.resolve("build.gradle.kts").takeIf { it.exists() }
+                    ?: dir.resolve("build.gradle").takeIf { it.exists() }
                 val detected: Pair<String, String>? = when {
-                    pomFile.toFile().exists() -> detectMavenJavaVersion(dir)
+                    pomFile.exists() -> detectMavenJavaVersion(dir)
 
                     buildFile != null -> detectGradleJavaVersion(buildFile)
 
@@ -409,10 +410,10 @@ class LstBuilder(
                 // null → build file here but no explicit version; keep walking up
             } else {
                 val pomFile = dir.resolve("pom.xml")
-                val buildFile = dir.resolve("build.gradle.kts").takeIf { it.toFile().exists() }
-                    ?: dir.resolve("build.gradle").takeIf { it.toFile().exists() }
+                val buildFile = dir.resolve("build.gradle.kts").takeIf { it.exists() }
+                    ?: dir.resolve("build.gradle").takeIf { it.exists() }
                 val detected: Pair<String, String>? = when {
-                    pomFile.toFile().exists() -> detectMavenKotlinVersion(dir)
+                    pomFile.exists() -> detectMavenKotlinVersion(dir)
 
                     buildFile != null -> detectGradleKotlinVersion(buildFile)
 
@@ -698,7 +699,7 @@ class LstBuilder(
      */
     internal fun gatherDeclaredCoordinates(projectDir: Path): List<String> = try {
         when {
-            projectDir.resolve("pom.xml").toFile().exists() ->
+            projectDir.resolve("pom.xml").exists() ->
                 depResolutionStage.parseMavenDependencies(projectDir)
 
             else ->
