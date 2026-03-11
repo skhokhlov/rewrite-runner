@@ -78,9 +78,12 @@ class AetherContext(
                     )
                         .build()
                 )
-            extraRepositories.forEach { cfg ->
+            extraRepositories.forEachIndexed { index, cfg ->
+                // Use a stable, URL-safe ID: "extra-0", "extra-1", etc.
+                // hashCode() was previously used but can produce negative integers which
+                // may confuse Maven Resolver's repository identity tracking.
                 val builder = RemoteRepository.Builder(
-                    cfg.url.hashCode().toString(),
+                    "extra-$index",
                     "default",
                     cfg.url
                 )
