@@ -62,6 +62,7 @@ class AetherContext(
                 .createSessionBuilder()
                 .withLocalRepositories(localRepo)
                 .setSystemProperties(System.getProperties())
+                .setTransferListener(MavenTransferListener())
                 .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
                 .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
                 // Disable downloading remote prefix-filter index files (Maven Resolver 2.x).

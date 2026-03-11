@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class AetherContextTest :
@@ -25,6 +26,14 @@ class AetherContextTest :
             val localRepo = tempDir.resolve("does-not-exist-yet")
             AetherContext.build(localRepoDir = localRepo)
             assertTrue(localRepo.toFile().isDirectory, "localRepoDir should be created")
+        }
+
+        test("build attaches a transfer listener to the session for download progress logging") {
+            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            assertNotNull(
+                ctx.session.transferListener,
+                "Session must have a non-null transfer listener so download progress is logged"
+            )
         }
 
         test("build with different localRepoDir values produces independent contexts") {
