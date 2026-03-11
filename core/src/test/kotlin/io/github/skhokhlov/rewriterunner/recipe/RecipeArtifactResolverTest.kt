@@ -1,6 +1,11 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.MavenTransferListener
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.kotest.core.spec.style.FunSpec
 import java.net.ServerSocket
@@ -15,6 +20,7 @@ import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
 import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.slf4j.LoggerFactory
 
 class RecipeArtifactResolverTest :
     FunSpec({
@@ -315,7 +321,7 @@ class RecipeArtifactResolverTest :
             val system2 = RepositorySystemSupplier().get()
             val repoDir2 = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
             // "simple" type: reads cached files without _remote.repositories checks
-            val localRepo2 = LocalRepository(repoDir2.toFile(), "simple")
+            val localRepo2 = LocalRepository(repoDir2, "simple")
             val session2 =
                 system2
                     .createSessionBuilder()
@@ -363,5 +369,101 @@ class RecipeArtifactResolverTest :
                         "got: ${ex::class.simpleName}"
                 )
             }
+        }
+
+        // ─── Download progress logging ─────────────────────────────────────────────
+
+        test(
+            "resolve emits Downloading/Downloaded log lines when fetching from a remote repository"
+        ) {
+            // Uses a file:// "remote" so the test is network-free.
+            // Maven Resolver's FileTransporter fires full TransferListener events (STARTED,
+            // SUCCEEDED) just like the HTTP transporter does, so this exercises the real
+            // MavenTransferListener → logger pipeline end-to-end.
+
+            val groupId = "test.download"
+            val artifactId = "progress-artifact"
+            val version = "1.0.0"
+
+            // Build a minimal POM and empty JAR to serve as the "remote" artifact.
+            val pomXml =
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>$groupId</groupId>
+                  <artifactId>$artifactId</artifactId>
+                  <version>$version</version>
+                  <packaging>jar</packaging>
+                </project>
+                """.trimIndent()
+            val jarBytes =
+                java.io.ByteArrayOutputStream()
+                    .also { JarOutputStream(it).close() }
+                    .toByteArray()
+
+            // Populate the fake remote repository directory.
+            val fakeRemote = cacheDir.resolve("fake-remote")
+            val artifactDir =
+                fakeRemote
+                    .resolve(groupId.replace('.', '/'))
+                    .resolve(artifactId)
+                    .resolve(version)
+            Files.createDirectories(artifactDir)
+            artifactDir.resolve("$artifactId-$version.pom").toFile().writeText(pomXml)
+            artifactDir.resolve("$artifactId-$version.jar").toFile().writeBytes(jarBytes)
+
+            // Empty local cache — forces a "download" from the fake remote.
+            val localCache = cacheDir.resolve("local-cache")
+
+            // Build AetherContext manually so we can point only at the fake remote.
+            val system = RepositorySystemSupplier().get()
+            Files.createDirectories(localCache)
+            val session =
+                system
+                    .createSessionBuilder()
+                    .withLocalRepositories(LocalRepository(localCache))
+                    .setSystemProperties(System.getProperties())
+                    .setTransferListener(MavenTransferListener())
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 5_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 5_000)
+                    .setConfigProperty(
+                        "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
+                        false
+                    )
+                    .setIgnoreArtifactDescriptorRepositories(true)
+                    .build()
+            val fakeRemoteRepo =
+                listOf(
+                    RemoteRepository.Builder(
+                        "fake-central",
+                        "default",
+                        fakeRemote.toUri().toString()
+                    ).build()
+                )
+            val ctx = AetherContext(system, session, fakeRemoteRepo)
+
+            // Capture MavenTransferListener log output.
+            val appender = ListAppender<ILoggingEvent>().also { it.start() }
+            val logger =
+                LoggerFactory.getLogger(MavenTransferListener::class.java) as Logger
+            logger.level = Level.INFO
+            logger.addAppender(appender)
+
+            try {
+                RecipeArtifactResolver(ctx).resolve("$groupId:$artifactId:$version")
+            } finally {
+                logger.detachAppender(appender)
+            }
+
+            val messages = appender.list.map { it.formattedMessage }
+            assertTrue(
+                messages.any { it.startsWith("Downloading from fake-central:") },
+                "Expected 'Downloading from fake-central:' log line; got: $messages"
+            )
+            assertTrue(
+                messages.any { it.startsWith("Downloaded from fake-central:") },
+                "Expected 'Downloaded from fake-central:' log line; got: $messages"
+            )
         }
     })
