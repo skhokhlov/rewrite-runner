@@ -28,9 +28,19 @@ import org.slf4j.LoggerFactory
 /**
  * Orchestrates the 3-stage LST building pipeline and multi-language file parsing.
  *
- * Stage 1 — Run the project's own build tool to extract the compile classpath.
- * Stage 2 — Parse the build descriptor and resolve deps via Maven Resolver.
- * Stage 3 — Use whatever is already in ~/.m2 / ~/.gradle/caches.
+ * **Classpath resolution (3 stages)** — runs once per [build] invocation and the result is
+ * shared by all language parsers (Java, Kotlin, Groovy):
+ * - Stage 1 — Run the project's own build tool (Maven/Gradle) to extract the compile classpath.
+ * - Stage 2 — Parse the build descriptor and resolve deps via Maven Resolver.
+ * - Stage 3 — Scan `~/.m2` / `~/.gradle/caches` for already-cached JARs matching declared deps.
+ *
+ * **Gradle DSL classpath** — an additional classpath resolved from the Gradle installation
+ * (via `GRADLE_HOME`, the project's Gradle wrapper, or `~/.gradle/wrapper/dists/`) is added
+ * on top of the regular classpath exclusively for Gradle script files:
+ * - `.gradle` — Groovy DSL build scripts
+ * - `*.gradle.kts` — Kotlin DSL build scripts (e.g. `build.gradle.kts`, `settings.gradle.kts`)
+ *
+ * Plain `.kt` sources and non-Gradle `.kts` scripts receive only the regular project classpath.
  */
 class LstBuilder(
     private val cacheDir: Path,
@@ -144,15 +154,31 @@ class LstBuilder(
         }
 
         filesByExt[".kts"]?.let { files ->
-            log.info("Parsing ${files.size} Kotlin Script file(s)")
-            val gradleDslClasspath = resolveGradleDslClasspath(projectDir)
-            if (gradleDslClasspath.isNotEmpty()) {
-                log.info(
-                    "Augmenting KotlinParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
-                )
+            // Gradle Kotlin DSL scripts (*.gradle.kts) need the Gradle API on the classpath
+            // for type resolution. Plain Kotlin scripts (.kts) are parsed with the project
+            // classpath only, the same as regular .kt sources.
+            val gradleKtsFiles = files.filter { it.name.endsWith(".gradle.kts") }
+            val plainKtsFiles = files.filter { !it.name.endsWith(".gradle.kts") }
+
+            if (plainKtsFiles.isNotEmpty()) {
+                log.info("Parsing ${plainKtsFiles.size} Kotlin Script file(s)")
+                val parser = KotlinParser.builder().classpath(classpath).build()
+                parser.parse(plainKtsFiles, projectDir, ctx).forEach { allSources.add(it) }
             }
-            val parser = KotlinParser.builder().classpath(classpath + gradleDslClasspath).build()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+
+            if (gradleKtsFiles.isNotEmpty()) {
+                log.info("Parsing ${gradleKtsFiles.size} Gradle Kotlin DSL script(s)")
+                val gradleDslClasspath = resolveGradleDslClasspath(projectDir)
+                if (gradleDslClasspath.isNotEmpty()) {
+                    log.info(
+                        "Augmenting KotlinParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
+                    )
+                }
+                val parser = KotlinParser.builder().classpath(
+                    classpath + gradleDslClasspath
+                ).build()
+                parser.parse(gradleKtsFiles, projectDir, ctx).forEach { allSources.add(it) }
+            }
         }
 
         filesByExt[".groovy"]?.let { files ->
@@ -497,7 +523,12 @@ class LstBuilder(
     // ─── Gradle DSL classpath resolution ─────────────────────────────────────
 
     /**
-     * Resolves the Gradle DSL classpath for `.kts` script parsing.
+     * Resolves the Gradle DSL classpath for Gradle script files.
+     *
+     * Used when parsing Gradle Groovy DSL build scripts (`.gradle`) and Gradle Kotlin DSL
+     * build scripts (`*.gradle.kts`, e.g. `build.gradle.kts`, `settings.gradle.kts`).
+     * Plain Kotlin scripts (`.kts` files whose name does not end with `.gradle.kts`) and
+     * regular `.kt` sources do **not** receive this classpath.
      *
      * Lookup order:
      * 1. `GRADLE_HOME` environment variable — use `$GRADLE_HOME/lib/`.
@@ -575,12 +606,23 @@ class LstBuilder(
                     .filter { Files.isDirectory(it) }
                     .filter { it.fileName.toString().startsWith("gradle-") }
                     .flatMap { distDir ->
-                        // Each dist dir contains a hash sub-dir with the unpacked distribution
-                        Files.list(distDir).use { hashDirs ->
-                            hashDirs.filter { Files.isDirectory(it) }.toList().stream()
+                        // Structure: distDir/<hash>/gradle-<version>/ (the actual Gradle home).
+                        // Collect to list inside the use block to avoid closing the stream early.
+                        Files.list(distDir).use { hashStream ->
+                            hashStream
+                                .filter { Files.isDirectory(it) }
+                                .flatMap { hashDir ->
+                                    Files.list(hashDir).use { subStream ->
+                                        subStream
+                                            .filter { Files.isDirectory(it.resolve("lib")) }
+                                            .toList()
+                                            .stream()
+                                    }
+                                }
+                                .toList()
+                                .stream()
                         }
                     }
-                    .filter { hashDir -> Files.isDirectory(hashDir.resolve("lib")) }
                     .max(Comparator.comparingLong { Files.getLastModifiedTime(it).toMillis() })
                     .orElse(null)
             }
@@ -611,8 +653,10 @@ class LstBuilder(
 
     /**
      * Scans [distsRoot] for an unpacked Gradle distribution matching [version].
-     * Each entry under [distsRoot] is named `gradle-<version>-<type>` and contains
-     * a hash sub-directory with the actual unpacked distribution.
+     *
+     * The Gradle wrapper unpacks distributions into a three-level hierarchy:
+     * `<distsRoot>/gradle-<version>-<type>/<hash>/gradle-<version>/`
+     * where the innermost directory is the actual Gradle home (it contains `lib/`).
      *
      * Returns the unpacked distribution root (containing `lib/`) or null if not found.
      */
@@ -623,8 +667,20 @@ class LstBuilder(
                 .filter { Files.isDirectory(it) }
                 .filter { it.fileName.toString().startsWith("gradle-$version-") }
                 .flatMap { distDir ->
-                    Files.list(distDir).use { hashDirs ->
-                        hashDirs.filter { Files.isDirectory(it.resolve("lib")) }.toList().stream()
+                    // distDir/<hash>/gradle-<version>/ is the actual Gradle home.
+                    Files.list(distDir).use { hashStream ->
+                        hashStream
+                            .filter { Files.isDirectory(it) }
+                            .flatMap { hashDir ->
+                                Files.list(hashDir).use { subStream ->
+                                    subStream
+                                        .filter { Files.isDirectory(it.resolve("lib")) }
+                                        .toList()
+                                        .stream()
+                                }
+                            }
+                            .toList()
+                            .stream()
                     }
                 }
                 .findFirst()

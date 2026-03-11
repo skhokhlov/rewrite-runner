@@ -194,6 +194,10 @@ class LstBuilderTest :
 
         test("all supported file types are parsed by default") {
             projectDir.resolve("Hello.java").writeText("class Hello {}")
+            projectDir.resolve("Main.kt").writeText("fun main() {}")
+            projectDir.resolve("build.gradle.kts").writeText("// gradle script")
+            projectDir.resolve("build.gradle").writeText("// gradle script")
+            projectDir.resolve("Helper.groovy").writeText("class Helper {}")
             projectDir.resolve("config.yaml").writeText("key: value")
             projectDir.resolve("data.json").writeText("{}")
             projectDir.resolve("pom.xml").writeText("<project/>")
@@ -203,10 +207,52 @@ class LstBuilderTest :
 
             val paths = sources.map { it.sourcePath.toString() }
             assertTrue(paths.any { it.endsWith(".java") }, "Java should be parsed")
+            assertTrue(paths.any { it.endsWith(".kt") }, "Kotlin should be parsed")
+            assertTrue(
+                paths.any {
+                    it.endsWith(".gradle.kts")
+                },
+                "Gradle Kotlin DSL should be parsed"
+            )
+            assertTrue(paths.any { it.endsWith(".gradle") }, "Gradle Groovy DSL should be parsed")
+            assertTrue(paths.any { it.endsWith(".groovy") }, "Groovy should be parsed")
             assertTrue(paths.any { it.endsWith(".yaml") }, "YAML should be parsed")
             assertTrue(paths.any { it.endsWith(".json") }, "JSON should be parsed")
             assertTrue(paths.any { it.endsWith(".xml") }, "XML should be parsed")
             assertTrue(paths.any { it.endsWith(".properties") }, "Properties should be parsed")
+        }
+
+        test("gradle.kts files and plain kts files are both parsed under kts extension") {
+            projectDir.resolve("build.gradle.kts").writeText("// gradle kotlin dsl")
+            projectDir.resolve("settings.gradle.kts").writeText("// settings")
+            projectDir.resolve("script.kts").writeText("// plain kts script")
+
+            val sources =
+                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".kts"))
+
+            val paths = sources.map { it.sourcePath.toString() }
+            assertEquals(3, sources.size, "All three .kts files should be parsed")
+            assertTrue(paths.any { it == "build.gradle.kts" }, "build.gradle.kts should be parsed")
+            assertTrue(
+                paths.any { it == "settings.gradle.kts" },
+                "settings.gradle.kts should be parsed"
+            )
+            assertTrue(paths.any { it == "script.kts" }, "plain script.kts should be parsed")
+        }
+
+        test("groovy files and gradle files are both parsed under their respective extensions") {
+            projectDir.resolve("Helper.groovy").writeText("class Helper {}")
+            projectDir.resolve("build.gradle").writeText("// gradle groovy dsl")
+
+            val sources = lstBuilder().build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".groovy", ".gradle")
+            )
+
+            val paths = sources.map { it.sourcePath.toString() }
+            assertEquals(2, sources.size, "Both .groovy and .gradle files should be parsed")
+            assertTrue(paths.any { it.endsWith(".groovy") }, "Groovy file should be parsed")
+            assertTrue(paths.any { it.endsWith(".gradle") }, "Gradle file should be parsed")
         }
 
         test("yml extension is treated same as yaml") {

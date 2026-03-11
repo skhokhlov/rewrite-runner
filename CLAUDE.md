@@ -65,16 +65,22 @@ The tool is a fat JAR CLI that runs OpenRewrite recipes against arbitrary projec
 - **Stage 2** (`DependencyResolutionStage`): Parse `pom.xml`/`build.gradle` + Maven Resolver to download JARs. Falls through on failure.
 - **Stage 3** (`DirectParseStage`): Scan `~/.m2` and `~/.gradle/caches` for already-cached JARs matching declared deps. Always succeeds (possibly with empty list).
 
+The classpath resolved by the 3-stage pipeline is shared across **all** language parsers — `JavaParser`, `KotlinParser`, and `GroovyParser` all receive the same project classpath so cross-language type references resolve correctly.
+
 `LstBuilder` routes files by extension to the correct OpenRewrite parser. Excludes `build/`, `target/`, `node_modules/`, `.git/`, `.gradle/`, `.idea/`, `out/`, `dist/` by default.
 
 **Supported file types and parsers**:
-- `.java` → `JavaParser` (with full classpath)
-- `.kt`, `.kts` → `KotlinParser` (`.kts` augmented with Gradle DSL classpath)
-- `.groovy`, `.gradle` → `GroovyParser` (`.gradle` augmented with Gradle DSL classpath)
+- `.java` → `JavaParser` (with full project classpath)
+- `.kt` → `KotlinParser` (with full project classpath)
+- `.kts` → `KotlinParser`: files whose name ends with `.gradle.kts` (e.g. `build.gradle.kts`, `settings.gradle.kts`) receive the project classpath **plus** the Gradle DSL classpath; plain `.kts` scripts receive the project classpath only
+- `.groovy` → `GroovyParser` (with full project classpath)
+- `.gradle` → `GroovyParser` (project classpath **plus** Gradle DSL classpath)
 - `.yaml` / `.yml` → `YamlParser`
 - `.json` → `JsonParser`
 - `.xml` → `XmlParser`
 - `.properties` → `PropertiesParser`
+
+**Gradle DSL classpath**: resolved from the Gradle installation (`GRADLE_HOME` env var → project Gradle wrapper → `~/.gradle/wrapper/dists/` best-effort fallback). Only JARs in `lib/` (not `lib/plugins/` or `lib/agents/`) are included, providing the core Gradle API types needed to parse build scripts. Added only for `.gradle` and `*.gradle.kts` files; plain `.kt` and `.kts` files are not affected.
 
 **Key dependency versions** (chosen for Gradle 9.0.0 + JDK 25 compatibility):
 - Kotlin: `2.3.0` (2.1.x crashes on JDK 25)
