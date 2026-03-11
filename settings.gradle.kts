@@ -9,5 +9,11 @@ pluginManagement {
     }
 }
 
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+    }
+}
+
 rootProject.name = "rewrite-runner"
 include(":core", ":cli")
