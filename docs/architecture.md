@@ -21,12 +21,25 @@ Orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`:
 | 6 | — | Write changed files to disk (skipped when `dryRun = true`) |
 | 7 | `ResultFormatter` | Format output (diff / files / report) |
 
+## Maven Local Repository Strategy
+
+Two separate `AetherContext` instances are created per `RewriteRunner.run()` invocation, each with a distinct local Maven repository:
+
+| Context | Local repository | Used by |
+|---------|-----------------|---------|
+| `recipeContext` | `<cacheDir>/repository` | `RecipeArtifactResolver` — recipe JARs |
+| `projectContext` | `~/.m2/repository` (Maven default) | `DependencyResolutionStage` — project deps |
+
+Recipe JARs are cached under the tool's own `cacheDir` so they never pollute the user's Maven local repository. Project dependencies resolve against `~/.m2/repository` so artifacts already downloaded by the project's own build (Maven/Gradle) are reused without re-downloading.
+
+`AetherContext.build(localRepoDir)` accepts the local repository path directly — callers are responsible for choosing between the tool cache and the Maven default.
+
 ## 3-Stage LST Classpath Resolution
 
 `LstBuilder` runs these stages in order, falling through on failure:
 
 - **Stage 1** (`BuildToolStage`): Subprocess Maven/Gradle to extract compile classpath. Falls through on failure.
-- **Stage 2** (`DependencyResolutionStage`): Parse `pom.xml`/`build.gradle` + Maven Resolver to download JARs. Falls through on failure.
+- **Stage 2** (`DependencyResolutionStage`): Parse `pom.xml`/`build.gradle` + Maven Resolver to download JARs. Uses `~/.m2/repository` as the local repo. Falls through on failure.
 - **Stage 3** (`DirectParseStage`): Scan `~/.m2` and `~/.gradle/caches` for already-cached JARs. Always succeeds (possibly empty).
 
 The resolved classpath is **shared across all language parsers** — `JavaParser`, `KotlinParser`, and `GroovyParser` all receive the same project classpath so cross-language type references resolve correctly.

@@ -23,7 +23,7 @@ val result = RewriteRunner.builder()
 | `recipeArtifact(String)` | `String` | — | Add one Maven coordinate; may be called multiple times |
 | `recipeArtifacts(List<String>)` | `List` | `[]` | Replace all recipe coordinates at once |
 | `rewriteConfig(Path)` | `Path?` | `<projectDir>/rewrite.yaml` | Custom `rewrite.yaml` |
-| `cacheDir(Path)` | `Path?` | from config / `~/.rewriterunner/cache` | JAR cache directory |
+| `cacheDir(Path)` | `Path?` | from config / `~/.rewriterunner/cache` | Recipe JAR cache directory; resolved under `<cacheDir>/repository` |
 | `configFile(Path)` | `Path?` | none | `rewrite-runner.yml` tool config |
 | `dryRun(Boolean)` | `Boolean` | `false` | Run without writing files to disk |
 | `includeExtensions(List<String>)` | `List` | `[]` | Restrict to these extensions; overrides config file |
@@ -67,7 +67,7 @@ parse:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `cacheDir` | `String` | `~/.rewriterunner/cache` | JAR cache; `~` and env vars expanded |
+| `cacheDir` | `String` | `~/.rewriterunner/cache` | Recipe JAR cache root; `~` and env vars expanded. Recipes are stored under `<cacheDir>/repository`. Project dependencies always resolve from `~/.m2/repository`. |
 | `repositories` | `List<RepositoryConfig>` | `[]` | Extra Maven repos for resolution |
 | `parse` | `ParseConfig` | defaults | File inclusion/exclusion config |
 

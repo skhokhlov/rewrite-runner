@@ -68,19 +68,28 @@ class RewriteRunner private constructor(private val config: Builder) {
         log.info("[1/6] Loading configuration")
         val toolConfig = ToolConfig.load(config.configFile)
         val effectiveCacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).also {
-            it.toFile().mkdirs()
             log.info("      Cache dir: $it")
         }
-
-        val sharedContext = AetherContext.build(
-            cacheDir = effectiveCacheDir,
+        // Recipe artifacts are isolated in the tool's own cache so they never mix with
+        // the project's build artifacts in the user's Maven local repository.
+        val recipeLocalRepoDir = effectiveCacheDir.resolve("repository")
+        Files.createDirectories(recipeLocalRepoDir)
+        val recipeContext = AetherContext.build(
+            localRepoDir = recipeLocalRepoDir,
+            extraRepositories = toolConfig.resolvedRepositories()
+        )
+        // Project dependencies use the Maven default local repository so already-cached
+        // artifacts from the project's own build are reused without re-downloading.
+        val mavenLocalRepoDir = Paths.get(System.getProperty("user.home"), ".m2", "repository")
+        val projectContext = AetherContext.build(
+            localRepoDir = mavenLocalRepoDir,
             extraRepositories = toolConfig.resolvedRepositories()
         )
 
         // 2. Resolve recipe JARs
         val recipeJars = if (config.recipeArtifacts.isNotEmpty()) {
             log.info("[2/6] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
-            val resolver = RecipeArtifactResolver(sharedContext)
+            val resolver = RecipeArtifactResolver(recipeContext)
             config.recipeArtifacts.flatMap { coord ->
                 log.info("      Resolving $coord")
                 resolver.resolve(coord)
@@ -119,7 +128,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         val lstBuilder = LstBuilder(
             cacheDir = effectiveCacheDir,
             toolConfig = toolConfig,
-            depResolutionStage = DependencyResolutionStage(sharedContext)
+            depResolutionStage = DependencyResolutionStage(projectContext)
         )
         val lstStart = System.currentTimeMillis()
         val sourceFiles = lstBuilder.build(
@@ -255,7 +264,11 @@ class RewriteRunner private constructor(private val config: Builder) {
             apply { rewriteConfigContent = content }
 
         /**
-         * Directory used to cache downloaded recipe JARs.
+         * Cache root for downloaded recipe JARs. Recipe artifacts are stored under
+         * `<path>/repository`, keeping them isolated from the user's Maven local repository.
+         * Project dependencies are always resolved from `~/.m2/repository` regardless of this
+         * setting.
+         *
          * If not set, falls back to the value from the tool config file, then to
          * `~/.rewriterunner/cache`.
          */

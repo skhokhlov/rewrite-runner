@@ -30,7 +30,7 @@ class LstBuilderTest :
         fun lstBuilder(buildTool: BuildToolStage = failingBuildTool): LstBuilder {
             val noOpDepStage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(projectDir.resolve("cache"))
+                    AetherContext.build(projectDir.resolve("cache").resolve("repository"))
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
@@ -85,7 +85,7 @@ class LstBuilderTest :
             val config = ToolConfig(parse = ParseConfig(includeExtensions = listOf(".yaml")))
             val noOpDepStage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(projectDir.resolve("cache"))
+                    AetherContext.build(projectDir.resolve("cache").resolve("repository"))
                 ) {
                     override fun resolveClasspath(projectDir: Path) = emptyList<Path>()
                 }
@@ -109,7 +109,7 @@ class LstBuilderTest :
             val config = ToolConfig(parse = ParseConfig(includeExtensions = listOf(".yaml")))
             val noOpDepStage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(projectDir.resolve("cache"))
+                    AetherContext.build(projectDir.resolve("cache").resolve("repository"))
                 ) {
                     override fun resolveClasspath(projectDir: Path) = emptyList<Path>()
                 }
@@ -172,7 +172,7 @@ class LstBuilderTest :
             val config = ToolConfig(parse = ParseConfig(excludePaths = listOf("generated/**")))
             val noOpDepStage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(projectDir.resolve("cache"))
+                    AetherContext.build(projectDir.resolve("cache").resolve("repository"))
                 ) {
                     override fun resolveClasspath(projectDir: Path) = emptyList<Path>()
                 }
@@ -291,7 +291,7 @@ class LstBuilderTest :
                 }
             val trackingDepStage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(projectDir.resolve("cache"))
+                    AetherContext.build(projectDir.resolve("cache").resolve("repository"))
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> {
                         stage2Called = true
@@ -315,7 +315,7 @@ class LstBuilderTest :
             var stage2Called = false
             val trackingDepStage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(projectDir.resolve("cache"))
+                    AetherContext.build(projectDir.resolve("cache").resolve("repository"))
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> {
                         stage2Called = true

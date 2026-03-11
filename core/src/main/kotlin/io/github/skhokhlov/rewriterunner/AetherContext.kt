@@ -11,12 +11,19 @@ import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.eclipse.aether.util.repository.AuthenticationBuilder
 
 /**
- * Bundles the three Maven Resolver objects needed by both [io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver]
- * and [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage]: a [RepositorySystem], a [RepositorySystemSession],
- * and the list of configured [RemoteRepository] instances.
+ * Bundles the three Maven Resolver objects needed by [io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver]
+ * and [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage]: a [RepositorySystem], a
+ * [RepositorySystemSession], and the list of configured [RemoteRepository] instances.
  *
- * Create an instance via the [build] factory so both consumers share a single session
- * within a given [io.github.skhokhlov.rewriterunner.RewriteRunner.run] invocation.
+ * **Two separate instances** are created per [io.github.skhokhlov.rewriterunner.RewriteRunner.run] invocation,
+ * each with a distinct local Maven repository:
+ * - **Recipe context** — local repo at `<cacheDir>/repository`, used by [io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver].
+ *   Recipe JARs are kept in the tool's own cache and never written to the user's Maven local repo.
+ * - **Project context** — local repo at `~/.m2/repository` (Maven default), used by
+ *   [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage]. Reuses artifacts already cached by
+ *   the project's own build without re-downloading them.
+ *
+ * Create instances via the [build] factory, passing the desired [localRepoDir] explicitly.
  *
  * @param system  The Maven Resolver [RepositorySystem].
  * @param session The Maven Resolver session (includes local repository, timeout config, etc.).
@@ -32,7 +39,9 @@ class AetherContext(
         /**
          * Build a shared [AetherContext] from the given configuration.
          *
-         * @param cacheDir Root directory for the local Maven repository cache. Created if absent.
+         * @param localRepoDir Directory used as the local Maven repository. Created if absent.
+         *   Use a subdirectory of the tool cache to isolate recipe JARs, or the Maven
+         *   default (`~/.m2/repository`) to reuse the user's existing local repository.
          * @param extraRepositories Additional remote Maven repositories beyond Maven Central.
          *   Credentials from [RepositoryConfig] are applied when present.
          * @param connectTimeoutMs TCP connection timeout in milliseconds. Defaults to 30 000.
@@ -41,33 +50,32 @@ class AetherContext(
          *   connection but never sends an HTTP response.
          */
         fun build(
-            cacheDir: Path,
+            localRepoDir: Path,
             extraRepositories: List<RepositoryConfig> = emptyList(),
             connectTimeoutMs: Int = 30_000,
             requestTimeoutMs: Int = 60_000
         ): AetherContext {
             val system = RepositorySystemSupplier().get()
-            val repoDir = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
-            val localRepo = LocalRepository(repoDir)
-            val session =
-                system
-                    .createSessionBuilder()
-                    .withLocalRepositories(localRepo)
-                    .setSystemProperties(System.getProperties())
-                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
-                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
-                    // Disable downloading remote prefix-filter index files (Maven Resolver 2.x).
-                    // Without this, Maven Resolver downloads large /.index/prefixes.txt files from
-                    // each remote repository before resolving any artifacts, causing delays/hangs.
-                    .setConfigProperty(
-                        "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
-                        false
-                    )
-                    // Ignore <repositories> sections declared in dependency POMs.
-                    // Without this, Maven Resolver contacts every third-party repo declared by
-                    // transitive dependencies, causing slow resolution or hangs.
-                    .setIgnoreArtifactDescriptorRepositories(true)
-                    .build()
+            localRepoDir.toFile().mkdirs()
+            val localRepo = LocalRepository(localRepoDir)
+            val session = system
+                .createSessionBuilder()
+                .withLocalRepositories(localRepo)
+                .setSystemProperties(System.getProperties())
+                .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
+                .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
+                // Disable downloading remote prefix-filter index files (Maven Resolver 2.x).
+                // Without this, Maven Resolver downloads large /.index/prefixes.txt files from
+                // each remote repository before resolving any artifacts, causing delays/hangs.
+                .setConfigProperty(
+                    "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
+                    false
+                )
+                // Ignore <repositories> sections declared in dependency POMs.
+                // Without this, Maven Resolver contacts every third-party repo declared by
+                // transitive dependencies, causing slow resolution or hangs.
+                .setIgnoreArtifactDescriptorRepositories(true)
+                .build()
 
             val remoteRepos =
                 mutableListOf(

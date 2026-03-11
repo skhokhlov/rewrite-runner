@@ -27,7 +27,8 @@ class RecipeArtifactResolverTest :
         // ─── Construction ─────────────────────────────────────────────────────────
 
         test("constructor succeeds with minimal arguments") {
-            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
             assertNotNull(resolver)
         }
 
@@ -41,7 +42,9 @@ class RecipeArtifactResolverTest :
                     )
                 )
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir, extraRepositories = repos))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), extraRepositories = repos)
+                )
             assertNotNull(resolver)
         }
 
@@ -55,19 +58,23 @@ class RecipeArtifactResolverTest :
                     )
                 )
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir, extraRepositories = repos))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), extraRepositories = repos)
+                )
             assertNotNull(resolver)
         }
 
         // ─── Coordinate validation ────────────────────────────────────────────────
 
         test("resolve throws IllegalArgumentException for single-segment coordinate") {
-            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
             assertFailsWith<IllegalArgumentException> { resolver.resolve("groupIdOnly") }
         }
 
         test("resolve throws IllegalArgumentException for empty coordinate") {
-            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
             assertFailsWith<IllegalArgumentException> { resolver.resolve("") }
         }
 
@@ -79,7 +86,8 @@ class RecipeArtifactResolverTest :
             // Regression test: Maven Resolver 2.x SessionBuilder requires withLocalRepositories()
             // rather than a bootstrap-then-createLocalRepositoryManager approach.
             // The bug manifested as: "No local repository manager or local repositories set on session"
-            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
             val ex =
                 runCatching {
                     resolver.resolve(
@@ -150,7 +158,8 @@ class RecipeArtifactResolverTest :
                 .toFile()
                 .writeText("$pomName>central=\n$jarName>central=\n")
 
-            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
             val result = runCatching { resolver.resolve("$groupId:$artifactId:$version") }
 
             val ex = result.exceptionOrNull()
@@ -172,7 +181,8 @@ class RecipeArtifactResolverTest :
         // ─── Cache directory setup ────────────────────────────────────────────────
 
         test("resolve creates repository subdirectory inside cacheDir") {
-            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
             // Trigger lazy initialization by calling resolve (it will fail on network but
             // the local repository directory is created before the network call)
             runCatching {
@@ -338,7 +348,8 @@ class RecipeArtifactResolverTest :
             // Coordinate with only groupId:artifactId should default to LATEST.
             // We can't guarantee network access in all environments, so we only verify
             // the code path is entered (i.e. the call starts, may fail gracefully or succeed).
-            val resolver = RecipeArtifactResolver(AetherContext.build(cacheDir))
+            val resolver =
+                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
             val result = runCatching {
                 resolver.resolve("com.example.nonexistent:artifact-that-does-not-exist")
             }

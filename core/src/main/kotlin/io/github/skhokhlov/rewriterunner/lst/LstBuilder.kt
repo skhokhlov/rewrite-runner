@@ -6,6 +6,7 @@ import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.UUID
 import kotlin.io.path.exists
 import kotlin.io.path.extension
@@ -75,7 +76,10 @@ class LstBuilder(
     private val toolConfig: ToolConfig,
     private val buildToolStage: BuildToolStage = BuildToolStage(),
     private val depResolutionStage: DependencyResolutionStage = DependencyResolutionStage(
-        AetherContext.build(cacheDir, toolConfig.resolvedRepositories())
+        AetherContext.build(
+            Paths.get(System.getProperty("user.home"), ".m2", "repository"),
+            toolConfig.resolvedRepositories()
+        )
     )
 ) {
     private val log = LoggerFactory.getLogger(LstBuilder::class.java.name)
