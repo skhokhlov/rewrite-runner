@@ -159,7 +159,7 @@ ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
 | `recipeArtifact(String)` | optional (repeatable) | — | Maven coordinate of a recipe JAR |
 | `recipeArtifacts(List<String>)` | optional | — | Set all recipe artifact coordinates at once |
 | `rewriteConfig(Path)` | optional | `<projectDir>/rewrite.yaml` | Custom `rewrite.yaml` path |
-| `cacheDir(Path)` | optional | `~/.rewriterunner/cache` | JAR download cache directory |
+| `cacheDir(Path)` | optional | `~/.rewriterunner/cache` | Cache root for downloaded recipe JARs (stored under `<cacheDir>/repository`). Project dependencies always resolve from `~/.m2/repository`. |
 | `configFile(Path)` | optional | — | Path to `rewrite-runner.yml` |
 | `dryRun(Boolean)` | optional | `false` | Analyse without writing to disk |
 | `includeExtensions(List<String>)` | optional | all supported | File extensions to parse |
@@ -184,7 +184,7 @@ Usage: rewrite-runner [-h] [--dry-run] [--active-recipe=<recipe>]
 | `--recipe-artifact` | Maven coordinate of a recipe JAR to load (repeatable) | — |
 | `--rewrite-config` | Path to `rewrite.yaml` for custom recipe compositions | `<project-dir>/rewrite.yaml` |
 | `--output`, `-o` | Output mode: `diff`, `files`, or `report` | `diff` |
-| `--cache-dir` | Directory for caching downloaded JARs | `~/.rewriterunner/cache` |
+| `--cache-dir` | Cache root for downloaded recipe JARs (stored under `<path>/repository`). Project dependencies always resolve from `~/.m2/repository`. | `~/.rewriterunner/cache` |
 | `--config` | Path to tool config file (`rewrite-runner.yml`) | — |
 | `--dry-run` | Run recipe but do not write changes to disk | `false` |
 | `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
@@ -237,7 +237,7 @@ Specify recipe JARs using Maven coordinates. The `--recipe-artifact` flag can be
 
 `LATEST` resolves to the most recent release. Specific versions (e.g. `2.21.0`) are also accepted.
 
-Downloaded JARs are cached in `~/.rewriterunner/cache` (or `--cache-dir`) and reused on subsequent runs.
+Downloaded recipe JARs are cached under `~/.rewriterunner/cache/repository` (or `--cache-dir`/repository) and reused on subsequent runs. They are stored separately from the project's own dependencies, which always resolve from `~/.m2/repository`.
 
 ## Custom Recipe Compositions
 
@@ -304,7 +304,7 @@ If Stage 1 fails (broken build, no wrapper, timeout), the tool resolves dependen
 
 > **Note:** The `gradle dependencies` task only reports dependencies for the project it is applied to. Subprojects are queried explicitly (`:sub:dependencies`) so that multi-module builds are fully covered.
 
-Downloads are cached locally and respect configured extra repositories.
+Resolved JARs are cached in `~/.m2/repository` (Maven default), so artifacts already downloaded by the project's own build are reused without re-downloading. Extra repositories from the tool config are also consulted.
 
 ### Stage 3 — Local cache scan
 If dependency resolution also fails, the tool scans local Maven and Gradle caches:

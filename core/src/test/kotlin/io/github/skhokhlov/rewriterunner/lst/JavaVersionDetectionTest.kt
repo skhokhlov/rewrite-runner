@@ -41,7 +41,7 @@ class JavaVersionDetectionTest :
         fun lstBuilder(): LstBuilder {
             val noOpDepStage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(projectDir.resolve("cache"))
+                    AetherContext.build(projectDir.resolve("cache").resolve("repository"))
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }

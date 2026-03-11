@@ -28,7 +28,7 @@ class DependencyResolutionStageTest :
             cacheDir.toFile().deleteRecursively()
         }
 
-        fun stage() = DependencyResolutionStage(AetherContext.build(cacheDir))
+        fun stage() = DependencyResolutionStage(AetherContext.build(cacheDir.resolve("repository")))
 
         // ─── Maven pom.xml parsing ────────────────────────────────────────────────
 

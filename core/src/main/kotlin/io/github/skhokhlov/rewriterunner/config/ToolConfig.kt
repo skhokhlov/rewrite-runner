@@ -56,7 +56,9 @@ data class ParseConfig(
  * construct instances directly.
  *
  * @property repositories Additional remote Maven repositories for JAR resolution.
- * @property cacheDir Local cache directory for downloaded JARs. Supports `~` expansion.
+ * @property cacheDir Cache root for downloaded recipe JARs. Supports `~` and `${ENV_VAR}`
+ *   expansion. Recipe artifacts are stored under `<cacheDir>/repository`, isolated from the
+ *   user's Maven local repository. Project dependencies always resolve from `~/.m2/repository`.
  *   Defaults to `~/.rewriterunner/cache`.
  * @property parse File parsing configuration controlling which extensions and paths are
  *   included or excluded from the LST-building stage.
@@ -68,7 +70,8 @@ data class ToolConfig(
     val parse: ParseConfig = ParseConfig()
 ) {
     /** Returns [cacheDir] with `~` expanded to the user home directory and environment
-     *  variable placeholders replaced. */
+     *  variable placeholders replaced. Recipe JARs are cached under the returned path's
+     *  `repository/` subdirectory. */
     fun resolvedCacheDir(): Path {
         val dir = interpolateEnvVars(cacheDir)
         return if (dir.startsWith("~")) {
