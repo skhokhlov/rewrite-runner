@@ -42,10 +42,11 @@ import org.slf4j.LoggerFactory
  *
  * Plain `.kt` sources and non-Gradle `.kts` scripts receive only the regular project classpath.
  *
- * **Java version detection** — each `.java` source file receives a [org.openrewrite.java.marker.JavaVersion]
- * marker whose `sourceCompatibility`/`targetCompatibility` values reflect the **nearest** build
- * descriptor found by walking up from the file's own directory toward [build]'s `projectDir`.
- * This means each subproject's Java files automatically pick up that subproject's setting:
+ * **Java/Kotlin version detection** — each `.java`, `.kt`, and `.kts` source file receives a
+ * [org.openrewrite.java.marker.JavaVersion] marker whose `sourceCompatibility`/`targetCompatibility`
+ * values reflect the **nearest** build descriptor found by walking up from the file's own directory
+ * toward [build]'s `projectDir`. This means each subproject's source files automatically pick up
+ * that subproject's setting:
  *
  * ```
  * root/
@@ -58,9 +59,11 @@ import org.slf4j.LoggerFactory
  * ```
  *
  * Detection priority within a single build descriptor:
- * - **Maven**: plugin `<release>` > plugin `<source>`/`<target>` > `<properties>` entries.
- * - **Gradle**: `compileJava.options.release` > `sourceCompatibility`/`targetCompatibility` >
+ * - **Maven (Java)**: plugin `<release>` > plugin `<source>`/`<target>` > `<properties>` entries.
+ * - **Maven (Kotlin)**: `kotlin-maven-plugin <jvmTarget>` > then same as Java above.
+ * - **Gradle (Java)**: `compileJava.options.release` > `sourceCompatibility`/`targetCompatibility` >
  *   `jvmToolchain()` / `JavaLanguageVersion.of()`.
+ * - **Gradle (Kotlin)**: `jvmTarget` / `JvmTarget.JVM_N` > then same as Gradle Java above.
  *
  * Legacy `"1.8"` format is normalised to `"8"`. Unresolvable placeholders (e.g.
  * `${java.version}`) are skipped, and the walk-up continues. If no explicit version is
@@ -136,10 +139,11 @@ class LstBuilder(
         // ── 3-stage classpath resolution ──────────────────────────────────────
         val classpath = resolveClasspath(projectDir)
 
-        // ── Per-file Java version cache (module dir → (source, target)) ──────
-        // Populated lazily as Java files are processed; null means a build file
-        // was found in that directory but carried no explicit Java version setting.
-        val versionCache = mutableMapOf<Path, Pair<String, String>?>()
+        // ── Per-file version caches (module dir → (source, target)) ─────────
+        // Populated lazily; null means a build file was found but carried no
+        // explicit version — triggers continued walk-up on next access.
+        val javaVersionCache = mutableMapOf<Path, Pair<String, String>?>()
+        val kotlinVersionCache = mutableMapOf<Path, Pair<String, String>?>()
 
         // ── Collect files by extension ────────────────────────────────────────
         val filesByExt = collectFiles(projectDir, effectiveExtensions, parseConfig.excludePaths)
@@ -159,7 +163,11 @@ class LstBuilder(
                 .build()
             parser.parse(files, projectDir, ctx).forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
-                val (source, target) = detectJavaVersionForFile(absPath, projectDir, versionCache)
+                val (source, target) = detectJavaVersionForFile(
+                    absPath,
+                    projectDir,
+                    javaVersionCache
+                )
                 log.debug(
                     "Java version for ${sourceFile.sourcePath}: source=$source, target=$target"
                 )
@@ -174,7 +182,19 @@ class LstBuilder(
         filesByExt[".kt"]?.let { files ->
             log.info("Parsing ${files.size} Kotlin file(s)")
             val parser = KotlinParser.builder().classpath(classpath).build()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            parser.parse(files, projectDir, ctx).forEach { sourceFile ->
+                val absPath = projectDir.resolve(sourceFile.sourcePath)
+                val (source, target) =
+                    detectKotlinVersionForFile(absPath, projectDir, kotlinVersionCache)
+                log.debug(
+                    "Kotlin JVM target for ${sourceFile.sourcePath}: source=$source, target=$target"
+                )
+                allSources.add(
+                    sourceFile.withMarkers(
+                        sourceFile.markers.add(buildJavaVersionMarker(source, target))
+                    )
+                )
+            }
         }
 
         filesByExt[".kts"]?.let { files ->
@@ -187,7 +207,16 @@ class LstBuilder(
             if (plainKtsFiles.isNotEmpty()) {
                 log.info("Parsing ${plainKtsFiles.size} Kotlin Script file(s)")
                 val parser = KotlinParser.builder().classpath(classpath).build()
-                parser.parse(plainKtsFiles, projectDir, ctx).forEach { allSources.add(it) }
+                parser.parse(plainKtsFiles, projectDir, ctx).forEach { sourceFile ->
+                    val absPath = projectDir.resolve(sourceFile.sourcePath)
+                    val (source, target) =
+                        detectKotlinVersionForFile(absPath, projectDir, kotlinVersionCache)
+                    allSources.add(
+                        sourceFile.withMarkers(
+                            sourceFile.markers.add(buildJavaVersionMarker(source, target))
+                        )
+                    )
+                }
             }
 
             if (gradleKtsFiles.isNotEmpty()) {
@@ -341,6 +370,117 @@ class LstBuilder(
             dir = dir.parent
         }
         return fallback
+    }
+
+    /**
+     * Detects the JVM target version for a Kotlin source file by walking up its directory
+     * tree toward [projectDir], using [detectMavenKotlinVersion] and
+     * [detectGradleKotlinVersion] at each level.
+     *
+     * The algorithm is identical to [detectJavaVersionForFile]: Kotlin-specific settings
+     * (`kotlinOptions.jvmTarget`, `kotlin-maven-plugin <jvmTarget>`) are checked first;
+     * if absent, the same `jvmToolchain` / `sourceCompatibility` / maven-compiler-plugin
+     * settings used for Java are treated as the JVM target for Kotlin too.
+     *
+     * If no explicit version is found anywhere in the ancestor chain, falls back to the
+     * running JVM's major version.
+     *
+     * @param absFilePath Absolute path of the Kotlin source file being parsed.
+     * @param projectDir  Root directory of the project (inclusive upper bound of the walk).
+     * @param cache       Mutable cache: directory → detected `(source, target)` pair,
+     *                    or `null` when a build file was present but had no explicit version.
+     */
+    private fun detectKotlinVersionForFile(
+        absFilePath: Path,
+        projectDir: Path,
+        cache: MutableMap<Path, Pair<String, String>?>
+    ): Pair<String, String> {
+        val jvmMajor = normalizeJvmVersion(System.getProperty("java.version") ?: "")
+        val fallback = Pair(jvmMajor, jvmMajor)
+
+        var dir: Path? = absFilePath.parent
+        while (dir != null && dir.startsWith(projectDir)) {
+            if (dir in cache) {
+                val cached = cache[dir]
+                if (cached != null) return cached
+                // null → build file here but no explicit version; keep walking up
+            } else {
+                val pomFile = dir.resolve("pom.xml")
+                val buildFile = dir.resolve("build.gradle.kts").takeIf { it.toFile().exists() }
+                    ?: dir.resolve("build.gradle").takeIf { it.toFile().exists() }
+                val detected: Pair<String, String>? = when {
+                    pomFile.toFile().exists() -> detectMavenKotlinVersion(dir)
+
+                    buildFile != null -> detectGradleKotlinVersion(buildFile)
+
+                    else -> {
+                        if (dir == projectDir) break
+                        dir = dir.parent
+                        continue
+                    }
+                }
+                cache[dir] = detected
+                if (detected != null) return detected
+            }
+            if (dir == projectDir) break
+            dir = dir.parent
+        }
+        return fallback
+    }
+
+    /**
+     * Extracts the JVM target version for Kotlin from Maven's `kotlin-maven-plugin`
+     * `<jvmTarget>` configuration, then falls back to [detectMavenJavaVersion].
+     */
+    private fun detectMavenKotlinVersion(dir: Path): Pair<String, String>? {
+        return try {
+            val model = MavenXpp3Reader().read(dir.resolve("pom.xml").toFile().inputStream())
+            val kotlinPlugin = model.build?.plugins?.find { it.artifactId == "kotlin-maven-plugin" }
+            val dom = kotlinPlugin?.configuration as? Xpp3Dom
+            val jvmTarget = dom?.getChild("jvmTarget")?.value
+                ?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
+            if (jvmTarget != null) {
+                val v = normalizeJvmVersion(jvmTarget)
+                return Pair(v, v)
+            }
+            detectMavenJavaVersion(dir)
+        } catch (e: Exception) {
+            log.warn("Failed to detect Kotlin JVM target from pom.xml: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Extracts the JVM target version for Kotlin from a Gradle build file.
+     *
+     * Checks `kotlinOptions.jvmTarget` / `JvmTarget.JVM_N` first (highest precedence),
+     * then delegates to [detectGradleJavaVersion] for shared settings
+     * (`compileJava.options.release`, `sourceCompatibility`, `jvmToolchain`).
+     *
+     * Handles:
+     * - `jvmTarget = "17"` / `jvmTarget = '17'` (Groovy/Kotlin DSL)
+     * - `jvmTarget.set(JvmTarget.JVM_17)` (Kotlin DSL property API)
+     * - `jvmTarget.set(a.b.JvmTarget.JVM_17)` (fully-qualified class name)
+     * - `JvmTarget.JVM_1_8` → normalized to "8"
+     */
+    private fun detectGradleKotlinVersion(buildFile: Path): Pair<String, String>? = try {
+        val text = buildFile.toFile().readText()
+        // jvmTarget = "17"  |  jvmTarget = JvmTarget.JVM_17
+        // jvmTarget.set(JvmTarget.JVM_17)  |  jvmTarget.set(a.b.c.JvmTarget.JVM_1_8)
+        val jvmTargetPattern =
+            Regex(
+                """jvmTarget\s*(?:[=:]\s*|\.set\s*\(\s*)""" +
+                    """(?:(?:\w+\.)*JvmTarget\.JVM_(?:1_)?)?["']?(?:1\.)?(\d+)["']?"""
+            )
+        val jvmTarget = jvmTargetPattern.find(text)?.groupValues?.get(1)
+        if (jvmTarget != null) {
+            Pair(jvmTarget, jvmTarget)
+        } else {
+            detectGradleJavaVersion(buildFile)
+        }
+    } catch (e: Exception) {
+        log.warn("Failed to detect Kotlin JVM target from Gradle build file: ${e.message}")
+        null
     }
 
     /**
