@@ -160,7 +160,7 @@ class RewriteRunner private constructor(private val config: Builder) {
                 } else {
                     val after = result.after!!
                     val target = config.projectDir.resolve(after.sourcePath)
-                    target.toFile().parentFile?.mkdirs()
+                    Files.createDirectories(target.parent)
                     target.toFile().writeText(after.printAll(), Charsets.UTF_8)
                     writtenFiles.add(target)
                     log.info("      Wrote ${after.sourcePath}")
