@@ -58,7 +58,8 @@ class AetherContext(
             localRepoDir: Path,
             extraRepositories: List<RepositoryConfig> = emptyList(),
             connectTimeoutMs: Int = 30_000,
-            requestTimeoutMs: Int = 60_000
+            requestTimeoutMs: Int = 60_000,
+            includeMavenCentral: Boolean = true
         ): AetherContext {
             val system = RepositorySystemSupplier().get()
             localRepoDir.toFile().mkdirs()
@@ -97,15 +98,16 @@ class AetherContext(
                 .setIgnoreArtifactDescriptorRepositories(true)
                 .build()
 
-            val remoteRepos =
-                mutableListOf(
+            val remoteRepos = mutableListOf<RemoteRepository>()
+            if (includeMavenCentral) {
+                remoteRepos.add(
                     RemoteRepository.Builder(
                         "central",
                         "default",
                         "https://repo.maven.apache.org/maven2"
-                    )
-                        .build()
+                    ).build()
                 )
+            }
             extraRepositories.forEachIndexed { index, cfg ->
                 // Use a stable, URL-safe ID: "extra-0", "extra-1", etc.
                 // hashCode() was previously used but can produce negative integers which

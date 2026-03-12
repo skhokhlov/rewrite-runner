@@ -44,6 +44,7 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 | `--exclude-extensions` | | Comma-separated file types to skip | — |
 | `--info` | | Enable INFO-level logging to stderr | `false` |
 | `--debug` | | Enable DEBUG-level logging (overrides `--info`) | `false` |
+| `--no-maven-central` | | Disable Maven Central; use only repos from config | `false` |
 
 **Output modes**: `diff` (unified diffs) · `files` (one path per line) · `report` (JSON to `openrewrite-report.json`)
 

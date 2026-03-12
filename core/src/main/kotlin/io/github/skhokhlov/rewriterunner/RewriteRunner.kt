@@ -70,20 +70,24 @@ class RewriteRunner private constructor(private val config: Builder) {
         val effectiveCacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).also {
             log.info("      Cache dir: $it")
         }
+        val effectiveIncludeMavenCentral =
+            config.includeMavenCentral ?: toolConfig.includeMavenCentral
         // Recipe artifacts are isolated in the tool's own cache so they never mix with
         // the project's build artifacts in the user's Maven local repository.
         val recipeLocalRepoDir = effectiveCacheDir.resolve("repository")
         Files.createDirectories(recipeLocalRepoDir)
         val recipeContext = AetherContext.build(
             localRepoDir = recipeLocalRepoDir,
-            extraRepositories = toolConfig.resolvedRepositories()
+            extraRepositories = toolConfig.resolvedRepositories(),
+            includeMavenCentral = effectiveIncludeMavenCentral
         )
         // Project dependencies use the Maven default local repository so already-cached
         // artifacts from the project's own build are reused without re-downloading.
         val mavenLocalRepoDir = Paths.get(System.getProperty("user.home"), ".m2", "repository")
         val projectContext = AetherContext.build(
             localRepoDir = mavenLocalRepoDir,
-            extraRepositories = toolConfig.resolvedRepositories()
+            extraRepositories = toolConfig.resolvedRepositories(),
+            includeMavenCentral = effectiveIncludeMavenCentral
         )
 
         // 2. Resolve recipe JARs
@@ -220,6 +224,8 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var excludeExtensions: List<String> = emptyList()
             private set
+        internal var includeMavenCentral: Boolean? = null
+            private set
 
         /**
          * The root directory of the project to analyse. Defaults to the current working
@@ -295,6 +301,14 @@ class RewriteRunner private constructor(private val config: Builder) {
         fun excludeExtensions(extensions: List<String>): Builder = apply {
             excludeExtensions = extensions
         }
+
+        /**
+         * Override whether Maven Central is included as a remote repository.
+         * When `false`, only the repositories explicitly configured via the tool config
+         * file are used. Useful in enterprise environments where Central is unreachable.
+         * When not set, falls back to `includeMavenCentral` from the tool config (default `true`).
+         */
+        fun includeMavenCentral(value: Boolean): Builder = apply { includeMavenCentral = value }
 
         /**
          * Construct the [RewriteRunner].

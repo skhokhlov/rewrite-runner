@@ -158,6 +158,20 @@ class ToolConfigTest :
             assertEquals("secret123", config.repositories[0].password)
         }
 
+        // ─── includeMavenCentral ──────────────────────────────────────────────────
+
+        test("includeMavenCentral defaults to true when not specified") {
+            val config = ToolConfig()
+            assertEquals(true, config.includeMavenCentral)
+        }
+
+        test("loads includeMavenCentral: false from yaml") {
+            val configFile = tempDir.resolve("runner.yml")
+            configFile.writeText("includeMavenCentral: false")
+            val config = ToolConfig.load(configFile)
+            assertEquals(false, config.includeMavenCentral)
+        }
+
         test("repository without credentials has null username and password") {
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(

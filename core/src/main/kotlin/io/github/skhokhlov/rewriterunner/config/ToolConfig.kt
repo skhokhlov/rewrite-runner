@@ -67,7 +67,8 @@ data class ParseConfig(
 data class ToolConfig(
     val repositories: List<RepositoryConfig> = emptyList(),
     val cacheDir: String = "~/.rewriterunner/cache",
-    val parse: ParseConfig = ParseConfig()
+    val parse: ParseConfig = ParseConfig(),
+    val includeMavenCentral: Boolean = true
 ) {
     /** Returns [cacheDir] with `~` expanded to the user home directory and environment
      *  variable placeholders replaced. Recipe JARs are cached under the returned path's
