@@ -55,4 +55,35 @@ class AetherContextTest :
             assertEquals(repoA.toAbsolutePath(), pathA)
             assertEquals(repoB.toAbsolutePath(), pathB)
         }
+
+        // ─── includeMavenCentral ──────────────────────────────────────────────────
+
+        test("build by default includes Maven Central in remoteRepos") {
+            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            assertTrue(
+                ctx.remoteRepos.any { it.url == "https://repo.maven.apache.org/maven2" },
+                "Maven Central should be present by default"
+            )
+        }
+
+        test("build with includeMavenCentral=false excludes Maven Central from remoteRepos") {
+            val extraRepo = io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                url = "https://nexus.example.com/repository/maven-public"
+            )
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                extraRepositories = listOf(extraRepo),
+                includeMavenCentral = false
+            )
+            assertTrue(
+                ctx.remoteRepos.none { it.url == "https://repo.maven.apache.org/maven2" },
+                "Maven Central should be absent when includeMavenCentral=false"
+            )
+            assertTrue(
+                ctx.remoteRepos.any {
+                    it.url == "https://nexus.example.com/repository/maven-public"
+                },
+                "Extra repo should still be present"
+            )
+        }
     })

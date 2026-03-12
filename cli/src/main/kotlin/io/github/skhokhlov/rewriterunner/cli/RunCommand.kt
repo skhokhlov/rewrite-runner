@@ -105,6 +105,12 @@ class RunCommand : Callable<Int> {
     )
     var excludeExtensions: List<String> = emptyList()
 
+    @Option(
+        names = ["--no-maven-central"],
+        description = ["Disable Maven Central; use only repositories from config."]
+    )
+    var noMavenCentral: Boolean = false
+
     override fun call(): Int {
         // Apply log level override before any work (--debug takes precedence over --info)
         if (debugLogging || infoLogging) {
@@ -122,6 +128,7 @@ class RunCommand : Callable<Int> {
             rewriteConfig?.let { builder.rewriteConfig(it) }
             cacheDir?.let { builder.cacheDir(it) }
             configFile?.let { builder.configFile(it) }
+            if (noMavenCentral) builder.includeMavenCentral(false)
 
             val runResult = builder.build().run()
 

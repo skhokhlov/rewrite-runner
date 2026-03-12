@@ -145,6 +145,15 @@ class RunCommandTest :
             assertTrue(baos.toString().contains("--info"), "--help should document --info option")
         }
 
+        test("--help output mentions --no-maven-central") {
+            val baos = ByteArrayOutputStream()
+            cli().setOut(PrintWriter(baos)).execute("--help")
+            assertTrue(
+                baos.toString().contains("no-maven-central"),
+                "--help should document --no-maven-central option"
+            )
+        }
+
         test("multiple --recipe-artifact flags are collected into a list") {
             val cmd = RunCommand()
             CommandLine(cmd).parseArgs(
