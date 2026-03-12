@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner
 
+import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage
 import io.github.skhokhlov.rewriterunner.lst.LstBuilder
@@ -72,13 +73,14 @@ class RewriteRunner private constructor(private val config: Builder) {
         }
         val effectiveIncludeMavenCentral =
             config.includeMavenCentral ?: toolConfig.includeMavenCentral
+        val effectiveRepositories = toolConfig.resolvedRepositories() + config.repositories
         // Recipe artifacts are isolated in the tool's own cache so they never mix with
         // the project's build artifacts in the user's Maven local repository.
         val recipeLocalRepoDir = effectiveCacheDir.resolve("repository")
         Files.createDirectories(recipeLocalRepoDir)
         val recipeContext = AetherContext.build(
             localRepoDir = recipeLocalRepoDir,
-            extraRepositories = toolConfig.resolvedRepositories(),
+            extraRepositories = effectiveRepositories,
             includeMavenCentral = effectiveIncludeMavenCentral
         )
         // Project dependencies use the Maven default local repository so already-cached
@@ -86,7 +88,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         val mavenLocalRepoDir = Paths.get(System.getProperty("user.home"), ".m2", "repository")
         val projectContext = AetherContext.build(
             localRepoDir = mavenLocalRepoDir,
-            extraRepositories = toolConfig.resolvedRepositories(),
+            extraRepositories = effectiveRepositories,
             includeMavenCentral = effectiveIncludeMavenCentral
         )
 
@@ -128,10 +130,15 @@ class RewriteRunner private constructor(private val config: Builder) {
             toolConfig = toolConfig,
             depResolutionStage = DependencyResolutionStage(projectContext)
         )
+        val effectiveParseConfig = if (config.excludePaths.isNotEmpty()) {
+            toolConfig.parse.copy(excludePaths = config.excludePaths)
+        } else {
+            toolConfig.parse
+        }
         val lstStart = System.currentTimeMillis()
         val sourceFiles = lstBuilder.build(
             projectDir = config.projectDir,
-            parseConfig = toolConfig.parse,
+            parseConfig = effectiveParseConfig,
             includeExtensionsCli = config.includeExtensions,
             excludeExtensionsCli = config.excludeExtensions
         )
@@ -226,6 +233,10 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var includeMavenCentral: Boolean? = null
             private set
+        internal var repositories: List<RepositoryConfig> = emptyList()
+            private set
+        internal var excludePaths: List<String> = emptyList()
+            private set
 
         /**
          * The root directory of the project to analyse. Defaults to the current working
@@ -309,6 +320,30 @@ class RewriteRunner private constructor(private val config: Builder) {
          * When not set, falls back to `includeMavenCentral` from the tool config (default `true`).
          */
         fun includeMavenCentral(value: Boolean): Builder = apply { includeMavenCentral = value }
+
+        /**
+         * Add a single extra Maven repository for artifact resolution. May be called
+         * multiple times; all entries accumulate and are combined with any repositories
+         * declared in the tool config file.
+         */
+        fun repository(repo: RepositoryConfig): Builder = apply {
+            repositories = repositories + repo
+        }
+
+        /**
+         * Replace the full list of extra Maven repositories for artifact resolution.
+         * Combined with any repositories declared in the tool config file.
+         */
+        fun repositories(repos: List<RepositoryConfig>): Builder = apply {
+            repositories = repos
+        }
+
+        /**
+         * Glob patterns (relative to the project root) for paths to skip during parsing.
+         * When non-empty, overrides `parse.excludePaths` from the tool config file.
+         * Supports the same glob syntax as [java.nio.file.FileSystem.getPathMatcher].
+         */
+        fun excludePaths(paths: List<String>): Builder = apply { excludePaths = paths }
 
         /**
          * Construct the [RewriteRunner].

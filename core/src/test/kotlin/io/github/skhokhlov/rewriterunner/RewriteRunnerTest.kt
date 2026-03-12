@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner
 
+import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -70,5 +71,65 @@ class RewriteRunnerTest :
             runDeletePropertiesRecipe(dryRun = true)
 
             assertTrue(propsFile.exists(), "Dry-run must not delete files from disk")
+        }
+
+        // ─── excludePaths builder property ───────────────────────────────────────
+
+        test("builder excludePaths skips matching files") {
+            projectDir.resolve("excluded").toFile().mkdirs()
+            projectDir.resolve("included").toFile().mkdirs()
+            val excludedFile = projectDir.resolve("excluded/app.properties")
+            val includedFile = projectDir.resolve("included/app.properties")
+            excludedFile.writeText("key=value\n")
+            includedFile.writeText("key=value\n")
+
+            projectDir.resolve("rewrite.yaml").writeText(
+                """
+                ---
+                type: specs.openrewrite.org/v1beta/recipe
+                name: com.test.DeleteProperties
+                recipeList:
+                  - org.openrewrite.DeleteSourceFiles:
+                      filePattern: "**/*.properties"
+                """.trimIndent()
+            )
+
+            RewriteRunner.builder()
+                .projectDir(projectDir)
+                .activeRecipe("com.test.DeleteProperties")
+                .cacheDir(cacheDir)
+                .excludePaths(listOf("excluded/**"))
+                .build()
+                .run()
+
+            assertTrue(excludedFile.exists(), "File in excluded path should not be deleted")
+            assertFalse(includedFile.exists(), "File in included path should be deleted")
+        }
+
+        // ─── repositories builder property ───────────────────────────────────────
+
+        test("builder repositories are accepted without error") {
+            // Verify that supplying a RepositoryConfig programmatically does not throw.
+            // Full resolution behaviour is covered by integration tests.
+            projectDir.resolve("rewrite.yaml").writeText(
+                """
+                ---
+                type: specs.openrewrite.org/v1beta/recipe
+                name: com.test.DeleteProperties
+                recipeList:
+                  - org.openrewrite.DeleteSourceFiles:
+                      filePattern: "**/*.properties"
+                """.trimIndent()
+            )
+
+            RewriteRunner.builder()
+                .projectDir(projectDir)
+                .activeRecipe("com.test.DeleteProperties")
+                .cacheDir(cacheDir)
+                .repository(RepositoryConfig(url = "https://repo.example.com/maven"))
+                .repositories(listOf(RepositoryConfig(url = "https://other.example.com/maven")))
+                .build()
+                .run()
+            // No assertion needed — the test passes if no exception is thrown
         }
     })

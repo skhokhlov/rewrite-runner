@@ -28,6 +28,9 @@ val result = RewriteRunner.builder()
 | `dryRun(Boolean)` | `Boolean` | `false` | Run without writing files to disk |
 | `includeExtensions(List<String>)` | `List` | `[]` | Restrict to these extensions; overrides config file |
 | `excludeExtensions(List<String>)` | `List` | `[]` | Skip these extensions; overrides config file |
+| `excludePaths(List<String>)` | `List` | `[]` | Glob patterns to skip during parsing; overrides `parse.excludePaths` from config file |
+| `repository(RepositoryConfig)` | — | — | Add one extra Maven repository; accumulated, combined with config file repos |
+| `repositories(List<RepositoryConfig>)` | `List` | `[]` | Replace all extra Maven repositories; combined with config file repos |
 
 ### Throws
 - `IllegalArgumentException` — recipe not found in loaded JARs or classpath
