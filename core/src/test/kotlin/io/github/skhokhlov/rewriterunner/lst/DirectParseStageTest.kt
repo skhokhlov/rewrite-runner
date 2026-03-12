@@ -1,16 +1,27 @@
 package io.github.skhokhlov.rewriterunner.lst
 
-import ch.qos.logback.classic.Level
-import ch.qos.logback.classic.Logger
-import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.core.read.ListAppender
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import org.slf4j.LoggerFactory
+
+/** Simple [RunnerLogger] that records calls for assertion in tests. */
+private class CapturingLogger : RunnerLogger {
+    data class LogEntry(val level: String, val message: String)
+
+    val entries = mutableListOf<LogEntry>()
+
+    override fun lifecycle(message: String) = entries.add(LogEntry("INFO", message)).let { Unit }
+    override fun info(message: String) = entries.add(LogEntry("INFO", message)).let { Unit }
+    override fun debug(message: String) = entries.add(LogEntry("DEBUG", message)).let { Unit }
+    override fun warn(message: String) = entries.add(LogEntry("WARN", message)).let { Unit }
+    override fun error(message: String, cause: Throwable?) =
+        entries.add(LogEntry("ERROR", message)).let { Unit }
+}
 
 class DirectParseStageTest :
     FunSpec({
@@ -47,29 +58,18 @@ class DirectParseStageTest :
         }
 
         test("logs warning for each unresolved coordinate") {
-            val logger = LoggerFactory.getLogger(DirectParseStage::class.java.name)
-                as ch.qos.logback.classic.Logger
-            val appender = ListAppender<ILoggingEvent>()
-            appender.start()
-            logger.addAppender(appender)
-
-            try {
-                val stage = DirectParseStage(projectDir)
-                stage.findAvailableJars(listOf("com.example:missing:9.9.9"))
-                val warnings = appender.list.filter {
-                    it.level == ch.qos.logback.classic.Level.WARN
-                }
-                assertTrue(
-                    warnings.any { event ->
-                        val msg = event.formattedMessage
-                        msg.contains("9.9.9") || msg.contains("missing") ||
-                            msg.contains("cached")
-                    },
-                    "Expected a warning about the unresolved coordinate, got: ${appender.list}"
-                )
-            } finally {
-                logger.detachAppender(appender)
-            }
+            val log = CapturingLogger()
+            val stage = DirectParseStage(projectDir, log)
+            stage.findAvailableJars(listOf("com.example:missing:9.9.9"))
+            val warnings = log.entries.filter { it.level == "WARN" }
+            assertTrue(
+                warnings.any { entry ->
+                    val msg = entry.message
+                    msg.contains("9.9.9") || msg.contains("missing") ||
+                        msg.contains("cached")
+                },
+                "Expected a warning about the unresolved coordinate, got: ${log.entries}"
+            )
         }
 
         test("handles malformed coordinates gracefully") {
@@ -112,34 +112,24 @@ class DirectParseStageTest :
             // A coordinate like "com.example::1.0" is malformed (typo), not merely absent;
             // polluting that warning with it gives users a misleading signal that they need
             // to populate their cache for a dependency that was never declared correctly.
-            val logger =
-                LoggerFactory.getLogger(DirectParseStage::class.java.name) as Logger
-            val appender = ListAppender<ILoggingEvent>()
-            appender.start()
-            logger.level = Level.WARN
-            logger.addAppender(appender)
-
-            try {
-                DirectParseStage(projectDir).findAvailableJars(
-                    listOf(
-                        "com.example::1.0", // empty artifactId
-                        ":artifact:1.0", // empty groupId
-                        "group:artifact:" // empty version
-                    )
+            val log = CapturingLogger()
+            DirectParseStage(projectDir, log).findAvailableJars(
+                listOf(
+                    "com.example::1.0", // empty artifactId
+                    ":artifact:1.0", // empty groupId
+                    "group:artifact:" // empty version
                 )
+            )
 
-                val messages = appender.list.map { it.formattedMessage }
-                assertFalse(
-                    messages.any { msg ->
-                        msg.contains("com.example::1.0") ||
-                            msg.contains(":artifact:1.0") ||
-                            msg.contains("group:artifact:")
-                    },
-                    "Malformed coordinates must not appear in any warning message; got: $messages"
-                )
-            } finally {
-                logger.detachAppender(appender)
-            }
+            val messages = log.entries.map { it.message }
+            assertFalse(
+                messages.any { msg ->
+                    msg.contains("com.example::1.0") ||
+                        msg.contains(":artifact:1.0") ||
+                        msg.contains("group:artifact:")
+                },
+                "Malformed coordinates must not appear in any warning message; got: $messages"
+            )
         }
 
         test("result list contains no duplicates") {

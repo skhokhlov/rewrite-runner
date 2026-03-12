@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.collection.CollectRequest
@@ -9,7 +11,6 @@ import org.eclipse.aether.resolution.DependencyRequest
 import org.eclipse.aether.resolution.DependencyResolutionException
 import org.eclipse.aether.resolution.VersionRangeRequest
 import org.eclipse.aether.util.filter.ScopeDependencyFilter
-import org.slf4j.LoggerFactory
 
 /**
  * Resolves Maven coordinates to local JAR file paths using Maven Resolver.
@@ -21,8 +22,10 @@ import org.slf4j.LoggerFactory
  * @param context Shared Maven Resolver context (system, session, remote repositories).
  *   Use [AetherContext.build] to create one.
  */
-open class RecipeArtifactResolver(private val context: AetherContext) {
-    private val log = LoggerFactory.getLogger(RecipeArtifactResolver::class.java.name)
+open class RecipeArtifactResolver(
+    private val context: AetherContext,
+    val logger: RunnerLogger = NoOpRunnerLogger
+) {
     private val runtimeScopeFilter = ScopeDependencyFilter(null, listOf("test", "provided"))
 
     /**
@@ -52,18 +55,18 @@ open class RecipeArtifactResolver(private val context: AetherContext) {
                     e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty()
                 val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
                 if (partial.isNotEmpty()) {
-                    log.warn(
+                    logger.warn(
                         "Partial resolution " +
                             "(${partial.size} JAR(s) resolved; some transitive deps missing): $firstError"
                     )
                     partial
                 } else {
-                    log.error("Cannot resolve recipe artifacts: $firstError")
+                    logger.error("Cannot resolve recipe artifacts: $firstError")
                     throw e
                 }
             }
 
-        log.info("Resolved ${paths.size} JAR(s) total")
+        logger.info("Resolved ${paths.size} JAR(s) total")
         return paths
     }
 
@@ -93,18 +96,18 @@ open class RecipeArtifactResolver(private val context: AetherContext) {
                 val partial = e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty()
                 val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
                 if (partial.isNotEmpty()) {
-                    log.warn(
+                    logger.warn(
                         "Partial resolution for $resolvedCoord " +
                             "(${partial.size} JAR(s) resolved; some transitive deps missing): $firstError"
                     )
                     partial
                 } else {
-                    log.error("Cannot resolve $resolvedCoord: $firstError")
+                    logger.error("Cannot resolve $resolvedCoord: $firstError")
                     throw e
                 }
             }
 
-        log.info("      $resolvedCoord → ${paths.size} JAR(s)")
+        logger.info("      $resolvedCoord → ${paths.size} JAR(s)")
         return paths
     }
 
@@ -120,7 +123,7 @@ open class RecipeArtifactResolver(private val context: AetherContext) {
             } else {
                 version
             }
-        log.info("Resolving $groupId:$artifactId:$resolvedVersion")
+        logger.info("Resolving $groupId:$artifactId:$resolvedVersion")
         return "$groupId:$artifactId:$resolvedVersion"
     }
 

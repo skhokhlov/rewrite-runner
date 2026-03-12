@@ -1,9 +1,10 @@
 package io.github.skhokhlov.rewriterunner.lst
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
-import org.slf4j.LoggerFactory
 
 /**
  * Stage 1 of the LST classpath-resolution pipeline: extract the project's compile
@@ -47,9 +48,7 @@ import org.slf4j.LoggerFactory
  * **Extensibility:** The class is `open` with `open` methods so tests can subclass
  * it to inject a fake classpath without spawning real processes.
  */
-open class BuildToolStage {
-    private val log = LoggerFactory.getLogger(BuildToolStage::class.java.name)
-
+open class BuildToolStage(protected val logger: RunnerLogger = NoOpRunnerLogger) {
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.
      *
@@ -75,7 +74,7 @@ open class BuildToolStage {
         val outputFile = Files.createTempFile("openrewrite-cp-", ".txt")
         try {
             val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
-            log.info("Stage 1: running '$mvnCmd dependency:build-classpath'")
+            logger.info("Stage 1: running '$mvnCmd dependency:build-classpath'")
             val result = runProcess(
                 projectDir,
                 listOf(
@@ -84,11 +83,12 @@ open class BuildToolStage {
                     "-q",
                     "-DincludeScope=test",
                     "-Dmdep.outputFile=${outputFile.toAbsolutePath()}"
-                )
+                ),
+                logger = logger
             ) ?: return null
 
             if (result != 0) {
-                log.warn(
+                logger.warn(
                     "Maven classpath extraction failed with exit code $result — falling through to Stage 2"
                 )
                 return null
@@ -100,10 +100,10 @@ open class BuildToolStage {
             return content.split(java.io.File.pathSeparator).map {
                 Path.of(it)
             }.filter { it.exists() }.also {
-                log.info("Stage 1: Maven classpath resolved — ${it.size} JAR(s)")
+                logger.info("Stage 1: Maven classpath resolved — ${it.size} JAR(s)")
             }
         } catch (e: Exception) {
-            log.warn(
+            logger.warn(
                 "Maven classpath extraction threw an exception: ${e.message} — falling through to Stage 2"
             )
             return null
@@ -120,7 +120,7 @@ open class BuildToolStage {
             initScript.toFile().writeText(GRADLE_INIT_SCRIPT)
 
             val gradleCmd = resolveGradleCommand(projectDir)
-            log.info("Stage 1: running '$gradleCmd printClasspathForOpenRewrite'")
+            logger.info("Stage 1: running '$gradleCmd printClasspathForOpenRewrite'")
             val output = StringBuilder()
             val result = runProcess(
                 projectDir,
@@ -131,11 +131,12 @@ open class BuildToolStage {
                     "--init-script",
                     initScript.toAbsolutePath().toString()
                 ),
-                captureStdout = output
+                captureStdout = output,
+                logger = logger
             ) ?: return null
 
             if (result != 0) {
-                log.warn(
+                logger.warn(
                     "Gradle classpath extraction failed with exit code $result — falling through to Stage 2"
                 )
                 return null
@@ -146,10 +147,10 @@ open class BuildToolStage {
                 .filter { it.isNotEmpty() }
                 .map { Path.of(it) }
                 .filter { it.exists() }.also {
-                    log.info("Stage 1: Gradle classpath resolved — ${it.size} JAR(s)")
+                    logger.info("Stage 1: Gradle classpath resolved — ${it.size} JAR(s)")
                 }
         } catch (e: Exception) {
-            log.warn(
+            logger.warn(
                 "Gradle classpath extraction threw an exception: ${e.message} — falling through to Stage 2"
             )
             return null
@@ -185,16 +186,20 @@ open class BuildToolStage {
     private fun tryMavenCompile(projectDir: Path): Boolean {
         val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
         return try {
-            val result = runProcess(projectDir, listOf(mvnCmd, "compile", "-q")) ?: return false
+            val result = runProcess(
+                projectDir,
+                listOf(mvnCmd, "compile", "-q"),
+                logger = logger
+            ) ?: return false
             if (result == 0) {
-                log.info("Maven compilation succeeded")
+                logger.info("Maven compilation succeeded")
                 true
             } else {
-                log.warn("Maven compilation failed with exit code $result")
+                logger.warn("Maven compilation failed with exit code $result")
                 false
             }
         } catch (e: Exception) {
-            log.warn("Maven compilation threw an exception: ${e.message}")
+            logger.warn("Maven compilation threw an exception: ${e.message}")
             false
         }
     }
@@ -202,16 +207,20 @@ open class BuildToolStage {
     private fun tryGradleCompile(projectDir: Path): Boolean {
         val gradleCmd = resolveGradleCommand(projectDir)
         return try {
-            val result = runProcess(projectDir, listOf(gradleCmd, "classes", "-q")) ?: return false
+            val result = runProcess(
+                projectDir,
+                listOf(gradleCmd, "classes", "-q"),
+                logger = logger
+            ) ?: return false
             if (result == 0) {
-                log.info("Gradle compilation succeeded")
+                logger.info("Gradle compilation succeeded")
                 true
             } else {
-                log.warn("Gradle compilation failed with exit code $result")
+                logger.warn("Gradle compilation failed with exit code $result")
                 false
             }
         } catch (e: Exception) {
-            log.warn("Gradle compilation threw an exception: ${e.message}")
+            logger.warn("Gradle compilation threw an exception: ${e.message}")
             false
         }
     }

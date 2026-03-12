@@ -3,10 +3,8 @@ package io.github.skhokhlov.rewriterunner.cli
 import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.output.OutputMode
 import io.github.skhokhlov.rewriterunner.output.ResultFormatter
-import io.github.skhokhlov.rewriterunner.setLogLevel
 import java.nio.file.Path
 import java.util.concurrent.Callable
-import org.slf4j.LoggerFactory
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.ITypeConverter
@@ -19,8 +17,6 @@ import picocli.CommandLine.Spec
     mixinStandardHelpOptions = true
 )
 class RunCommand : Callable<Int> {
-    private val log = LoggerFactory.getLogger(RunCommand::class.java.name)
-
     @Spec
     lateinit var spec: CommandLine.Model.CommandSpec
 
@@ -115,10 +111,8 @@ class RunCommand : Callable<Int> {
     var noMavenCentral: Boolean = false
 
     override fun call(): Int {
-        // Apply log level override before any work (--debug takes precedence over --info)
-        if (debugLogging || infoLogging) {
-            setLogLevel(debug = debugLogging)
-        }
+        val logger =
+            LogbackRunnerLogger(showInfo = infoLogging || debugLogging, showDebug = debugLogging)
 
         return try {
             val builder = RewriteRunner.builder()
@@ -128,6 +122,7 @@ class RunCommand : Callable<Int> {
                 .dryRun(dryRun)
                 .includeExtensions(includeExtensions)
                 .excludeExtensions(excludeExtensions)
+                .logger(logger)
             rewriteConfig?.let { builder.rewriteConfig(it) }
             cacheDir?.let { builder.cacheDir(it) }
             configFile?.let { builder.configFile(it) }
@@ -150,7 +145,7 @@ class RunCommand : Callable<Int> {
         } catch (e: Exception) {
             spec.commandLine().err.println("ERROR: ${e.message ?: e.javaClass.simpleName}")
             spec.commandLine().err.flush()
-            log.error("Unhandled exception: ${e.stackTraceToString()}")
+            logger.error("Unhandled exception: ${e.stackTraceToString()}")
             1
         }
     }

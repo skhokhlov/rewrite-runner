@@ -1,11 +1,12 @@
 package io.github.skhokhlov.rewriterunner.config
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.exists
 import kotlin.io.path.readText
-import org.slf4j.LoggerFactory
 import tools.jackson.dataformat.yaml.YAMLMapper
 import tools.jackson.module.kotlin.KotlinModule
 
@@ -92,7 +93,6 @@ data class ToolConfig(
     }
 
     companion object {
-        private val log = LoggerFactory.getLogger(ToolConfig::class.java.name)
         private val yaml = YAMLMapper.builder()
             .addModule(KotlinModule.Builder().build())
             .build()
@@ -105,26 +105,29 @@ data class ToolConfig(
          *
          * @param configFile Path to `rewriterunner.yml`. May be `null` or point to a
          *   non-existent file; in either case a default [ToolConfig] is returned.
+         * @param logger Optional logger for warnings during config loading.
          */
-        fun load(configFile: Path?): ToolConfig {
+        fun load(configFile: Path?, logger: RunnerLogger = NoOpRunnerLogger): ToolConfig {
             if (configFile != null && configFile.exists()) {
-                val text = interpolateEnvVars(configFile.readText())
+                val text = interpolateEnvVars(configFile.readText(), logger)
                 return yaml.readValue(text, ToolConfig::class.java)
             }
             return ToolConfig()
         }
 
-        private fun interpolateEnvVars(text: String): String =
-            Regex("""\$\{([^}]+)}""").replace(text) { match ->
-                val varName = match.groupValues[1]
-                val value = System.getenv(varName)
-                if (value == null) {
-                    log.warn(
-                        "Environment variable '$varName' is not set; " +
-                            "placeholder '${match.value}' left as-is in config"
-                    )
-                }
-                value ?: match.value
+        private fun interpolateEnvVars(
+            text: String,
+            logger: RunnerLogger = NoOpRunnerLogger
+        ): String = Regex("""\$\{([^}]+)}""").replace(text) { match ->
+            val varName = match.groupValues[1]
+            val value = System.getenv(varName)
+            if (value == null) {
+                logger.warn(
+                    "Environment variable '$varName' is not set; " +
+                        "placeholder '${match.value}' left as-is in config"
+                )
             }
+            value ?: match.value
+        }
     }
 }

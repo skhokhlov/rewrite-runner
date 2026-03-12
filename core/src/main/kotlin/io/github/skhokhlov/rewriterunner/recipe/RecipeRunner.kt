@@ -1,5 +1,7 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.LargeSourceSet
@@ -7,7 +9,6 @@ import org.openrewrite.Recipe
 import org.openrewrite.Result
 import org.openrewrite.SourceFile
 import org.openrewrite.internal.InMemoryLargeSourceSet
-import org.slf4j.LoggerFactory
 
 /**
  * Executes an OpenRewrite [org.openrewrite.Recipe] against a list of parsed source files
@@ -17,9 +18,7 @@ import org.slf4j.LoggerFactory
  * simultaneously, which is required for cross-file analysis (e.g., renaming a type used
  * across multiple files). For large projects, increase the JVM heap with `-Xmx`.
  */
-class RecipeRunner {
-    private val log = LoggerFactory.getLogger(RecipeRunner::class.java.name)
-
+class RecipeRunner(val logger: RunnerLogger = NoOpRunnerLogger) {
     /**
      * Run [recipe] against [sourceFiles] and return all [org.openrewrite.Result]s.
      *
@@ -36,17 +35,17 @@ class RecipeRunner {
         sourceFiles: List<SourceFile>,
         ctx: ExecutionContext = defaultContext()
     ): List<Result> {
-        log.info("Running recipe '${recipe.name}' against ${sourceFiles.size} source files")
+        logger.info("Running recipe '${recipe.name}' against ${sourceFiles.size} source files")
 
         val largeSourceSet: LargeSourceSet = InMemoryLargeSourceSet(sourceFiles)
         val recipeRun = recipe.run(largeSourceSet, ctx)
         val results = recipeRun.changeset.allResults
 
-        log.info("Recipe produced ${results.size} result(s)")
+        logger.info("Recipe produced ${results.size} result(s)")
         return results
     }
 
     private fun defaultContext(): ExecutionContext = InMemoryExecutionContext { throwable ->
-        log.warn("Recipe execution error: ${throwable.message}")
+        logger.warn("Recipe execution error: ${throwable.message}")
     }
 }

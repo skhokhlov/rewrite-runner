@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
 import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
@@ -10,7 +12,6 @@ import org.eclipse.aether.graph.Dependency
 import org.eclipse.aether.resolution.DependencyRequest
 import org.eclipse.aether.resolution.DependencyResolutionException
 import org.eclipse.aether.util.filter.ScopeDependencyFilter
-import org.slf4j.LoggerFactory
 
 /**
  * Stage 2 of the LST classpath-resolution pipeline: parse the project's build
@@ -61,9 +62,10 @@ import org.slf4j.LoggerFactory
  * @param context Shared Maven Resolver context holding the Aether RepositorySystem,
  *   session, and configured remote repositories. Create one via [AetherContext.build].
  */
-open class DependencyResolutionStage(private val context: AetherContext) {
-    private val log = LoggerFactory.getLogger(DependencyResolutionStage::class.java.name)
-
+open class DependencyResolutionStage(
+    private val context: AetherContext,
+    protected val logger: RunnerLogger = NoOpRunnerLogger
+) {
     /**
      * Resolves the project's compile classpath by parsing its build descriptor and
      * downloading dependencies via Maven Resolver.
@@ -91,11 +93,11 @@ open class DependencyResolutionStage(private val context: AetherContext) {
         }
 
         if (coordinates.isEmpty()) {
-            log.info("No dependencies found in build descriptor")
+            logger.info("No dependencies found in build descriptor")
             return emptyList()
         }
 
-        log.info("Resolving ${coordinates.size} declared dependencies via Maven Resolver")
+        logger.info("Resolving ${coordinates.size} declared dependencies via Maven Resolver")
         val deps = coordinates.map { Dependency(DefaultArtifact(it), "runtime") }
         val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
         val scopeFilter = ScopeDependencyFilter(null, listOf("test", "provided"))
@@ -109,13 +111,13 @@ open class DependencyResolutionStage(private val context: AetherContext) {
             val partial = e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty()
             if (partial.isNotEmpty()) {
                 val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
-                log.warn(
+                logger.warn(
                     "Partial classpath resolution " +
                         "(${partial.size} JAR(s); some deps missing): $firstError"
                 )
                 partial
             } else {
-                log.warn(
+                logger.warn(
                     "Could not resolve project classpath: " +
                         e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
                 )
@@ -138,7 +140,7 @@ open class DependencyResolutionStage(private val context: AetherContext) {
                     "${dep.groupId}:${dep.artifactId}:$version"
                 }
         } catch (e: Exception) {
-            log.warn("Failed to parse pom.xml: ${e.message}")
+            logger.warn("Failed to parse pom.xml: ${e.message}")
             emptyList()
         }
     }
@@ -175,11 +177,12 @@ open class DependencyResolutionStage(private val context: AetherContext) {
         val result = runProcess(
             projectDir,
             listOf(gradleCmd, "-q") + tasks,
-            captureStdout = output
+            captureStdout = output,
+            logger = logger
         ) ?: return null
 
         if (result != 0) {
-            log.warn(
+            logger.warn(
                 "Gradle dependencies task failed with exit code $result — falling back to static parsing"
             )
             return null
@@ -187,13 +190,13 @@ open class DependencyResolutionStage(private val context: AetherContext) {
 
         val coords = parseGradleDependencyTaskOutput(output.toString())
         if (coords.isEmpty()) {
-            log.info(
+            logger.info(
                 "Gradle dependencies task returned no coordinates — falling back to static parsing"
             )
             return null
         }
 
-        log.info(
+        logger.info(
             "Discovered ${coords.size} coordinates via Gradle dependencies task" +
                 " (root + ${subprojects.size} subproject(s))"
         )
@@ -224,7 +227,7 @@ open class DependencyResolutionStage(private val context: AetherContext) {
                 .distinct()
                 .toList()
         } catch (e: Exception) {
-            log.warn("Failed to parse settings file for subprojects: ${e.message}")
+            logger.warn("Failed to parse settings file for subprojects: ${e.message}")
             emptyList()
         }
     }
@@ -306,7 +309,7 @@ open class DependencyResolutionStage(private val context: AetherContext) {
 
             coordinates.distinct()
         } catch (e: Exception) {
-            log.warn("Failed to parse Gradle build file: ${e.message}")
+            logger.warn("Failed to parse Gradle build file: ${e.message}")
             emptyList()
         }
     }

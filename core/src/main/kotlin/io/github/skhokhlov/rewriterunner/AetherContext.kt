@@ -59,7 +59,8 @@ class AetherContext(
             extraRepositories: List<RepositoryConfig> = emptyList(),
             connectTimeoutMs: Int = 30_000,
             requestTimeoutMs: Int = 60_000,
-            includeMavenCentral: Boolean = true
+            includeMavenCentral: Boolean = true,
+            logger: RunnerLogger = NoOpRunnerLogger
         ): AetherContext {
             val system = RepositorySystemSupplier().get()
             localRepoDir.toFile().mkdirs()
@@ -68,7 +69,7 @@ class AetherContext(
                 .createSessionBuilder()
                 .withLocalRepositories(localRepo)
                 .setSystemProperties(System.getProperties())
-                .setTransferListener(MavenTransferListener())
+                .setTransferListener(MavenTransferListener(logger))
                 // Enable Maven's standard conflict resolution so that when the dependency
                 // graph contains the same artifact at different versions, only one version
                 // is selected (nearest-wins, matching Maven's default behavior). Without

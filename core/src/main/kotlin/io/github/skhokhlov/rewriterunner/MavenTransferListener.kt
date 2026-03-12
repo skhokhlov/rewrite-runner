@@ -4,10 +4,9 @@ import org.eclipse.aether.transfer.AbstractTransferListener
 import org.eclipse.aether.transfer.ArtifactNotFoundException
 import org.eclipse.aether.transfer.MetadataNotFoundException
 import org.eclipse.aether.transfer.TransferEvent
-import org.slf4j.LoggerFactory
 
 /**
- * Logs Maven artifact download progress to SLF4J in the same format Maven itself uses:
+ * Logs Maven artifact download progress in the same format Maven itself uses:
  *
  * ```
  * Downloading from central: https://repo.maven.apache.org/maven2/org/foo/bar-1.0.jar
@@ -16,13 +15,12 @@ import org.slf4j.LoggerFactory
  *
  * Only GET requests (downloads) are logged; PUT uploads are silently ignored.
  */
-class MavenTransferListener : AbstractTransferListener() {
-    private val log = LoggerFactory.getLogger(MavenTransferListener::class.java)
-
+class MavenTransferListener(val logger: RunnerLogger = NoOpRunnerLogger) :
+    AbstractTransferListener() {
     override fun transferStarted(event: TransferEvent) {
         if (event.requestType != TransferEvent.RequestType.GET) return
         val r = event.resource
-        log.info("Downloading from {}: {}{}", r.repositoryId, r.repositoryUrl, r.resourceName)
+        logger.info("Downloading from ${r.repositoryId}: ${r.repositoryUrl}${r.resourceName}")
     }
 
     override fun transferSucceeded(event: TransferEvent) {
@@ -32,27 +30,18 @@ class MavenTransferListener : AbstractTransferListener() {
         val elapsedMs = java.time.Duration.between(r.startTime, java.time.Instant.now()).toMillis()
         val size = formatBytes(bytes)
         val speed = if (elapsedMs > 0) "${formatBytes(bytes * 1_000L / elapsedMs)}/s" else "?"
-        log.info(
-            "Downloaded from {}: {}{} ({} at {})",
-            r.repositoryId,
-            r.repositoryUrl,
-            r.resourceName,
-            size,
-            speed
+        logger.info(
+            "Downloaded from ${r.repositoryId}: ${r.repositoryUrl}${r.resourceName} ($size at $speed)"
         )
     }
 
     override fun transferFailed(event: TransferEvent) {
         val r = event.resource
-        val msg = "Failed to download {}{}: {}"
-        val args = arrayOf(
-            r.repositoryUrl,
-            r.resourceName,
-            event.exception?.message ?: "unknown error"
-        )
+        val errMsg = event.exception?.message ?: "unknown error"
+        val msg = "Failed to download ${r.repositoryUrl}${r.resourceName}: $errMsg"
         when (event.exception) {
-            is ArtifactNotFoundException, is MetadataNotFoundException -> log.debug(msg, *args)
-            else -> log.warn(msg, *args)
+            is ArtifactNotFoundException, is MetadataNotFoundException -> logger.debug(msg)
+            else -> logger.warn(msg)
         }
     }
 
