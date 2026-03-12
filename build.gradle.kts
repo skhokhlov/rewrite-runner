@@ -29,7 +29,9 @@ dokka {
     }
 
     dokkaSourceSets.configureEach {
-        documentedVisibilities.set(setOf(VisibilityModifier.Public))
+        documentedVisibilities.set(setOf(VisibilityModifier.Public, VisibilityModifier.Protected))
+        enableKotlinStdLibDocumentationLink.set(true)
+        enableJdkDocumentationLink.set(true)
     }
 
 }
