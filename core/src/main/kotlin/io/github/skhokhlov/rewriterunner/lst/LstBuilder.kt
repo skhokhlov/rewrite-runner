@@ -833,12 +833,17 @@ class LstBuilder(
      * Extracts the version from the `distributionUrl` value, e.g.
      * `https://services.gradle.org/distributions/gradle-8.7-bin.zip` → `"8.7"`.
      */
-    private fun parseGradleVersionFromWrapper(wrapperProps: Path): String? = try {
+    internal fun parseGradleVersionFromWrapper(wrapperProps: Path): String? = try {
         val props = java.util.Properties()
         wrapperProps.toFile().inputStream().use { props.load(it) }
         val url = props.getProperty("distributionUrl") ?: return null
-        // Match "gradle-X.Y.Z-bin" or "gradle-X.Y.Z-all"
-        Regex("""gradle-(\d+\.\d+(?:\.\d+)?)-(?:bin|all)""").find(url)?.groupValues?.get(1)
+        // Match "gradle-X.Y[.Z][-qualifier-N]-bin" or "-all", e.g.:
+        //   gradle-8.7-bin.zip          → "8.7"
+        //   gradle-8.7.3-bin.zip        → "8.7.3"
+        //   gradle-9.0-rc-1-bin.zip     → "9.0-rc-1"
+        //   gradle-9.0-milestone-1-bin.zip → "9.0-milestone-1"
+        Regex("""gradle-(\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z]+-\d+)?)-(?:bin|all)""")
+            .find(url)?.groupValues?.get(1)
     } catch (e: Exception) {
         log.warn("Failed to parse Gradle wrapper properties: ${e.message}")
         null
