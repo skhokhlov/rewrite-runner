@@ -81,6 +81,7 @@ class DirectParseStage(private val projectDir: Path) {
         val notFound = mutableListOf<String>()
 
         for (coord in declaredCoordinates) {
+            if (parseCoord(coord) == null) continue // malformed — skip silently
             val jar = findInM2(coord) ?: findInGradleCache(coord)
             if (jar != null) {
                 found.add(jar)
@@ -146,6 +147,7 @@ class DirectParseStage(private val projectDir: Path) {
     private fun parseCoord(coordinate: String): Coord? {
         val parts = coordinate.split(":")
         if (parts.size < 3) return null
+        if (parts.any { it.isBlank() }) return null
         return Coord(parts[0], parts[1], parts[2])
     }
 }
