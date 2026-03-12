@@ -160,7 +160,7 @@ ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
 | `recipeArtifacts(List<String>)` | optional | — | Set all recipe artifact coordinates at once |
 | `rewriteConfig(Path)` | optional | `<projectDir>/rewrite.yaml` | Custom `rewrite.yaml` path |
 | `cacheDir(Path)` | optional | `~/.rewriterunner/cache` | Cache root for downloaded recipe JARs (stored under `<cacheDir>/repository`). Project dependencies always resolve from `~/.m2/repository`. |
-| `configFile(Path)` | optional | — | Path to `rewrite-runner.yml` |
+| `configFile(Path)` | optional | `~/.rewriterunner/rewriterunner.yml` | Path to `rewriterunner.yml` |
 | `dryRun(Boolean)` | optional | `false` | Analyse without writing to disk |
 | `includeExtensions(List<String>)` | optional | all supported | File extensions to parse |
 | `excludeExtensions(List<String>)` | optional | — | File extensions to skip |
@@ -185,7 +185,7 @@ Usage: rewrite-runner [-h] [--dry-run] [--active-recipe=<recipe>]
 | `--rewrite-config` | Path to `rewrite.yaml` for custom recipe compositions | `<project-dir>/rewrite.yaml` |
 | `--output`, `-o` | Output mode: `diff`, `files`, or `report` | `diff` |
 | `--cache-dir` | Cache root for downloaded recipe JARs (stored under `<path>/repository`). Project dependencies always resolve from `~/.m2/repository`. | `~/.rewriterunner/cache` |
-| `--config` | Path to tool config file (`rewrite-runner.yml`) | — |
+| `--config` | Path to tool config file (`rewriterunner.yml`) | `<project-dir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` |
 | `--dry-run` | Run recipe but do not write changes to disk | `false` |
 | `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
 | `--exclude-extensions` | Comma-separated file extensions to skip | — |
@@ -266,7 +266,13 @@ java -jar rewrite-runner-all.jar \
 
 ## Tool Config File
 
-Create `rewrite-runner.yml` to configure repositories and caching for your environment:
+Create `rewriterunner.yml` to configure repositories and caching for your environment.
+
+**Default locations** (checked in order):
+1. `<project-dir>/rewriterunner.yml` — project-level config
+2. `~/.rewriterunner/rewriterunner.yml` — global fallback, shared across all projects
+
+File name matching is case-insensitive (e.g. `RewriteRunner.yml` also works). Override either default with `--config <path>`.
 
 ```yaml
 repositories:
@@ -284,7 +290,7 @@ parse:
     - "**/build/**"
 ```
 
-Environment variable placeholders (`${VAR_NAME}`) are expanded at runtime. Pass the config file with `--config rewrite-runner.yml`.
+Environment variable placeholders (`${VAR_NAME}`) are expanded at runtime.
 
 ## Resilient Parsing Pipeline
 
@@ -325,7 +331,7 @@ Unresolved types appear as `JavaType.Unknown` in the LST, but all structural, te
 | `.xml` | `XmlParser` |
 | `.properties` | `PropertiesParser` |
 
-The parsed file set is configurable via `--include-extensions`, `--exclude-extensions`, and the `parse` section of `rewrite-runner.yml`.
+The parsed file set is configurable via `--include-extensions`, `--exclude-extensions`, and the `parse` section of `rewriterunner.yml`.
 
 ## Development
 

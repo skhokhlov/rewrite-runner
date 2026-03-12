@@ -10,6 +10,7 @@ import io.github.skhokhlov.rewriterunner.recipe.RecipeRunner
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.io.path.exists
 import org.slf4j.LoggerFactory
 
 /**
@@ -67,7 +68,12 @@ class RewriteRunner private constructor(private val config: Builder) {
 
         // 1. Load tool config
         log.info("[1/6] Loading configuration")
-        val toolConfig = ToolConfig.load(config.configFile)
+        val effectiveConfigFile = config.configFile
+            ?: findConfigCaseInsensitive(config.projectDir)
+            ?: findConfigCaseInsensitive(
+                Paths.get(System.getProperty("user.home"), ".rewriterunner")
+            )
+        val toolConfig = ToolConfig.load(effectiveConfigFile)
         val effectiveCacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).also {
             log.info("      Cache dir: $it")
         }
@@ -111,7 +117,9 @@ class RewriteRunner private constructor(private val config: Builder) {
             )
         } else {
             val effectiveRewriteConfig =
-                config.rewriteConfig ?: config.projectDir.resolve("rewrite.yaml")
+                config.rewriteConfig
+                    ?: config.projectDir.resolve("rewrite.yaml").takeIf { it.exists() }
+                    ?: config.projectDir.resolve("rewrite.yml")
             RecipeLoader().load(
                 recipeJars = recipeJars,
                 activeRecipeName = config.activeRecipe,
@@ -286,8 +294,10 @@ class RewriteRunner private constructor(private val config: Builder) {
         fun cacheDir(path: Path): Builder = apply { cacheDir = path }
 
         /**
-         * Path to the `rewrite-runner.yml` tool config file for repository and cache
-         * configuration. If not set, a default [ToolConfig] is used.
+         * Path to the `rewriterunner.yml` tool config file for repository and cache
+         * configuration. If not set, auto-discovery checks `<projectDir>/rewriterunner.yml`
+         * first, then `~/.rewriterunner/rewriterunner.yml` as a global fallback.
+         * File name matching is case-insensitive. If no file is found, built-in defaults apply.
          */
         fun configFile(path: Path): Builder = apply { configFile = path }
 
@@ -367,5 +377,20 @@ class RewriteRunner private constructor(private val config: Builder) {
          */
         @JvmStatic
         fun builder(): Builder = Builder()
+
+        /**
+         * Find `rewriterunner.yml` (or `.yaml`) in [dir] using case-insensitive name matching.
+         * Returns `null` if [dir] does not exist or contains no matching file.
+         */
+        private fun findConfigCaseInsensitive(dir: Path): Path? = try {
+            Files.list(dir).use { stream ->
+                stream.filter {
+                    val name = it.fileName.toString().lowercase()
+                    name == "rewriterunner.yml" || name == "rewriterunner.yaml"
+                }.findFirst().orElse(null)
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 }

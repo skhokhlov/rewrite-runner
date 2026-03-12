@@ -38,7 +38,7 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 | `--rewrite-config` | | Path to custom `rewrite.yaml` | — |
 | `--output` | `-o` | Output mode: `diff`, `files`, `report` | `diff` |
 | `--cache-dir` | | JAR cache directory | `~/.rewriterunner/cache` |
-| `--config` | | Path to `rewrite-runner.yml` | — |
+| `--config` | | Path to `rewriterunner.yml` | `<projectDir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` |
 | `--dry-run` | | Run without writing to disk | `false` |
 | `--include-extensions` | | Comma-separated file types to parse | — |
 | `--exclude-extensions` | | Comma-separated file types to skip | — |

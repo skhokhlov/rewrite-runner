@@ -69,7 +69,10 @@ class RunCommand : Callable<Int> {
 
     @Option(
         names = ["--config"],
-        description = ["Path to tool config file (rewrite-runner.yml)."]
+        description = [
+            "Path to tool config file (rewriterunner.yml).",
+            "Defaults: <project-dir>/rewriterunner.yml, then ~/.rewriterunner/rewriterunner.yml."
+        ]
     )
     var configFile: Path? = null
 

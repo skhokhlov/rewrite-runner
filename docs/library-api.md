@@ -24,7 +24,7 @@ val result = RewriteRunner.builder()
 | `recipeArtifacts(List<String>)` | `List` | `[]` | Replace all recipe coordinates at once |
 | `rewriteConfig(Path)` | `Path?` | `<projectDir>/rewrite.yaml` | Custom `rewrite.yaml` |
 | `cacheDir(Path)` | `Path?` | from config / `~/.rewriterunner/cache` | Recipe JAR cache directory; resolved under `<cacheDir>/repository` |
-| `configFile(Path)` | `Path?` | none | `rewrite-runner.yml` tool config |
+| `configFile(Path)` | `Path?` | `<projectDir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` | `rewriterunner.yml` tool config (case-insensitive name match) |
 | `dryRun(Boolean)` | `Boolean` | `false` | Run without writing files to disk |
 | `includeExtensions(List<String>)` | `List` | `[]` | Restrict to these extensions; overrides config file |
 | `excludeExtensions(List<String>)` | `List` | `[]` | Skip these extensions; overrides config file |
@@ -50,7 +50,7 @@ Return type of `RewriteRunner.run()`.
 
 ## ToolConfig YAML
 
-Config file (`rewrite-runner.yml`) loaded via `--config` CLI flag or `configFile()` builder method. Supports `${ENV_VAR}` interpolation and `~` expansion in all string fields.
+Config file (`rewriterunner.yml`) loaded via `--config` CLI flag or `configFile()` builder method. File name matching is case-insensitive. Auto-discovered from `<projectDir>/rewriterunner.yml` (project-level) then `~/.rewriterunner/rewriterunner.yml` (global fallback) when not explicitly provided. Supports `${ENV_VAR}` interpolation and `~` expansion in all string fields.
 
 ```yaml
 cacheDir: ~/.rewriterunner/cache   # default
