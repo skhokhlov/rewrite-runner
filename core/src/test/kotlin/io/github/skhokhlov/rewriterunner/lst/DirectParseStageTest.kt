@@ -1,11 +1,14 @@
 package io.github.skhokhlov.rewriterunner.lst
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.slf4j.LoggerFactory
 
@@ -78,6 +81,65 @@ class DirectParseStageTest :
                 result.size,
                 "Malformed coordinates should be ignored without throwing"
             )
+        }
+
+        test("ignores coordinates with empty segments") {
+            val stage = DirectParseStage(projectDir)
+            // Coordinates that have the right number of colons but blank fields
+            // (e.g. a typo like "com.example::1.0") must be rejected, not silently
+            // passed through as Coord("com.example", "", "1.0") which produces a
+            // confusing "not found" warning instead of a clear "malformed" warning.
+            val result = stage.findAvailableJars(
+                listOf(
+                    "com.example::1.0", // empty artifactId
+                    ":artifact:1.0", // empty groupId
+                    "group:artifact:", // empty version
+                    ":::" // all empty
+                )
+            )
+            assertEquals(
+                0,
+                result.size,
+                "Coordinates with empty segments should be rejected without throwing"
+            )
+        }
+
+        test(
+            "coordinates with empty segments do not appear in the 'could not locate JAR' warning"
+        ) {
+            // The "could not locate JAR in local caches" warning is specifically for
+            // *valid* dependency coordinates that are absent from local Maven/Gradle caches.
+            // A coordinate like "com.example::1.0" is malformed (typo), not merely absent;
+            // polluting that warning with it gives users a misleading signal that they need
+            // to populate their cache for a dependency that was never declared correctly.
+            val logger =
+                LoggerFactory.getLogger(DirectParseStage::class.java.name) as Logger
+            val appender = ListAppender<ILoggingEvent>()
+            appender.start()
+            logger.level = Level.WARN
+            logger.addAppender(appender)
+
+            try {
+                DirectParseStage(projectDir).findAvailableJars(
+                    listOf(
+                        "com.example::1.0", // empty artifactId
+                        ":artifact:1.0", // empty groupId
+                        "group:artifact:" // empty version
+                    )
+                )
+
+                val messages = appender.list.map { it.formattedMessage }
+                assertFalse(
+                    messages.any { msg ->
+                        msg.contains("com.example::1.0") ||
+                            msg.contains(":artifact:1.0") ||
+                            msg.contains("group:artifact:")
+                    },
+                    "Malformed coordinates must not appear in any warning message; got: $messages"
+                )
+            } finally {
+                logger.detachAppender(appender)
+            }
         }
 
         test("result list contains no duplicates") {
