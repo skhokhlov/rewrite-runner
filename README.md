@@ -1,5 +1,10 @@
 # rewrite-runner
 
+[![Build](https://github.com/skhokhlov/rewrite-runner/actions/workflows/build.yml/badge.svg)](https://github.com/skhokhlov/rewrite-runner/actions/workflows/build.yml)
+[![CodeQL](https://github.com/skhokhlov/rewrite-runner/actions/workflows/codeql.yml/badge.svg)](https://github.com/skhokhlov/rewrite-runner/actions/workflows/codeql.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.skhokhlov.rewriterunner/core)](https://central.sonatype.com/artifact/io.github.skhokhlov.rewriterunner/core)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 A self-hosted CLI tool for running [OpenRewrite](https://docs.openrewrite.org/) recipes against arbitrary repositories — without requiring the target project's build to be working.
 
 ## Features
