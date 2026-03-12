@@ -1,5 +1,7 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
 import java.io.InputStream
@@ -13,7 +15,6 @@ import org.openrewrite.RecipeException
 import org.openrewrite.config.ClasspathScanningLoader
 import org.openrewrite.config.Environment
 import org.openrewrite.config.YamlResourceLoader
-import org.slf4j.LoggerFactory
 
 /**
  * Loads OpenRewrite recipes from recipe JARs and/or a `rewrite.yaml` declarative config.
@@ -23,9 +24,7 @@ import org.slf4j.LoggerFactory
  * styles, and categories. The [load] method returns the activated [org.openrewrite.Recipe]
  * ready for execution by [RecipeRunner].
  */
-class RecipeLoader {
-    private val log = LoggerFactory.getLogger(RecipeLoader::class.java.name)
-
+class RecipeLoader(val logger: RunnerLogger = NoOpRunnerLogger) {
     /**
      * Build an OpenRewrite [Environment] from the given recipe JARs and optional rewrite.yaml.
      * Returns the activated [Recipe] ready for execution.
@@ -36,7 +35,7 @@ class RecipeLoader {
     fun load(recipeJars: List<Path>, activeRecipeName: String, rewriteYaml: Path?): Recipe {
         val yamlSource: YamlSource? =
             if (rewriteYaml != null && rewriteYaml.exists()) {
-                log.info("Loading rewrite.yaml: $rewriteYaml")
+                logger.info("Loading rewrite.yaml: $rewriteYaml")
                 YamlSource(
                     stream = { FileInputStream(rewriteYaml.toFile()) },
                     uri = rewriteYaml.toUri()
@@ -62,7 +61,7 @@ class RecipeLoader {
     ): Recipe {
         val yamlSource: YamlSource? =
             if (rewriteYamlContent != null) {
-                log.info("Loading rewrite.yaml from string content")
+                logger.info("Loading rewrite.yaml from string content")
                 YamlSource(
                     stream = {
                         ByteArrayInputStream(rewriteYamlContent.toByteArray(Charsets.UTF_8))
@@ -102,11 +101,11 @@ class RecipeLoader {
 
         // Scan each recipe JAR for OpenRewrite recipes/styles/categories
         for (jar in recipeJars) {
-            log.debug("Scanning recipe JAR: $jar")
+            logger.debug("Scanning recipe JAR: $jar")
             try {
                 builder.load(ClasspathScanningLoader(jar, props, emptyList(), recipeClassLoader))
             } catch (e: Exception) {
-                log.warn("Failed to scan recipe JAR $jar (skipping): ${e.message}")
+                logger.warn("Failed to scan recipe JAR $jar (skipping): ${e.message}")
             }
         }
 
@@ -118,7 +117,7 @@ class RecipeLoader {
             try {
                 builder.load(ClasspathScanningLoader(props, recipeClassLoader))
             } catch (e: Exception) {
-                log.warn("Failed to scan tool classpath (skipping): ${e.message}")
+                logger.warn("Failed to scan tool classpath (skipping): ${e.message}")
             }
         }
 

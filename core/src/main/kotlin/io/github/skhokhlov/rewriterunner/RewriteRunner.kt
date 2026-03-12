@@ -11,7 +11,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.exists
-import org.slf4j.LoggerFactory
 
 /**
  * Programmatic entry point for running OpenRewrite recipes from library code.
@@ -48,8 +47,6 @@ import org.slf4j.LoggerFactory
  */
 class RewriteRunner private constructor(private val config: Builder) {
 
-    private val log = LoggerFactory.getLogger(RewriteRunner::class.java.name)
-
     /**
      * Execute the configured recipe against the project directory.
      *
@@ -62,20 +59,22 @@ class RewriteRunner private constructor(private val config: Builder) {
      *   abort the run.
      */
     fun run(): RunResult {
+        val logger = config.logger
+
         require(config.projectDir.toFile().isDirectory) {
             "projectDir does not exist or is not a directory: ${config.projectDir}"
         }
 
         // 1. Load tool config
-        log.info("[1/6] Loading configuration")
+        logger.lifecycle("[1/6] Loading configuration")
         val effectiveConfigFile = config.configFile
             ?: findConfigCaseInsensitive(config.projectDir)
             ?: findConfigCaseInsensitive(
                 Paths.get(System.getProperty("user.home"), ".rewriterunner")
             )
-        val toolConfig = ToolConfig.load(effectiveConfigFile)
+        val toolConfig = ToolConfig.load(effectiveConfigFile, logger)
         val effectiveCacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).also {
-            log.info("      Cache dir: $it")
+            logger.info("      Cache dir: $it")
         }
         val effectiveIncludeMavenCentral =
             config.includeMavenCentral ?: toolConfig.includeMavenCentral
@@ -87,7 +86,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         val recipeContext = AetherContext.build(
             localRepoDir = recipeLocalRepoDir,
             extraRepositories = effectiveRepositories,
-            includeMavenCentral = effectiveIncludeMavenCentral
+            includeMavenCentral = effectiveIncludeMavenCentral,
+            logger = logger
         )
         // Project dependencies use the Maven default local repository so already-cached
         // artifacts from the project's own build are reused without re-downloading.
@@ -95,22 +95,23 @@ class RewriteRunner private constructor(private val config: Builder) {
         val projectContext = AetherContext.build(
             localRepoDir = mavenLocalRepoDir,
             extraRepositories = effectiveRepositories,
-            includeMavenCentral = effectiveIncludeMavenCentral
+            includeMavenCentral = effectiveIncludeMavenCentral,
+            logger = logger
         )
 
         // 2. Resolve recipe JARs
         val recipeJars = if (config.recipeArtifacts.isNotEmpty()) {
-            log.info("[2/6] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
-            RecipeArtifactResolver(recipeContext).resolveAll(config.recipeArtifacts)
+            logger.lifecycle("[2/6] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
+            RecipeArtifactResolver(recipeContext, logger).resolveAll(config.recipeArtifacts)
         } else {
-            log.info("[2/6] No recipe artifacts specified — using classpath recipes only")
+            logger.lifecycle("[2/6] No recipe artifacts specified — using classpath recipes only")
             emptyList()
         }
 
         // 3. Load recipe (precedence: string content > explicit path > implicit projectDir/rewrite.yaml)
-        log.info("[3/6] Loading recipe '${config.activeRecipe}'")
+        logger.lifecycle("[3/6] Loading recipe '${config.activeRecipe}'")
         val recipe = if (config.rewriteConfigContent != null) {
-            RecipeLoader().load(
+            RecipeLoader(logger).load(
                 recipeJars = recipeJars,
                 activeRecipeName = config.activeRecipe,
                 rewriteYamlContent = config.rewriteConfigContent
@@ -120,23 +121,24 @@ class RewriteRunner private constructor(private val config: Builder) {
                 config.rewriteConfig
                     ?: config.projectDir.resolve("rewrite.yaml").takeIf { it.exists() }
                     ?: config.projectDir.resolve("rewrite.yml")
-            RecipeLoader().load(
+            RecipeLoader(logger).load(
                 recipeJars = recipeJars,
                 activeRecipeName = config.activeRecipe,
                 rewriteYaml = effectiveRewriteConfig
             )
         }
-        log.info("      Recipe ready: ${recipe.name}")
+        logger.info("      Recipe ready: ${recipe.name}")
 
         // 4. Build LST (3-stage pipeline)
         // OpenRewrite requires all source files in memory simultaneously to support
         // cross-file analysis. For large projects set -Xmx accordingly, e.g.:
         //   java -Xmx6g -jar rewrite-runner-all.jar …
-        log.info("[4/6] Building LST for ${config.projectDir}")
+        logger.lifecycle("[4/6] Building LST for ${config.projectDir}")
         val lstBuilder = LstBuilder(
+            logger = logger,
             cacheDir = effectiveCacheDir,
             toolConfig = toolConfig,
-            depResolutionStage = DependencyResolutionStage(projectContext)
+            depResolutionStage = DependencyResolutionStage(projectContext, logger)
         )
         val effectiveParseConfig = if (config.excludePaths.isNotEmpty()) {
             toolConfig.parse.copy(excludePaths = config.excludePaths)
@@ -150,15 +152,17 @@ class RewriteRunner private constructor(private val config: Builder) {
             includeExtensionsCli = config.includeExtensions,
             excludeExtensionsCli = config.excludeExtensions
         )
-        log.info(
+        logger.lifecycle(
             "      LST built: ${sourceFiles.size} file(s) in ${System.currentTimeMillis() - lstStart}ms"
         )
 
         // 5. Run recipe
-        log.info("[5/6] Running recipe '${recipe.name}' against ${sourceFiles.size} file(s)")
+        logger.lifecycle(
+            "[5/6] Running recipe '${recipe.name}' against ${sourceFiles.size} file(s)"
+        )
         val recipeStart = System.currentTimeMillis()
-        val results = RecipeRunner().run(recipe, sourceFiles)
-        log.info(
+        val results = RecipeRunner(logger).run(recipe, sourceFiles)
+        logger.lifecycle(
             "      Recipe complete: ${results.size} file(s) changed" +
                 " in ${System.currentTimeMillis() - recipeStart}ms"
         )
@@ -166,7 +170,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         // 6. Apply changes (unless dryRun)
         val writtenFiles = mutableListOf<Path>()
         if (!config.dryRun) {
-            log.info("[6/6] Writing changes to disk")
+            logger.lifecycle("[6/6] Writing changes to disk")
             for (result in results) {
                 if (result.after == null) {
                     // Recipe deleted this file — remove it from disk
@@ -174,9 +178,9 @@ class RewriteRunner private constructor(private val config: Builder) {
                     if (beforePath != null) {
                         try {
                             Files.deleteIfExists(beforePath)
-                            log.info("      Deleted ${result.before!!.sourcePath}")
+                            logger.info("      Deleted ${result.before!!.sourcePath}")
                         } catch (e: Exception) {
-                            log.warn("Failed to delete file $beforePath: ${e.message}")
+                            logger.warn("Failed to delete file $beforePath: ${e.message}")
                         }
                     }
                 } else {
@@ -185,16 +189,16 @@ class RewriteRunner private constructor(private val config: Builder) {
                     Files.createDirectories(target.parent)
                     target.toFile().writeText(after.printAll(), Charsets.UTF_8)
                     writtenFiles.add(target)
-                    log.info("      Wrote ${after.sourcePath}")
+                    logger.info("      Wrote ${after.sourcePath}")
                 }
             }
             if (results.isEmpty()) {
-                log.info("      No changes — nothing to write")
+                logger.lifecycle("      No changes — nothing to write")
             } else {
-                log.info("      Done: ${writtenFiles.size} file(s) written")
+                logger.lifecycle("      Done: ${writtenFiles.size} file(s) written")
             }
         } else {
-            log.info(
+            logger.lifecycle(
                 "[6/6] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
             )
         }
@@ -244,6 +248,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         internal var repositories: List<RepositoryConfig> = emptyList()
             private set
         internal var excludePaths: List<String> = emptyList()
+            private set
+        internal var logger: RunnerLogger = NoOpRunnerLogger
             private set
 
         /**
@@ -354,6 +360,13 @@ class RewriteRunner private constructor(private val config: Builder) {
          * Supports the same glob syntax as [java.nio.file.FileSystem.getPathMatcher].
          */
         fun excludePaths(paths: List<String>): Builder = apply { excludePaths = paths }
+
+        /**
+         * Set the logger used for progress and diagnostic output.
+         * Defaults to [NoOpRunnerLogger] (silent). Use [io.github.skhokhlov.rewriterunner.cli.LogbackRunnerLogger]
+         * in the CLI, or provide a custom implementation for library use.
+         */
+        fun logger(logger: RunnerLogger): Builder = apply { this.logger = logger }
 
         /**
          * Construct the [RewriteRunner].

@@ -215,6 +215,47 @@ Library consumers that only need to inspect changes programmatically can skip `R
 | `includeMavenCentral(Boolean)` | optional | `true` | Include Maven Central as a resolution repository. Set to `false` for air-gapped or enterprise environments. |
 | `repository(RepositoryConfig)` | optional (repeatable) | — | Add one extra Maven repository for artifact resolution; combined with repositories from config file |
 | `repositories(List<RepositoryConfig>)` | optional | — | Set all extra Maven repositories at once; combined with repositories from config file |
+| `logger(RunnerLogger)` | optional | `NoOpRunnerLogger` | Receives pipeline log events; implement to capture lifecycle, info, debug, warn, and error messages |
+
+### Logging
+
+By default the `core` library produces **no log output** — all logging is suppressed via `NoOpRunnerLogger`. To receive pipeline events, implement `RunnerLogger` and pass it to the builder:
+
+```kotlin
+import io.github.skhokhlov.rewriterunner.RunnerLogger
+
+class PrintlnLogger : RunnerLogger {
+    override fun lifecycle(message: String) = println("[LIFECYCLE] $message")
+    override fun info(message: String)      = println("[INFO]      $message")
+    override fun debug(message: String)     = println("[DEBUG]     $message")
+    override fun warn(message: String)      = println("[WARN]      $message")
+    override fun error(message: String, cause: Throwable?) {
+        println("[ERROR]     $message")
+        cause?.printStackTrace()
+    }
+}
+
+val result = RewriteRunner.builder()
+    .projectDir(Paths.get("/path/to/project"))
+    .activeRecipe("org.openrewrite.java.format.AutoFormat")
+    .logger(PrintlnLogger())   // wire your logger here
+    .build()
+    .run()
+```
+
+**Log levels** and what they emit:
+
+| Level | What you receive |
+|-------|-----------------|
+| `lifecycle` | Pipeline stage headers and summary results (always relevant) |
+| `info` | Per-language file counts, stage status, artifact resolution progress |
+| `debug` | Per-file version detection, recipe JAR scanning |
+| `warn` | Recoverable problems (e.g. 404 during artifact resolution) |
+| `error` | Fatal failures, always with an optional `cause` |
+
+`NoOpRunnerLogger` (the default) silently discards all messages. The CLI wires its own Logback-backed implementation; `--info` and `--debug` flags control which levels are forwarded to Logback.
+
+---
 
 ### Enterprise and private registry setup
 

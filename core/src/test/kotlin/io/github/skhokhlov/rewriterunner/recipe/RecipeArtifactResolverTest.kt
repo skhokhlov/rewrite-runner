@@ -2,12 +2,10 @@
 
 package io.github.skhokhlov.rewriterunner.recipe
 
-import ch.qos.logback.classic.Level
-import ch.qos.logback.classic.Logger
-import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.core.read.ListAppender
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.MavenTransferListener
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.kotest.core.spec.style.FunSpec
 import java.net.ServerSocket
@@ -28,7 +26,20 @@ import org.eclipse.aether.util.graph.transformer.JavaScopeDeriver
 import org.eclipse.aether.util.graph.transformer.JavaScopeSelector
 import org.eclipse.aether.util.graph.transformer.NearestVersionSelector
 import org.eclipse.aether.util.graph.transformer.SimpleOptionalitySelector
-import org.slf4j.LoggerFactory
+
+/** Simple [RunnerLogger] that records calls for assertion in tests. */
+private class CapturingLogger : RunnerLogger {
+    data class LogEntry(val level: String, val message: String)
+
+    val entries = mutableListOf<LogEntry>()
+
+    override fun lifecycle(message: String) = entries.add(LogEntry("INFO", message)).let { Unit }
+    override fun info(message: String) = entries.add(LogEntry("INFO", message)).let { Unit }
+    override fun debug(message: String) = entries.add(LogEntry("DEBUG", message)).let { Unit }
+    override fun warn(message: String) = entries.add(LogEntry("WARN", message)).let { Unit }
+    override fun error(message: String, cause: Throwable?) =
+        entries.add(LogEntry("ERROR", message)).let { Unit }
+}
 
 class RecipeArtifactResolverTest :
     FunSpec({
@@ -536,6 +547,9 @@ class RecipeArtifactResolverTest :
             // Empty local cache — forces a "download" from the fake remote.
             val localCache = cacheDir.resolve("local-cache")
 
+            // Use a capturing logger to verify MavenTransferListener emits the right messages.
+            val capturingLogger = CapturingLogger()
+
             // Build AetherContext manually so we can point only at the fake remote.
             val system = RepositorySystemSupplier().get()
             Files.createDirectories(localCache)
@@ -544,7 +558,7 @@ class RecipeArtifactResolverTest :
                     .createSessionBuilder()
                     .withLocalRepositories(LocalRepository(localCache))
                     .setSystemProperties(System.getProperties())
-                    .setTransferListener(MavenTransferListener())
+                    .setTransferListener(MavenTransferListener(capturingLogger))
                     .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 5_000)
                     .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 5_000)
                     .setConfigProperty(
@@ -563,20 +577,9 @@ class RecipeArtifactResolverTest :
                 )
             val ctx = AetherContext(system, session, fakeRemoteRepo)
 
-            // Capture MavenTransferListener log output.
-            val appender = ListAppender<ILoggingEvent>().also { it.start() }
-            val logger =
-                LoggerFactory.getLogger(MavenTransferListener::class.java) as Logger
-            logger.level = Level.INFO
-            logger.addAppender(appender)
+            RecipeArtifactResolver(ctx, capturingLogger).resolve("$groupId:$artifactId:$version")
 
-            try {
-                RecipeArtifactResolver(ctx).resolve("$groupId:$artifactId:$version")
-            } finally {
-                logger.detachAppender(appender)
-            }
-
-            val messages = appender.list.map { it.formattedMessage }
+            val messages = capturingLogger.entries.map { it.message }
             assertTrue(
                 messages.any { it.startsWith("Downloading from fake-central:") },
                 "Expected 'Downloading from fake-central:' log line; got: $messages"

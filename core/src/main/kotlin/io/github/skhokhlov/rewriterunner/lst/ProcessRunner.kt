@@ -1,11 +1,10 @@
 package io.github.skhokhlov.rewriterunner.lst
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
-import org.slf4j.LoggerFactory
-
-private val log = LoggerFactory.getLogger("io.github.skhokhlov.rewriterunner.lst.ProcessRunner")
 
 /**
  * Runs an external process in [workDir] and waits up to [timeoutSeconds] for it to finish.
@@ -20,7 +19,8 @@ internal fun runProcess(
     workDir: Path,
     command: List<String>,
     captureStdout: StringBuilder? = null,
-    timeoutSeconds: Long = 120
+    timeoutSeconds: Long = 120,
+    logger: RunnerLogger = NoOpRunnerLogger
 ): Int? {
     val pb = ProcessBuilder(command).directory(workDir.toFile())
 
@@ -40,7 +40,7 @@ internal fun runProcess(
         try {
             pb.start()
         } catch (e: Exception) {
-            log.warn("Failed to start process ${command.first()}: ${e.message}")
+            logger.warn("Failed to start process ${command.first()}: ${e.message}")
             return null
         }
 
@@ -52,7 +52,7 @@ internal fun runProcess(
     val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
     if (!finished) {
         process.destroyForcibly()
-        log.warn("Process ${command.first()} timed out after ${timeoutSeconds}s")
+        logger.warn("Process ${command.first()} timed out after ${timeoutSeconds}s")
         return null
     }
 

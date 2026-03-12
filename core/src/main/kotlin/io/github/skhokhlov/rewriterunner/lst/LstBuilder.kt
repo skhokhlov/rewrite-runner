@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import java.nio.file.FileSystems
@@ -25,7 +27,6 @@ import org.openrewrite.kotlin.KotlinParser
 import org.openrewrite.properties.PropertiesParser
 import org.openrewrite.xml.XmlParser
 import org.openrewrite.yaml.YamlParser
-import org.slf4j.LoggerFactory
 
 /**
  * Orchestrates the 3-stage LST building pipeline and multi-language file parsing.
@@ -72,6 +73,7 @@ import org.slf4j.LoggerFactory
  * found anywhere in the ancestor chain, the running JVM's major version is used as fallback.
  */
 class LstBuilder(
+    private val logger: RunnerLogger = NoOpRunnerLogger,
     private val cacheDir: Path,
     private val toolConfig: ToolConfig,
     private val buildToolStage: BuildToolStage = BuildToolStage(),
@@ -82,8 +84,6 @@ class LstBuilder(
         )
     )
 ) {
-    private val log = LoggerFactory.getLogger(LstBuilder::class.java.name)
-
     /** Default set of extensions supported out of the box. */
     private val defaultExtensions =
         setOf(
@@ -134,12 +134,12 @@ class LstBuilder(
         includeExtensionsCli: List<String> = emptyList(),
         excludeExtensionsCli: List<String> = emptyList(),
         ctx: ExecutionContext =
-            InMemoryExecutionContext { log.warn("Parse error: ${it.message}") }
+            InMemoryExecutionContext { logger.warn("Parse error: ${it.message}") }
     ): List<SourceFile> {
         // Determine effective extension set
         val effectiveExtensions =
             resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
-        log.info("Parsing extensions: $effectiveExtensions")
+        logger.info("Parsing extensions: $effectiveExtensions")
 
         // ── 3-stage classpath resolution ──────────────────────────────────────
         val classpath = resolveClasspath(projectDir)
@@ -153,7 +153,7 @@ class LstBuilder(
         // ── Collect files by extension ────────────────────────────────────────
         val filesByExt = collectFiles(projectDir, effectiveExtensions, parseConfig.excludePaths)
         val totalFiles = filesByExt.values.sumOf { it.size }
-        log.info(
+        logger.lifecycle(
             "Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)"
         )
 
@@ -166,7 +166,7 @@ class LstBuilder(
         val allSources = mutableListOf<SourceFile>()
 
         filesByExt[".java"]?.let { files ->
-            log.info("Parsing ${files.size} Java file(s)")
+            logger.info("Parsing ${files.size} Java file(s)")
             val parser = JavaParser
                 .fromJavaVersion()
                 .classpath(classpath)
@@ -178,7 +178,7 @@ class LstBuilder(
                     projectDir,
                     javaVersionCache
                 )
-                log.debug(
+                logger.debug(
                     "Java version for ${sourceFile.sourcePath}: source=$source, target=$target"
                 )
                 allSources.add(
@@ -190,13 +190,13 @@ class LstBuilder(
         }
 
         filesByExt[".kt"]?.let { files ->
-            log.info("Parsing ${files.size} Kotlin file(s)")
+            logger.info("Parsing ${files.size} Kotlin file(s)")
             val parser = KotlinParser.builder().classpath(classpath).build()
             parser.parse(files, projectDir, ctx).forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
                 val (source, target) =
                     detectKotlinVersionForFile(absPath, projectDir, kotlinVersionCache)
-                log.debug(
+                logger.debug(
                     "Kotlin JVM target for ${sourceFile.sourcePath}: source=$source, target=$target"
                 )
                 allSources.add(
@@ -215,7 +215,7 @@ class LstBuilder(
             val plainKtsFiles = files.filter { !it.name.endsWith(".gradle.kts") }
 
             if (plainKtsFiles.isNotEmpty()) {
-                log.info("Parsing ${plainKtsFiles.size} Kotlin Script file(s)")
+                logger.info("Parsing ${plainKtsFiles.size} Kotlin Script file(s)")
                 val parser = KotlinParser.builder().classpath(classpath).build()
                 parser.parse(plainKtsFiles, projectDir, ctx).forEach { sourceFile ->
                     val absPath = projectDir.resolve(sourceFile.sourcePath)
@@ -230,9 +230,9 @@ class LstBuilder(
             }
 
             if (gradleKtsFiles.isNotEmpty()) {
-                log.info("Parsing ${gradleKtsFiles.size} Gradle Kotlin DSL script(s)")
+                logger.info("Parsing ${gradleKtsFiles.size} Gradle Kotlin DSL script(s)")
                 if (gradleDslClasspath.isNotEmpty()) {
-                    log.info(
+                    logger.info(
                         "Augmenting KotlinParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
                     )
                 }
@@ -244,15 +244,15 @@ class LstBuilder(
         }
 
         filesByExt[".groovy"]?.let { files ->
-            log.info("Parsing ${files.size} Groovy file(s)")
+            logger.info("Parsing ${files.size} Groovy file(s)")
             val parser = GroovyParser.builder().classpath(classpath).build()
             parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".gradle"]?.let { files ->
-            log.info("Parsing ${files.size} Gradle Groovy DSL file(s)")
+            logger.info("Parsing ${files.size} Gradle Groovy DSL file(s)")
             if (gradleDslClasspath.isNotEmpty()) {
-                log.info(
+                logger.info(
                     "Augmenting GroovyParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
                 )
             }
@@ -262,30 +262,30 @@ class LstBuilder(
 
         val yamlFiles = ((filesByExt[".yaml"] ?: emptyList()) + (filesByExt[".yml"] ?: emptyList()))
         if (yamlFiles.isNotEmpty()) {
-            log.info("Parsing ${yamlFiles.size} YAML file(s)")
+            logger.info("Parsing ${yamlFiles.size} YAML file(s)")
             val parser = YamlParser()
             parser.parse(yamlFiles, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".json"]?.let { files ->
-            log.info("Parsing ${files.size} JSON file(s)")
+            logger.info("Parsing ${files.size} JSON file(s)")
             val parser = JsonParser()
             parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".xml"]?.let { files ->
-            log.info("Parsing ${files.size} XML file(s)")
+            logger.info("Parsing ${files.size} XML file(s)")
             val parser = XmlParser()
             parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".properties"]?.let { files ->
-            log.info("Parsing ${files.size} properties file(s)")
+            logger.info("Parsing ${files.size} properties file(s)")
             val parser = PropertiesParser()
             parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
         }
 
-        log.info("LST build complete: ${allSources.size} SourceFile(s)")
+        logger.info("LST build complete: ${allSources.size} SourceFile(s)")
         return allSources
     }
 
@@ -453,7 +453,7 @@ class LstBuilder(
             }
             detectMavenJavaVersion(dir)
         } catch (e: Exception) {
-            log.warn("Failed to detect Kotlin JVM target from pom.xml: ${e.message}")
+            logger.warn("Failed to detect Kotlin JVM target from pom.xml: ${e.message}")
             null
         }
     }
@@ -487,7 +487,7 @@ class LstBuilder(
             detectGradleJavaVersion(buildFile)
         }
     } catch (e: Exception) {
-        log.warn("Failed to detect Kotlin JVM target from Gradle build file: ${e.message}")
+        logger.warn("Failed to detect Kotlin JVM target from Gradle build file: ${e.message}")
         null
     }
 
@@ -554,7 +554,7 @@ class LstBuilder(
 
             null
         } catch (e: Exception) {
-            log.warn("Failed to detect Java version from pom.xml: ${e.message}")
+            logger.warn("Failed to detect Java version from pom.xml: ${e.message}")
             null
         }
     }
@@ -605,7 +605,7 @@ class LstBuilder(
             else -> null
         }
     } catch (e: Exception) {
-        log.warn("Failed to detect Java version from Gradle build file: ${e.message}")
+        logger.warn("Failed to detect Java version from Gradle build file: ${e.message}")
         null
     }
 
@@ -636,56 +636,56 @@ class LstBuilder(
 
     private fun resolveClasspath(projectDir: Path): List<Path> {
         // Stage 1: Build tool subprocess
-        log.info("Stage 1: attempting build-tool classpath extraction")
+        logger.info("Stage 1: attempting build-tool classpath extraction")
         val stage1 = buildToolStage.extractClasspath(projectDir)
         if (stage1 != null) {
             // If there are no pre-compiled class directories, try compiling now so that
             // intra-project type references resolve instead of becoming JavaType.Unknown.
             var classDirs = projectClassDirs(projectDir)
             if (classDirs.isEmpty()) {
-                log.info("No compiled class directories found — attempting compilation")
+                logger.info("No compiled class directories found — attempting compilation")
                 buildToolStage.tryCompile(projectDir)
                 classDirs = projectClassDirs(projectDir)
             }
             if (classDirs.isNotEmpty()) {
-                log.info("Appending ${classDirs.size} project class dir(s) to classpath")
+                logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
             }
-            log.info("Stage 1 succeeded: ${stage1.size} JAR(s)")
+            logger.info("Stage 1 succeeded: ${stage1.size} JAR(s)")
             return stage1 + classDirs
         }
 
-        log.info("Stage 1 failed, falling through to Stage 2")
+        logger.info("Stage 1 failed, falling through to Stage 2")
 
         // Stage 2: Direct Maven Resolver
-        log.info("Stage 2: resolving dependencies via Maven Resolver")
+        logger.info("Stage 2: resolving dependencies via Maven Resolver")
         val stage2 = try {
             depResolutionStage.resolveClasspath(projectDir)
         } catch (e: Exception) {
-            log.warn("Stage 2 threw an exception: ${e.message}")
+            logger.warn("Stage 2 threw an exception: ${e.message}")
             emptyList()
         }
 
         if (stage2.isNotEmpty()) {
             val classDirs = projectClassDirs(projectDir)
             if (classDirs.isNotEmpty()) {
-                log.info("Appending ${classDirs.size} project class dir(s) to classpath")
+                logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
             }
-            log.info("Stage 2 succeeded: ${stage2.size} JAR(s)")
+            logger.info("Stage 2 succeeded: ${stage2.size} JAR(s)")
             return stage2 + classDirs
         }
 
-        log.info("Stage 2 failed or produced no JARs, falling through to Stage 3")
+        logger.info("Stage 2 failed or produced no JARs, falling through to Stage 3")
 
         // Stage 3: Local cache scan
-        log.info("Stage 3: scanning local Maven/Gradle caches")
-        val directParseStage = DirectParseStage(projectDir)
+        logger.info("Stage 3: scanning local Maven/Gradle caches")
+        val directParseStage = DirectParseStage(projectDir, logger)
         val declaredCoords = gatherDeclaredCoordinates(projectDir)
         val stage3 = directParseStage.findAvailableJars(declaredCoords)
         val classDirs = projectClassDirs(projectDir)
         if (classDirs.isNotEmpty()) {
-            log.info("Appending ${classDirs.size} project class dir(s) to classpath")
+            logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
         }
-        log.info(
+        logger.info(
             "Stage 3: using ${stage3.size} locally cached JAR(s) — unresolved types will be JavaType.Unknown"
         )
         return stage3 + classDirs
@@ -740,7 +740,7 @@ class LstBuilder(
     internal fun resolveGradleDslClasspath(projectDir: Path): List<Path> {
         val gradleHome = findGradleHome(projectDir)
         if (gradleHome == null) {
-            log.warn(
+            logger.warn(
                 "Gradle DSL classpath not added: no Gradle installation found " +
                     "(set GRADLE_HOME or add a Gradle wrapper to the project)"
             )
@@ -748,7 +748,7 @@ class LstBuilder(
         }
         val libDir = gradleHome.resolve("lib")
         if (!Files.isDirectory(libDir)) {
-            log.warn("Gradle lib/ directory not found at $libDir")
+            logger.warn("Gradle lib/ directory not found at $libDir")
             return emptyList()
         }
         return Files.list(libDir).use { stream ->
@@ -771,7 +771,7 @@ class LstBuilder(
         if (!gradleHomeEnv.isNullOrBlank()) {
             val path = Path.of(gradleHomeEnv)
             if (Files.isDirectory(path)) {
-                log.info("Using Gradle installation from GRADLE_HOME: $path")
+                logger.info("Using Gradle installation from GRADLE_HOME: $path")
                 return path
             }
         }
@@ -786,7 +786,9 @@ class LstBuilder(
             if (gradleVersion != null && Files.isDirectory(distsRoot)) {
                 val match = findGradleDistribution(distsRoot, gradleVersion)
                 if (match != null) {
-                    log.info("Using Gradle $gradleVersion distribution from wrapper cache: $match")
+                    logger.info(
+                        "Using Gradle $gradleVersion distribution from wrapper cache: $match"
+                    )
                     return match
                 }
             }
@@ -820,7 +822,7 @@ class LstBuilder(
                     .orElse(null)
             }
             if (newest != null) {
-                log.info("Using Gradle distribution (best-effort fallback): $newest")
+                logger.info("Using Gradle distribution (best-effort fallback): $newest")
                 return newest
             }
         }
@@ -845,7 +847,7 @@ class LstBuilder(
         Regex("""gradle-(\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z]+-\d+)?)-(?:bin|all)""")
             .find(url)?.groupValues?.get(1)
     } catch (e: Exception) {
-        log.warn("Failed to parse Gradle wrapper properties: ${e.message}")
+        logger.warn("Failed to parse Gradle wrapper properties: ${e.message}")
         null
     }
 

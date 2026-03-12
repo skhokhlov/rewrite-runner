@@ -1,11 +1,12 @@
 package io.github.skhokhlov.rewriterunner.lst
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.name
-import org.slf4j.LoggerFactory
 
 /**
  * Stage 3 of the LST classpath-resolution pipeline: assemble the best available
@@ -47,9 +48,7 @@ import org.slf4j.LoggerFactory
  * @param projectDir Root directory of the project, used to locate project-local
  *   cache roots (`.m2/repository`, `.gradle/caches`).
  */
-class DirectParseStage(private val projectDir: Path) {
-    private val log = LoggerFactory.getLogger(DirectParseStage::class.java.name)
-
+class DirectParseStage(private val projectDir: Path, val logger: RunnerLogger = NoOpRunnerLogger) {
     private val m2Roots: List<Path> = listOf(
         Paths.get(System.getProperty("user.home"), ".m2", "repository"),
         projectDir.resolve(".m2").resolve("repository")
@@ -91,13 +90,13 @@ class DirectParseStage(private val projectDir: Path) {
         }
 
         if (notFound.isNotEmpty()) {
-            log.warn(
+            logger.warn(
                 "Stage 3 — could not locate ${notFound.size} JAR(s) in local caches. " +
                     "Affected types will be JavaType.Unknown:\n  " + notFound.joinToString("\n  ")
             )
         }
 
-        log.info("Stage 3 — using ${found.size} locally cached JAR(s)")
+        logger.info("Stage 3 — using ${found.size} locally cached JAR(s)")
         return found
     }
 

@@ -1,9 +1,5 @@
 package io.github.skhokhlov.rewriterunner
 
-import ch.qos.logback.classic.Level
-import ch.qos.logback.classic.Logger
-import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.core.read.ListAppender
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import kotlin.test.assertFalse
@@ -17,23 +13,23 @@ import org.eclipse.aether.transfer.ArtifactNotFoundException
 import org.eclipse.aether.transfer.MetadataNotFoundException
 import org.eclipse.aether.transfer.TransferEvent
 import org.eclipse.aether.transfer.TransferResource
-import org.slf4j.LoggerFactory
+
+/** Simple [RunnerLogger] that records calls for assertion in tests. */
+private class CapturingLogger : RunnerLogger {
+    data class LogEntry(val level: String, val message: String)
+
+    val entries = mutableListOf<LogEntry>()
+
+    override fun lifecycle(message: String) = entries.add(LogEntry("INFO", message)).let { Unit }
+    override fun info(message: String) = entries.add(LogEntry("INFO", message)).let { Unit }
+    override fun debug(message: String) = entries.add(LogEntry("DEBUG", message)).let { Unit }
+    override fun warn(message: String) = entries.add(LogEntry("WARN", message)).let { Unit }
+    override fun error(message: String, cause: Throwable?) =
+        entries.add(LogEntry("ERROR", message)).let { Unit }
+}
 
 class MavenTransferListenerTest :
     FunSpec({
-        lateinit var appender: ListAppender<ILoggingEvent>
-        lateinit var logger: Logger
-
-        beforeEach {
-            appender = ListAppender<ILoggingEvent>().also { it.start() }
-            logger =
-                LoggerFactory.getLogger(MavenTransferListener::class.java) as Logger
-            logger.level = Level.DEBUG
-            logger.addAppender(appender)
-        }
-
-        afterEach { logger.detachAppender(appender) }
-
         fun session() = RepositorySystemSupplier()
             .get()
             .createSessionBuilder()
@@ -74,10 +70,11 @@ class MavenTransferListenerTest :
         // ─── transferStarted ──────────────────────────────────────────────────────
 
         test("transferStarted logs Downloading from repoId and full URL at INFO") {
+            val log = CapturingLogger()
             val r = resource()
-            MavenTransferListener().transferStarted(startedEvent(r))
+            MavenTransferListener(log).transferStarted(startedEvent(r))
 
-            val messages = appender.list.map { it.formattedMessage }
+            val messages = log.entries.map { it.message }
             assertTrue(
                 messages.any { msg ->
                     msg.startsWith("Downloading from central:") &&
@@ -89,10 +86,11 @@ class MavenTransferListenerTest :
         }
 
         test("transferStarted uses repoId from resource") {
+            val log = CapturingLogger()
             val r = resource(repoId = "extra-0", repoUrl = "https://private.example.com/maven2/")
-            MavenTransferListener().transferStarted(startedEvent(r))
+            MavenTransferListener(log).transferStarted(startedEvent(r))
 
-            val messages = appender.list.map { it.formattedMessage }
+            val messages = log.entries.map { it.message }
             assertTrue(
                 messages.any { it.startsWith("Downloading from extra-0:") },
                 "Expected 'Downloading from extra-0:' log; got: $messages"
@@ -100,19 +98,21 @@ class MavenTransferListenerTest :
         }
 
         test("transferStarted is logged at INFO level") {
-            MavenTransferListener().transferStarted(startedEvent(resource()))
+            val log = CapturingLogger()
+            MavenTransferListener(log).transferStarted(startedEvent(resource()))
 
-            val levels = appender.list.map { it.level }
-            assertTrue(Level.INFO in levels, "Expected INFO level; got: $levels")
+            val levels = log.entries.map { it.level }
+            assertTrue("INFO" in levels, "Expected INFO level; got: $levels")
         }
 
         // ─── transferSucceeded ────────────────────────────────────────────────────
 
         test("transferSucceeded logs Downloaded from repoId and full URL at INFO") {
+            val log = CapturingLogger()
             val r = resource(contentLength = 5_120)
-            MavenTransferListener().transferSucceeded(succeededEvent(r, bytes = 5_120))
+            MavenTransferListener(log).transferSucceeded(succeededEvent(r, bytes = 5_120))
 
-            val messages = appender.list.map { it.formattedMessage }
+            val messages = log.entries.map { it.message }
             assertTrue(
                 messages.any { msg ->
                     msg.startsWith("Downloaded from central:") &&
@@ -123,10 +123,11 @@ class MavenTransferListenerTest :
         }
 
         test("transferSucceeded includes file size in parentheses") {
+            val log = CapturingLogger()
             val r = resource(contentLength = 2_048)
-            MavenTransferListener().transferSucceeded(succeededEvent(r, bytes = 2_048))
+            MavenTransferListener(log).transferSucceeded(succeededEvent(r, bytes = 2_048))
 
-            val messages = appender.list.map { it.formattedMessage }
+            val messages = log.entries.map { it.message }
             assertTrue(
                 messages.any { it.contains("(") && it.contains("kB") },
                 "Expected size in parentheses like '(2 kB at ...)'; got: $messages"
@@ -134,32 +135,35 @@ class MavenTransferListenerTest :
         }
 
         test("transferSucceeded is logged at INFO level") {
+            val log = CapturingLogger()
             val r = resource(contentLength = 1_000)
-            MavenTransferListener().transferSucceeded(succeededEvent(r, bytes = 1_000))
+            MavenTransferListener(log).transferSucceeded(succeededEvent(r, bytes = 1_000))
 
-            val levels = appender.list.map { it.level }
-            assertTrue(Level.INFO in levels, "Expected INFO level; got: $levels")
+            val levels = log.entries.map { it.level }
+            assertTrue("INFO" in levels, "Expected INFO level; got: $levels")
         }
 
         // ─── transferFailed ───────────────────────────────────────────────────────
 
         test("transferFailed logs at WARN level") {
+            val log = CapturingLogger()
             val r = resource()
-            MavenTransferListener().transferFailed(
+            MavenTransferListener(log).transferFailed(
                 failedEvent(r, cause = Exception("connection refused"))
             )
 
-            val levels = appender.list.map { it.level }
-            assertTrue(Level.WARN in levels, "Expected WARN level; got: $levels")
+            val levels = log.entries.map { it.level }
+            assertTrue("WARN" in levels, "Expected WARN level; got: $levels")
         }
 
         test("transferFailed log message contains resource URL and error") {
+            val log = CapturingLogger()
             val r = resource()
-            MavenTransferListener().transferFailed(
+            MavenTransferListener(log).transferFailed(
                 failedEvent(r, cause = Exception("connection refused"))
             )
 
-            val messages = appender.list.map { it.formattedMessage }
+            val messages = log.entries.map { it.message }
             assertTrue(
                 messages.any { msg ->
                     msg.contains("rewrite-core-8.75.3.jar") && msg.contains("connection refused")
@@ -169,18 +173,20 @@ class MavenTransferListenerTest :
         }
 
         test("transferFailed logs ArtifactNotFoundException at DEBUG not WARN") {
+            val log = CapturingLogger()
             val r = resource()
             val artifact = DefaultArtifact("log4j:log4j:1.2.17.redhat-00008")
-            MavenTransferListener().transferFailed(
+            MavenTransferListener(log).transferFailed(
                 failedEvent(r, cause = ArtifactNotFoundException(artifact, "not found in central"))
             )
 
-            val levels = appender.list.map { it.level }
-            assertTrue(Level.DEBUG in levels, "Expected DEBUG level; got: $levels")
-            assertFalse(Level.WARN in levels, "Expected no WARN level; got: $levels")
+            val levels = log.entries.map { it.level }
+            assertTrue("DEBUG" in levels, "Expected DEBUG level; got: $levels")
+            assertFalse("WARN" in levels, "Expected no WARN level; got: $levels")
         }
 
         test("transferFailed logs MetadataNotFoundException at DEBUG not WARN") {
+            val log = CapturingLogger()
             val r = resource()
             val metadata =
                 DefaultMetadata(
@@ -190,12 +196,12 @@ class MavenTransferListenerTest :
                     "maven-metadata.xml",
                     Metadata.Nature.RELEASE_OR_SNAPSHOT
                 )
-            MavenTransferListener().transferFailed(
+            MavenTransferListener(log).transferFailed(
                 failedEvent(r, cause = MetadataNotFoundException(metadata, null, "not found"))
             )
 
-            val levels = appender.list.map { it.level }
-            assertTrue(Level.DEBUG in levels, "Expected DEBUG level; got: $levels")
-            assertFalse(Level.WARN in levels, "Expected no WARN level; got: $levels")
+            val levels = log.entries.map { it.level }
+            assertTrue("DEBUG" in levels, "Expected DEBUG level; got: $levels")
+            assertFalse("WARN" in levels, "Expected no WARN level; got: $levels")
         }
     })
