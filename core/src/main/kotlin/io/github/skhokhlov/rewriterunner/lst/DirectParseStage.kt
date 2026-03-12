@@ -8,14 +8,44 @@ import kotlin.io.path.name
 import org.slf4j.LoggerFactory
 
 /**
- * Stage 3: Assemble the best available classpath from local caches without
- * downloading anything. Uses entries already present in:
- * - `~/.m2/repository` and `[projectDir]/.m2/repository`
- * - `~/.gradle/caches` and `[projectDir]/.gradle/caches`
+ * Stage 3 of the LST classpath-resolution pipeline: assemble the best available
+ * classpath from local caches, **without downloading anything**.
  *
- * Project-local roots support Gradle's `gradle.user.home` being set to a directory
- * inside the project (e.g. `gradle.properties: gradle.user.home=.gradle`), which places
- * the Gradle dependency cache under the project tree rather than the global home directory.
+ * **Why Stage 3?**
+ * Stage 1 ([BuildToolStage]) and Stage 2 ([DependencyResolutionStage]) can both fail —
+ * for example, in completely offline environments, in repositories with no network
+ * access, or when the build tool is not installed and the declared dependencies cannot
+ * be downloaded by Maven Resolver. Stage 3 is the last-resort fallback: it reuses
+ * JARs that are already cached locally from previous builds or downloads, requiring
+ * no subprocess invocation and no network access.
+ *
+ * **How it works:**
+ * Given a list of `groupId:artifactId:version` coordinates (extracted from the build
+ * descriptor by [DependencyResolutionStage.parseMavenDependencies] /
+ * [DependencyResolutionStage.parseGradleDependencies]), Stage 3 looks up each
+ * coordinate in local repository caches using the standard Maven path layout
+ * (`<group>/<artifact>/<version>/<artifact>-<version>.jar`):
+ *
+ * 1. `~/.m2/repository` — the global Maven local repository.
+ * 2. `<projectDir>/.m2/repository` — a project-local Maven repository.
+ * 3. `~/.gradle/caches` — the Gradle dependency cache (module files store).
+ * 4. `<projectDir>/.gradle/caches` — a project-local Gradle cache, used when
+ *    `gradle.user.home` is set to a directory inside the project tree.
+ *
+ * **Impact of missing JARs:**
+ * When a coordinate is not found in any cache, the corresponding types in source
+ * files will resolve to `JavaType.Unknown` during OpenRewrite's type-attribution
+ * phase. This does **not** prevent parsing or recipe execution — recipes that do
+ * not rely on type information for those specific types will still work correctly.
+ * Missing types are reported as warnings in the log so users can identify which
+ * dependencies were unresolvable.
+ *
+ * **Note:** Stage 3 never downloads JARs. If dependencies are missing from all
+ * local caches, run the project's normal build (`mvn package`, `gradle build`)
+ * first to populate the caches, then re-run the tool.
+ *
+ * @param projectDir Root directory of the project, used to locate project-local
+ *   cache roots (`.m2/repository`, `.gradle/caches`).
  */
 class DirectParseStage(private val projectDir: Path) {
     private val log = LoggerFactory.getLogger(DirectParseStage::class.java.name)
@@ -31,8 +61,20 @@ class DirectParseStage(private val projectDir: Path) {
     )
 
     /**
-     * Return any JARs we can locate in local caches that correspond to the project's
-     * declared dependencies. Unresolved entries become JavaType.Unknown at parse time.
+     * Locates JARs for the given Maven coordinates in local caches, returning all that
+     * can be found without any network access.
+     *
+     * Each coordinate is looked up first in `~/.m2/repository` (and
+     * `<projectDir>/.m2/repository`), then in `~/.gradle/caches` (and
+     * `<projectDir>/.gradle/caches`). Coordinates not found in any cache are logged
+     * as a single warning listing all missing artifacts.
+     *
+     * @param declaredCoordinates List of `groupId:artifactId:version` strings to look
+     *   up (typically the output of [DependencyResolutionStage.parseMavenDependencies]
+     *   or [DependencyResolutionStage.parseGradleDependencies]).
+     * @return Paths of locally cached JARs, one per successfully located coordinate.
+     *   Coordinates with no local cache hit are omitted; their types will appear as
+     *   `JavaType.Unknown` in the LST.
      */
     fun findAvailableJars(declaredCoordinates: List<String>): List<Path> {
         val found = mutableListOf<Path>()

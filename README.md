@@ -106,7 +106,8 @@ fun main() {
     val result = RewriteRunner.builder()
         .projectDir(Paths.get("/path/to/project"))
         .activeRecipe("org.openrewrite.java.format.AutoFormat")
-        .dryRun(true)
+        .recipeArtifact("org.openrewrite.recipe:rewrite-static-analysis:LATEST")
+        .dryRun(true)   // preview changes without writing to disk
         .build()
         .run()
 
@@ -138,17 +139,57 @@ public class Example {
 }
 ```
 
-### Formatting results
+### Working with results
 
-If you want formatted output (diff, file list, or JSON report), use `ResultFormatter` directly:
+`RunResult` gives you raw access to everything the recipe produced:
+
+```kotlin
+val result = runner.run()
+
+println("Changed: ${result.hasChanges}")         // true/false
+println("Files changed: ${result.changeCount}")   // number of changed files
+
+// Iterate raw OpenRewrite results
+result.results.forEach { r ->
+    // r.before — source file before the recipe (null for newly created files)
+    // r.after  — source file after the recipe (null for deleted files)
+    println(r.diff())           // unified diff string
+    println(r.after?.sourcePath)  // relative path of the changed file
+}
+
+// changedFiles: paths written to disk (empty in dry-run mode)
+result.changedFiles.forEach { path -> println("Written: $path") }
+```
+
+### Formatted output (ResultFormatter)
+
+For the same three output modes as the CLI (`diff`, `files`, `report`), use `ResultFormatter`:
 
 ```kotlin
 import io.github.skhokhlov.rewriterunner.output.OutputMode
 import io.github.skhokhlov.rewriterunner.output.ResultFormatter
 
 val result = runner.run()
+
+// Print unified diffs to stdout
 ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
+
+// Print only the paths of changed files (one per line)
+ResultFormatter(OutputMode.FILES).format(result.results, result.projectDir)
+
+// Write openrewrite-report.json to the project directory
+ResultFormatter(OutputMode.REPORT).format(result.results, result.projectDir)
 ```
+
+`OutputMode` values:
+
+| Value | Behaviour |
+|-------|-----------|
+| `DIFF` | Prints a unified diff for each changed file to stdout (default CLI mode) |
+| `FILES` | Prints one changed-file path per line to stdout |
+| `REPORT` | Writes `openrewrite-report.json` to the `reportDir` argument (defaults to `.`) |
+
+Library consumers that only need to inspect changes programmatically can skip `ResultFormatter` entirely and work with `RunResult.results` directly.
 
 ### Builder reference
 
@@ -156,19 +197,69 @@ ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
 |--------|------|---------|-------------|
 | `projectDir(Path)` | required | `.` (cwd) | Project root to analyse |
 | `activeRecipe(String)` | required | — | Fully-qualified recipe name |
-| `recipeArtifact(String)` | optional (repeatable) | — | Maven coordinate of a recipe JAR |
+| `recipeArtifact(String)` | optional (repeatable) | — | Maven coordinate of a recipe JAR; may be called multiple times |
 | `recipeArtifacts(List<String>)` | optional | — | Set all recipe artifact coordinates at once |
-| `rewriteConfig(Path)` | optional | `<projectDir>/rewrite.yaml` | Custom `rewrite.yaml` path |
+| `rewriteConfig(Path)` | optional | `<projectDir>/rewrite.yaml` | Path to a `rewrite.yaml` for custom composite recipes |
+| `rewriteConfigContent(String)` | optional | — | Raw `rewrite.yaml` content as a string; takes precedence over `rewriteConfig` when both are set |
 | `cacheDir(Path)` | optional | `~/.rewriterunner/cache` | Cache root for downloaded recipe JARs (stored under `<cacheDir>/repository`). Project dependencies always resolve from `~/.m2/repository`. |
-| `configFile(Path)` | optional | `~/.rewriterunner/rewriterunner.yml` | Path to `rewriterunner.yml` |
+| `configFile(Path)` | optional | auto-discovered | Path to `rewriterunner.yml`; auto-discovery checks `<projectDir>/rewriterunner.yml` then `~/.rewriterunner/rewriterunner.yml` |
 | `dryRun(Boolean)` | optional | `false` | Analyse without writing to disk |
-| `includeExtensions(List<String>)` | optional | all supported | File extensions to parse |
-| `excludeExtensions(List<String>)` | optional | — | File extensions to skip |
+| `includeExtensions(List<String>)` | optional | all supported | File extensions to parse; overrides config file setting |
+| `excludeExtensions(List<String>)` | optional | — | File extensions to skip; overrides config file setting |
+| `excludePaths(List<String>)` | optional | — | Glob patterns (relative to project root) for paths to skip during parsing; overrides `parse.excludePaths` from config file |
+| `includeMavenCentral(Boolean)` | optional | `true` | Include Maven Central as a resolution repository. Set to `false` for air-gapped or enterprise environments. |
+| `repository(RepositoryConfig)` | optional (repeatable) | — | Add one extra Maven repository for artifact resolution; combined with repositories from config file |
+| `repositories(List<RepositoryConfig>)` | optional | — | Set all extra Maven repositories at once; combined with repositories from config file |
+
+### Enterprise and private registry setup
+
+When Maven Central is unreachable, provide your private registry directly via the builder:
+
+```kotlin
+import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
+
+val result = RewriteRunner.builder()
+    .projectDir(Paths.get("/path/to/project"))
+    .activeRecipe("org.openrewrite.java.format.AutoFormat")
+    .recipeArtifact("org.openrewrite.recipe:rewrite-static-analysis:LATEST")
+    .repository(RepositoryConfig(
+        url = "https://nexus.example.com/repository/maven-public",
+        username = System.getenv("NEXUS_USER"),
+        password = System.getenv("NEXUS_PASS")
+    ))
+    .includeMavenCentral(false)  // restrict resolution to the Nexus repository only
+    .build()
+    .run()
+```
+
+### Programmatic composite recipes
+
+Instead of writing a `rewrite.yaml` file on disk, you can supply the YAML content as a string directly via `rewriteConfigContent`:
+
+```kotlin
+val recipeYaml = """
+    type: specs.openrewrite.org/v1beta/recipe
+    name: com.example.MyMigration
+    displayName: My Custom Migration
+    recipeList:
+      - org.openrewrite.java.migrate.UpgradeToJava21
+      - org.openrewrite.java.format.AutoFormat
+""".trimIndent()
+
+val result = RewriteRunner.builder()
+    .projectDir(Paths.get("/path/to/project"))
+    .activeRecipe("com.example.MyMigration")
+    .recipeArtifact("org.openrewrite.recipe:rewrite-migrate-java:LATEST")
+    .rewriteConfigContent(recipeYaml)  // no file required
+    .build()
+    .run()
+```
 
 ## CLI Reference
 
 ```
-Usage: rewrite-runner [-h] [--dry-run] [--active-recipe=<recipe>]
+Usage: rewrite-runner [-h] [--dry-run] [--info] [--debug] [--no-maven-central]
+                          [--active-recipe=<recipe>]
                           [--cache-dir=<path>] [--config=<path>]
                           [--output=<mode>] [--project-dir=<path>]
                           [--rewrite-config=<path>]
@@ -189,6 +280,9 @@ Usage: rewrite-runner [-h] [--dry-run] [--active-recipe=<recipe>]
 | `--dry-run` | Run recipe but do not write changes to disk | `false` |
 | `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
 | `--exclude-extensions` | Comma-separated file extensions to skip | — |
+| `--no-maven-central` | Disable Maven Central; use only repositories from the config file | `false` |
+| `--info` | Enable INFO-level logging to stderr | `false` |
+| `--debug` | Enable DEBUG-level logging to stderr (overrides `--info`) | `false` |
 
 ### Output modes
 
@@ -333,6 +427,14 @@ Unresolved types appear as `JavaType.Unknown` in the LST, but all structural, te
 
 The parsed file set is configurable via `--include-extensions`, `--exclude-extensions`, and the `parse` section of `rewriterunner.yml`.
 
+### Automatically excluded directories
+
+The following directories are always skipped during the file-system walk, regardless of configuration:
+
+`.git`, `build`, `target`, `node_modules`, `.gradle`, `.idea`, `out`, `dist`
+
+Use `parse.excludePaths` (or `--exclude-extensions` / `excludePaths()` in the library API) to skip additional paths.
+
 ## Development
 
 ```bash
@@ -344,5 +446,5 @@ The parsed file set is configurable via `--include-extensions`, `--exclude-exten
 
 # Build and run locally
 ./gradlew shadowJar
-java -jar build/libs/rewrite-runner-1.0-SNAPSHOT-all.jar --help
+java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 ```

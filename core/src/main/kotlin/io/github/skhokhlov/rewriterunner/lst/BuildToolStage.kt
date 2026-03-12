@@ -6,13 +6,63 @@ import kotlin.io.path.exists
 import org.slf4j.LoggerFactory
 
 /**
- * Stage 1: Extract classpath by invoking the project's own build tool (Maven or Gradle).
- * Returns null on any failure (non-zero exit, timeout, missing wrapper), signalling
- * that the pipeline should fall through to Stage 2.
+ * Stage 1 of the LST classpath-resolution pipeline: extract the project's compile
+ * classpath by invoking its own build tool (Maven or Gradle).
+ *
+ * **Why Stage 1?**
+ * The most accurate way to obtain the exact JAR set the project actually compiles
+ * against is to ask the build tool itself. This accounts for BOM imports, version
+ * catalogs, dependency management, and plugin-contributed dependencies that are
+ * difficult to reproduce by static parsing alone.
+ *
+ * **Build tool detection:**
+ * The presence of `pom.xml` signals a Maven project; any of `build.gradle`,
+ * `build.gradle.kts`, or `settings.gradle(.kts)` signals a Gradle project.
+ * If neither is found, [extractClasspath] returns `null` immediately.
+ *
+ * **Maven:** Runs `mvnw dependency:build-classpath` (using the Maven wrapper if
+ * present, otherwise `mvn`). The classpath is written to a temp file via
+ * `-Dmdep.outputFile` and then parsed. The `test` scope is included
+ * (`-DincludeScope=test`) so test-only dependencies are available when recipes
+ * analyse test sources.
+ *
+ * **Gradle:** Injects a temporary Gradle init script that registers a
+ * `printClasspathForOpenRewrite` task. The task resolves the project's
+ * `testRuntimeClasspath` (falling back through `runtimeClasspath`,
+ * `testCompileClasspath`, `compileClasspath`, and `default` in that order) and
+ * prints each JAR path to stdout. The Gradle wrapper (`gradlew`) is used when
+ * present; otherwise the system `gradle` command is used.
+ *
+ * **Failure behaviour:** Any failure — non-zero exit code, process timeout,
+ * missing build tool, or an unexpected exception — is logged as a warning and
+ * causes [extractClasspath] to return `null`. The pipeline then falls through to
+ * [DependencyResolutionStage] (Stage 2).
+ *
+ * **Compilation:** After a successful Stage 1, [tryCompile] is called if the
+ * project has no pre-compiled class directories. Compiled `.class` files are then
+ * appended to the classpath so that intra-project type references (e.g. wildcard
+ * imports across packages within the same project) resolve correctly instead of
+ * appearing as `JavaType.Unknown` during recipe execution.
+ *
+ * **Extensibility:** The class is `open` with `open` methods so tests can subclass
+ * it to inject a fake classpath without spawning real processes.
  */
 open class BuildToolStage {
     private val log = LoggerFactory.getLogger(BuildToolStage::class.java.name)
 
+    /**
+     * Attempts to extract the project's compile classpath by invoking the build tool.
+     *
+     * Detects the build tool from [projectDir]:
+     * - `pom.xml` present → Maven via `mvnw dependency:build-classpath` (or `mvn`)
+     * - `build.gradle` / `build.gradle.kts` / `settings.gradle(.kts)` present → Gradle via
+     *   a temporary init script that registers a `printClasspathForOpenRewrite` task
+     *
+     * @return The list of JAR paths that make up the project's compile/test classpath, or
+     *   `null` if the build tool could not be invoked, returned a non-zero exit code,
+     *   or produced an empty result. A `null` return signals [LstBuilder] to fall through
+     *   to [DependencyResolutionStage].
+     */
     open fun extractClasspath(projectDir: Path): List<Path>? = when {
         projectDir.resolve("pom.xml").exists() -> extractMavenClasspath(projectDir)
         hasBuildGradle(projectDir) -> extractGradleClasspath(projectDir)
@@ -112,8 +162,19 @@ open class BuildToolStage {
 
     /**
      * Attempts to compile the project using its build tool.
-     * Returns true if compilation succeeded, false on any failure.
-     * Never throws — failure is logged as a warning and the pipeline continues.
+     *
+     * Called by [LstBuilder] after a successful [extractClasspath] when no pre-compiled
+     * class directories are found (`target/classes`, `build/classes/java/main`, etc.).
+     * Compilation makes the project's own `.class` files available on the classpath, so
+     * intra-project type references and wildcard imports within the project itself resolve
+     * correctly during OpenRewrite's type-attribution phase.
+     *
+     * Runs `mvn compile -q` for Maven or `gradle classes -q` for Gradle.
+     * Uses the project wrapper (`mvnw` / `gradlew`) when present.
+     *
+     * @return `true` if compilation exited with code 0; `false` on any failure (non-zero
+     *   exit, missing build tool, or exception). Never throws — failure is logged as a
+     *   warning and the pipeline continues without compiled class directories.
      */
     open fun tryCompile(projectDir: Path): Boolean = when {
         projectDir.resolve("pom.xml").exists() -> tryMavenCompile(projectDir)

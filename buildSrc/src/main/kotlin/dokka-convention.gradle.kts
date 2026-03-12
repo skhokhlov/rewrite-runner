@@ -10,3 +10,14 @@ val dokkaHtmlJar by tasks.registering(Jar::class) {
     archiveClassifier.set("html-doc")
 }
 
+private val repoBaseUrl = "https://github.com/skhokhlov/rewrite-runner"
+
+dokka {
+    dokkaSourceSets.configureEach {
+        sourceLink {
+            localDirectory.set(file("src/main/kotlin"))
+            remoteUrl("$repoBaseUrl/blob/main/${projectDir.relativeTo(rootDir)}/src/main/kotlin")
+            remoteLineSuffix.set("#L")
+        }
+    }
+}
