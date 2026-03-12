@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -188,6 +189,63 @@ class RewriteRunnerBuilderTest :
                     .activeRecipe("org.openrewrite.FindSourceFiles")
                     .build()
             assertFailsWith<IllegalArgumentException> { runner.run() }
+        }
+
+        test("auto-discovers rewriterunner.yml from project dir when configFile not set") {
+            val customCache = tempDir.resolve("my-custom-cache")
+            tempDir.resolve("rewriterunner.yml").writeText("cacheDir: $customCache")
+
+            RewriteRunner.builder()
+                .projectDir(tempDir)
+                .activeRecipe("org.openrewrite.FindSourceFiles")
+                .dryRun(true)
+                .build()
+                .run()
+
+            assertTrue(
+                customCache.resolve("repository").toFile().exists(),
+                "Custom cacheDir from rewriterunner.yml should have been auto-discovered"
+            )
+        }
+
+        test("auto-discovers rewriterunner.yml case-insensitively from project dir") {
+            val customCache = tempDir.resolve("my-custom-cache-ci")
+            tempDir.resolve("RewriteRunner.yml").writeText("cacheDir: $customCache")
+
+            RewriteRunner.builder()
+                .projectDir(tempDir)
+                .activeRecipe("org.openrewrite.FindSourceFiles")
+                .dryRun(true)
+                .build()
+                .run()
+
+            assertTrue(
+                customCache.resolve("repository").toFile().exists(),
+                "rewriterunner.yml should be found case-insensitively"
+            )
+        }
+
+        test("auto-discovers rewrite.yml from project dir when rewrite.yaml absent") {
+            tempDir.resolve("rewrite.yml").writeText(
+                """
+                ---
+                type: specs.openrewrite.org/v1beta/recipe
+                name: io.test.AutoDiscoveredYmlRecipe
+                displayName: Auto-discovered yml recipe
+                recipeList:
+                  - org.openrewrite.FindSourceFiles
+                """.trimIndent()
+            )
+
+            val result = RewriteRunner.builder()
+                .projectDir(tempDir)
+                .activeRecipe("io.test.AutoDiscoveredYmlRecipe")
+                .cacheDir(tempDir.resolve("cache"))
+                .dryRun(true)
+                .build()
+                .run()
+
+            assertNotNull(result)
         }
 
         test("run on empty directory with built-in recipe returns empty results") {
