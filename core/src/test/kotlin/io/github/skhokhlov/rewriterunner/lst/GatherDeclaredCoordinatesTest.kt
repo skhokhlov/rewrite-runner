@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -24,15 +25,16 @@ class GatherDeclaredCoordinatesTest :
 
         afterEach { projectDir.toFile().deleteRecursively() }
 
-        fun failingBuildTool() = object : BuildToolStage() {
+        fun failingBuildTool() = object : BuildToolStage(NoOpRunnerLogger) {
             override fun extractClasspath(projectDir: Path): List<Path>? = null
         }
 
         fun lstBuilder(depStage: DependencyResolutionStage): LstBuilder = LstBuilder(
             cacheDir = projectDir.resolve("cache"),
-            toolConfig = ToolConfig(),
+            toolConfig = ToolConfig(logger = NoOpRunnerLogger),
             buildToolStage = failingBuildTool(),
-            depResolutionStage = depStage
+            depResolutionStage = depStage,
+            logger = NoOpRunnerLogger
         )
 
         test("returns Maven coordinate strings for Maven project") {
@@ -58,7 +60,11 @@ class GatherDeclaredCoordinatesTest :
             val noOpDepStage =
                 object :
                     DependencyResolutionStage(
-                        AetherContext.build(projectDir.resolve("cache").resolve("repository"))
+                        AetherContext.build(
+                            projectDir.resolve("cache").resolve("repository"),
+                            logger = NoOpRunnerLogger
+                        ),
+                        NoOpRunnerLogger
                     ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
@@ -103,7 +109,11 @@ class GatherDeclaredCoordinatesTest :
             val noOpDepStage =
                 object :
                     DependencyResolutionStage(
-                        AetherContext.build(projectDir.resolve("cache").resolve("repository"))
+                        AetherContext.build(
+                            projectDir.resolve("cache").resolve("repository"),
+                            logger = NoOpRunnerLogger
+                        ),
+                        NoOpRunnerLogger
                     ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
@@ -136,7 +146,11 @@ class GatherDeclaredCoordinatesTest :
             val noOpDepStage =
                 object :
                     DependencyResolutionStage(
-                        AetherContext.build(projectDir.resolve("cache").resolve("repository"))
+                        AetherContext.build(
+                            projectDir.resolve("cache").resolve("repository"),
+                            logger = NoOpRunnerLogger
+                        ),
+                        NoOpRunnerLogger
                     ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
@@ -151,7 +165,11 @@ class GatherDeclaredCoordinatesTest :
             val throwingDepStage =
                 object :
                     DependencyResolutionStage(
-                        AetherContext.build(projectDir.resolve("cache").resolve("repository"))
+                        AetherContext.build(
+                            projectDir.resolve("cache").resolve("repository"),
+                            logger = NoOpRunnerLogger
+                        ),
+                        NoOpRunnerLogger
                     ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> =
                         throw RuntimeException("Simulated failure")
@@ -180,7 +198,11 @@ class GatherDeclaredCoordinatesTest :
             val noOpDepStage =
                 object :
                     DependencyResolutionStage(
-                        AetherContext.build(projectDir.resolve("cache").resolve("repository"))
+                        AetherContext.build(
+                            projectDir.resolve("cache").resolve("repository"),
+                            logger = NoOpRunnerLogger
+                        ),
+                        NoOpRunnerLogger
                     ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }

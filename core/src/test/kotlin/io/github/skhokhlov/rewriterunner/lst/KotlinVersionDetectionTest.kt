@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -34,22 +35,27 @@ class KotlinVersionDetectionTest :
         afterEach { projectDir.toFile().deleteRecursively() }
 
         val failingBuildTool =
-            object : BuildToolStage() {
+            object : BuildToolStage(NoOpRunnerLogger) {
                 override fun extractClasspath(projectDir: Path): List<Path>? = null
             }
 
         fun lstBuilder(): LstBuilder {
             val noOpDepStage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(projectDir.resolve("cache").resolve("repository"))
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             return LstBuilder(
                 cacheDir = projectDir.resolve("cache"),
-                toolConfig = ToolConfig(),
+                toolConfig = ToolConfig(logger = NoOpRunnerLogger),
                 buildToolStage = failingBuildTool,
-                depResolutionStage = noOpDepStage
+                depResolutionStage = noOpDepStage,
+                logger = NoOpRunnerLogger
             )
         }
 

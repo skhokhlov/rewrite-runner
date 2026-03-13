@@ -48,7 +48,7 @@ import kotlin.io.path.exists
  * **Extensibility:** The class is `open` with `open` methods so tests can subclass
  * it to inject a fake classpath without spawning real processes.
  */
-open class BuildToolStage(protected val logger: RunnerLogger = NoOpRunnerLogger) {
+open class BuildToolStage(protected val logger: RunnerLogger) {
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.
      *
@@ -180,9 +180,22 @@ open class BuildToolStage(protected val logger: RunnerLogger = NoOpRunnerLogger)
      *   warning and the pipeline continues without compiled class directories.
      */
     open fun tryCompile(projectDir: Path): Boolean = when {
-        projectDir.resolve("pom.xml").exists() -> tryMavenCompile(projectDir)
-        hasBuildGradle(projectDir) -> tryGradleCompile(projectDir)
-        else -> false
+        projectDir.resolve("pom.xml").exists() -> {
+            logger.debug("Project appears to be Maven (pom.xml found) -> attempting compilation")
+            tryMavenCompile(projectDir)
+        }
+
+        hasBuildGradle(projectDir) -> {
+            logger.debug(
+                "Project appears to be Gradle (build.gradle or settings.gradle found) -> attempting compilation"
+            )
+            tryGradleCompile(projectDir)
+        }
+
+        else -> {
+            logger.info("No build tool detected for compilation -> skipping")
+            false
+        }
     }
 
     private fun tryMavenCompile(projectDir: Path): Boolean {

@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,19 +21,22 @@ class AetherContextTest :
 
         test("build uses localRepoDir as the session local repository") {
             val localRepo = tempDir.resolve("my-local-repo")
-            val ctx = AetherContext.build(localRepoDir = localRepo)
+            val ctx = AetherContext.build(localRepoDir = localRepo, logger = NoOpRunnerLogger)
             val sessionLocalRepo = ctx.session.localRepository.basePath.toAbsolutePath()
             assertEquals(localRepo.toAbsolutePath(), sessionLocalRepo)
         }
 
         test("build creates localRepoDir if it does not exist") {
             val localRepo = tempDir.resolve("does-not-exist-yet")
-            AetherContext.build(localRepoDir = localRepo)
+            AetherContext.build(localRepoDir = localRepo, logger = NoOpRunnerLogger)
             assertTrue(localRepo.toFile().isDirectory, "localRepoDir should be created")
         }
 
         test("build attaches a transfer listener to the session for download progress logging") {
-            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                logger = NoOpRunnerLogger
+            )
             assertNotNull(
                 ctx.session.transferListener,
                 "Session must have a non-null transfer listener so download progress is logged"
@@ -40,7 +44,10 @@ class AetherContextTest :
         }
 
         test("build configures a DependencyGraphTransformer for conflict resolution") {
-            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                logger = NoOpRunnerLogger
+            )
             assertNotNull(
                 ctx.session.dependencyGraphTransformer,
                 "Session must have a DependencyGraphTransformer so Maven conflict " +
@@ -51,8 +58,8 @@ class AetherContextTest :
         test("build with different localRepoDir values produces independent contexts") {
             val repoA = tempDir.resolve("repo-a")
             val repoB = tempDir.resolve("repo-b")
-            val ctxA = AetherContext.build(localRepoDir = repoA)
-            val ctxB = AetherContext.build(localRepoDir = repoB)
+            val ctxA = AetherContext.build(localRepoDir = repoA, logger = NoOpRunnerLogger)
+            val ctxB = AetherContext.build(localRepoDir = repoB, logger = NoOpRunnerLogger)
             val pathA = ctxA.session.localRepository.basePath.toAbsolutePath()
             val pathB = ctxB.session.localRepository.basePath.toAbsolutePath()
             assertEquals(repoA.toAbsolutePath(), pathA)
@@ -62,7 +69,10 @@ class AetherContextTest :
         // ─── includeMavenCentral ──────────────────────────────────────────────────
 
         test("build by default includes Maven Central in remoteRepos") {
-            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                logger = NoOpRunnerLogger
+            )
             assertTrue(
                 ctx.remoteRepos.any { it.url == "https://repo.maven.apache.org/maven2" },
                 "Maven Central should be present by default"
@@ -72,7 +82,10 @@ class AetherContextTest :
         // ─── downloadThreads ──────────────────────────────────────────────────────
 
         test("build uses default downloadThreads of 5") {
-            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                logger = NoOpRunnerLogger
+            )
             assertEquals(
                 5,
                 ctx.session.configProperties["aether.connector.basic.threads"],
@@ -83,7 +96,8 @@ class AetherContextTest :
         test("build with custom downloadThreads=10 sets the connector threads property") {
             val ctx = AetherContext.build(
                 localRepoDir = tempDir.resolve("repo"),
-                downloadThreads = 10
+                downloadThreads = 10,
+                logger = NoOpRunnerLogger
             )
             assertEquals(
                 10,
@@ -95,7 +109,8 @@ class AetherContextTest :
         test("build with downloadThreads=1 sets single-threaded downloads") {
             val ctx = AetherContext.build(
                 localRepoDir = tempDir.resolve("repo"),
-                downloadThreads = 1
+                downloadThreads = 1,
+                logger = NoOpRunnerLogger
             )
             assertEquals(
                 1,
@@ -107,7 +122,10 @@ class AetherContextTest :
         // ─── dependency selector ──────────────────────────────────────────────────
 
         test("session without excludeScopesFromGraph uses AndDependencySelector") {
-            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                logger = NoOpRunnerLogger
+            )
             val selector = ctx.session.dependencySelector
             assertNotNull(selector, "Session must have a dependency selector")
             assertTrue(
@@ -117,7 +135,10 @@ class AetherContextTest :
         }
 
         test("session without excludeScopesFromGraph does not prune test-scoped transitive deps") {
-            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                logger = NoOpRunnerLogger
+            )
             val selectorStr = ctx.session.dependencySelector.toString()
             assertFalse(
                 selectorStr.contains("ScopeDependency"),
@@ -128,7 +149,8 @@ class AetherContextTest :
         test("session with excludeScopesFromGraph includes ScopeDependencySelector in chain") {
             val ctx = AetherContext.build(
                 localRepoDir = tempDir.resolve("repo"),
-                excludeScopesFromGraph = listOf("test", "provided", "system")
+                excludeScopesFromGraph = listOf("test", "provided", "system"),
+                logger = NoOpRunnerLogger
             )
             val selectorStr = ctx.session.dependencySelector.toString()
             assertTrue(
@@ -142,11 +164,14 @@ class AetherContextTest :
         test(
             "Maven Central repository uses UPDATE_POLICY_DAILY to limit redundant remote checks"
         ) {
-            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                logger = NoOpRunnerLogger
+            )
             val central = ctx.remoteRepos.first { it.url == "https://repo.maven.apache.org/maven2" }
             assertEquals(
                 RepositoryPolicy.UPDATE_POLICY_DAILY,
-                central.getPolicy(false).updatePolicy,
+                central.getPolicy(false).artifactUpdatePolicy,
                 "Maven Central should use UPDATE_POLICY_DAILY"
             )
         }
@@ -154,7 +179,10 @@ class AetherContextTest :
         test(
             "Maven Central repository uses CHECKSUM_POLICY_IGNORE to trust artifacts without checksums"
         ) {
-            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                logger = NoOpRunnerLogger
+            )
             val central = ctx.remoteRepos.first { it.url == "https://repo.maven.apache.org/maven2" }
             assertEquals(
                 RepositoryPolicy.CHECKSUM_POLICY_IGNORE,
@@ -170,10 +198,14 @@ class AetherContextTest :
                     io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
                         url = "https://private.example.com/maven2"
                     )
-                )
+                ),
+                logger = NoOpRunnerLogger
             )
             val extra = ctx.remoteRepos.first { it.url == "https://private.example.com/maven2" }
-            assertEquals(RepositoryPolicy.UPDATE_POLICY_DAILY, extra.getPolicy(false).updatePolicy)
+            assertEquals(
+                RepositoryPolicy.UPDATE_POLICY_DAILY,
+                extra.getPolicy(false).artifactUpdatePolicy
+            )
             assertEquals(
                 RepositoryPolicy.CHECKSUM_POLICY_IGNORE,
                 extra.getPolicy(false).checksumPolicy
@@ -187,7 +219,8 @@ class AetherContextTest :
             val ctx = AetherContext.build(
                 localRepoDir = tempDir.resolve("repo"),
                 extraRepositories = listOf(extraRepo),
-                includeMavenCentral = false
+                includeMavenCentral = false,
+                logger = NoOpRunnerLogger
             )
             assertTrue(
                 ctx.remoteRepos.none { it.url == "https://repo.maven.apache.org/maven2" },

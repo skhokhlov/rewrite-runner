@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -36,7 +37,8 @@ class DependencyResolutionStageResolveClasspathTest :
             // A real DependencyResolutionStage with no pom.xml / build.gradle returns empty
             val stage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"))
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> =
                         super.resolveClasspath(projectDir)
@@ -64,7 +66,8 @@ class DependencyResolutionStageResolveClasspathTest :
             var parsedMaven = false
             val stage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"))
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> {
                         parsedMaven =
@@ -87,7 +90,8 @@ class DependencyResolutionStageResolveClasspathTest :
             var parsedGradle = false
             val stage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"))
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> {
                         parsedGradle =
@@ -127,7 +131,10 @@ class DependencyResolutionStageResolveClasspathTest :
                 """.trimIndent()
             )
             val stage =
-                DependencyResolutionStage(AetherContext.build(cacheDir.resolve("repository")))
+                DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             val coords = stage.parseMavenDependencies(projectDir)
             assertTrue(
                 coords.none { it.contains("servlet-api") },
@@ -160,7 +167,10 @@ class DependencyResolutionStageResolveClasspathTest :
                 """.trimIndent()
             )
             val stage =
-                DependencyResolutionStage(AetherContext.build(cacheDir.resolve("repository")))
+                DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             val coords = stage.parseMavenDependencies(projectDir)
             assertTrue(coords.isEmpty(), "system scope should be excluded")
         }
@@ -177,7 +187,10 @@ class DependencyResolutionStageResolveClasspathTest :
                 """.trimIndent()
             )
             val stage =
-                DependencyResolutionStage(AetherContext.build(cacheDir.resolve("repository")))
+                DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             val coords = stage.parseGradleDependenciesStatically(projectDir)
             assertTrue(coords.contains("org.springframework:spring-core:6.1.0"))
             assertTrue(coords.contains("com.fasterxml.jackson.core:jackson-databind:2.16.0"))
@@ -192,7 +205,10 @@ class DependencyResolutionStageResolveClasspathTest :
                 """.trimIndent()
             )
             val stage =
-                DependencyResolutionStage(AetherContext.build(cacheDir.resolve("repository")))
+                DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             val coords = stage.parseGradleDependenciesStatically(projectDir)
             assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
         }
@@ -206,7 +222,8 @@ class DependencyResolutionStageResolveClasspathTest :
             var pomCalled = false
             val stage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"))
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
                 ) {
                     override fun runGradleDependenciesTask(projectDir: Path) =
                         listOf("org.apache.commons:commons-lang3:3.12.0")
@@ -244,7 +261,8 @@ class DependencyResolutionStageResolveClasspathTest :
             var pomCalled = false
             val stage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"))
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
                 ) {
                     override fun runGradleDependenciesTask(projectDir: Path): List<String>? = null
 
@@ -291,7 +309,8 @@ class DependencyResolutionStageResolveClasspathTest :
             var pomCalled = false
             val stage =
                 object : DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"))
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
                 ) {
                     override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
                         directCalled = true
@@ -327,7 +346,12 @@ class DependencyResolutionStageResolveClasspathTest :
                 )
             val stage =
                 DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"), extraRepositories = repos)
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        extraRepositories = repos,
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
                 )
             // Accessing the stage without an actual resolve call; we can call resolveClasspath
             // on an empty dir to exercise the lazy initializers (repos are built on first use)
@@ -346,7 +370,12 @@ class DependencyResolutionStageResolveClasspathTest :
                 )
             val stage =
                 DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"), extraRepositories = repos)
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        extraRepositories = repos,
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
                 )
             val result = stage.resolveClasspath(projectDir)
             assertTrue(result.isEmpty())

@@ -22,10 +22,7 @@ import org.eclipse.aether.util.filter.ScopeDependencyFilter
  * @param context Shared Maven Resolver context (system, session, remote repositories).
  *   Use [AetherContext.build] to create one.
  */
-open class RecipeArtifactResolver(
-    private val context: AetherContext,
-    val logger: RunnerLogger = NoOpRunnerLogger
-) {
+open class RecipeArtifactResolver(private val context: AetherContext, val logger: RunnerLogger) {
     private val runtimeScopeFilter = ScopeDependencyFilter(null, listOf("test", "provided"))
 
     /**

@@ -15,8 +15,7 @@ import org.eclipse.aether.transfer.TransferEvent
  *
  * Only GET requests (downloads) are logged; PUT uploads are silently ignored.
  */
-class MavenTransferListener(val logger: RunnerLogger = NoOpRunnerLogger) :
-    AbstractTransferListener() {
+class MavenTransferListener(val logger: RunnerLogger) : AbstractTransferListener() {
     override fun transferStarted(event: TransferEvent) {
         if (event.requestType != TransferEvent.RequestType.GET) return
         val r = event.resource

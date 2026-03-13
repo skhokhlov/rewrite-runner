@@ -67,7 +67,7 @@ import org.eclipse.aether.util.filter.ScopeDependencyFilter
  */
 open class DependencyResolutionStage(
     private val context: AetherContext,
-    protected val logger: RunnerLogger = NoOpRunnerLogger
+    protected val logger: RunnerLogger
 ) {
     private sealed class ResolvedCoords {
         abstract val coords: List<String>
@@ -460,6 +460,7 @@ open class DependencyResolutionStage(
                     val m = Regex("""^([\w.\-]+)\s*=\s*"([^"]+)""").find(line) ?: continue
                     versions[m.groupValues[1]] = m.groupValues[2]
                 }
+
                 "libraries" -> {
                     parseCatalogLibraryEntry(line, versions)?.let { coordinates += it }
                 }

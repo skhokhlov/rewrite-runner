@@ -70,13 +70,14 @@ data class ToolConfig(
     val cacheDir: String = "~/.rewriterunner/cache",
     val parse: ParseConfig = ParseConfig(),
     val includeMavenCentral: Boolean = true,
-    val downloadThreads: Int = 5
+    val downloadThreads: Int = 5,
+    val logger: RunnerLogger = NoOpRunnerLogger
 ) {
     /** Returns [cacheDir] with `~` expanded to the user home directory and environment
      *  variable placeholders replaced. Recipe JARs are cached under the returned path's
      *  `repository/` subdirectory. */
     fun resolvedCacheDir(): Path {
-        val dir = interpolateEnvVars(cacheDir)
+        val dir = interpolateEnvVars(cacheDir, logger)
         return if (dir.startsWith("~")) {
             Paths.get(System.getProperty("user.home"), dir.substring(1))
         } else {
@@ -87,9 +88,9 @@ data class ToolConfig(
     /** Returns [repositories] with all environment variable placeholders expanded. */
     fun resolvedRepositories(): List<RepositoryConfig> = repositories.map { repo ->
         repo.copy(
-            url = interpolateEnvVars(repo.url),
-            username = repo.username?.let { interpolateEnvVars(it) },
-            password = repo.password?.let { interpolateEnvVars(it) }
+            url = interpolateEnvVars(repo.url, logger),
+            username = repo.username?.let { interpolateEnvVars(it, logger) },
+            password = repo.password?.let { interpolateEnvVars(it, logger) }
         )
     }
 
@@ -108,27 +109,27 @@ data class ToolConfig(
          *   non-existent file; in either case a default [ToolConfig] is returned.
          * @param logger Optional logger for warnings during config loading.
          */
-        fun load(configFile: Path?, logger: RunnerLogger = NoOpRunnerLogger): ToolConfig {
+        fun load(configFile: Path?, logger: RunnerLogger): ToolConfig {
             if (configFile != null && configFile.exists()) {
                 val text = interpolateEnvVars(configFile.readText(), logger)
-                return yaml.readValue(text, ToolConfig::class.java)
+                return yaml.readValue(text, ToolConfig::class.java).copy(logger = logger)
             }
-            return ToolConfig()
+            return ToolConfig(
+                logger = logger
+            )
         }
 
-        private fun interpolateEnvVars(
-            text: String,
-            logger: RunnerLogger = NoOpRunnerLogger
-        ): String = Regex("""\$\{([^}]+)}""").replace(text) { match ->
-            val varName = match.groupValues[1]
-            val value = System.getenv(varName)
-            if (value == null) {
-                logger.warn(
-                    "Environment variable '$varName' is not set; " +
-                        "placeholder '${match.value}' left as-is in config"
-                )
+        private fun interpolateEnvVars(text: String, logger: RunnerLogger): String =
+            Regex("""\$\{([^}]+)}""").replace(text) { match ->
+                val varName = match.groupValues[1]
+                val value = System.getenv(varName)
+                if (value == null) {
+                    logger.warn(
+                        "Environment variable '$varName' is not set; " +
+                            "placeholder '${match.value}' left as-is in config"
+                    )
+                }
+                value ?: match.value
             }
-            value ?: match.value
-        }
     }
 }

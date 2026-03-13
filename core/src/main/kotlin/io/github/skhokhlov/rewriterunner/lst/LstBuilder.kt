@@ -73,15 +73,17 @@ import org.openrewrite.yaml.YamlParser
  * found anywhere in the ancestor chain, the running JVM's major version is used as fallback.
  */
 class LstBuilder(
-    private val logger: RunnerLogger = NoOpRunnerLogger,
+    private val logger: RunnerLogger,
     private val cacheDir: Path,
     private val toolConfig: ToolConfig,
-    private val buildToolStage: BuildToolStage = BuildToolStage(),
+    private val buildToolStage: BuildToolStage = BuildToolStage(logger),
     private val depResolutionStage: DependencyResolutionStage = DependencyResolutionStage(
         AetherContext.build(
-            Paths.get(System.getProperty("user.home"), ".m2", "repository"),
-            toolConfig.resolvedRepositories()
-        )
+            localRepoDir = Paths.get(System.getProperty("user.home"), ".m2", "repository"),
+            extraRepositories = toolConfig.resolvedRepositories(),
+            logger = logger
+        ),
+        logger
     )
 ) {
     /** Default set of extensions supported out of the box. */

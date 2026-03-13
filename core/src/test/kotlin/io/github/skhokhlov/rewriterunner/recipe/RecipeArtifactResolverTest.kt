@@ -53,7 +53,10 @@ class RecipeArtifactResolverTest :
 
         test("constructor succeeds with minimal arguments") {
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             assertNotNull(resolver)
         }
 
@@ -68,7 +71,12 @@ class RecipeArtifactResolverTest :
                 )
             val resolver =
                 RecipeArtifactResolver(
-                    AetherContext.build(cacheDir.resolve("repository"), extraRepositories = repos)
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        extraRepositories = repos,
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
                 )
             assertNotNull(resolver)
         }
@@ -84,7 +92,12 @@ class RecipeArtifactResolverTest :
                 )
             val resolver =
                 RecipeArtifactResolver(
-                    AetherContext.build(cacheDir.resolve("repository"), extraRepositories = repos)
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        extraRepositories = repos,
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
                 )
             assertNotNull(resolver)
         }
@@ -93,13 +106,19 @@ class RecipeArtifactResolverTest :
 
         test("resolve throws IllegalArgumentException for single-segment coordinate") {
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             assertFailsWith<IllegalArgumentException> { resolver.resolve("groupIdOnly") }
         }
 
         test("resolve throws IllegalArgumentException for empty coordinate") {
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             assertFailsWith<IllegalArgumentException> { resolver.resolve("") }
         }
 
@@ -112,7 +131,10 @@ class RecipeArtifactResolverTest :
             // rather than a bootstrap-then-createLocalRepositoryManager approach.
             // The bug manifested as: "No local repository manager or local repositories set on session"
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             val ex =
                 runCatching {
                     resolver.resolve(
@@ -184,7 +206,10 @@ class RecipeArtifactResolverTest :
                 .writeText("$pomName>central=\n$jarName>central=\n")
 
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             val result = runCatching { resolver.resolve("$groupId:$artifactId:$version") }
 
             val ex = result.exceptionOrNull()
@@ -207,7 +232,10 @@ class RecipeArtifactResolverTest :
 
         test("resolve creates repository subdirectory inside cacheDir") {
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             // Trigger lazy initialization by calling resolve (it will fail on network but
             // the local repository directory is created before the network call)
             runCatching {
@@ -262,7 +290,11 @@ class RecipeArtifactResolverTest :
             val blackHoleRepo = listOf(
                 RemoteRepository.Builder("blackhole", "default", "http://127.0.0.1:$port").build()
             )
-            val resolver = RecipeArtifactResolver(AetherContext(system, session, blackHoleRepo))
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext(system, session, blackHoleRepo),
+                    NoOpRunnerLogger
+                )
 
             val startMs = System.currentTimeMillis()
             runCatching { resolver.resolve("test:missing-artifact:1.0.0") }
@@ -352,7 +384,11 @@ class RecipeArtifactResolverTest :
             val blackHoleRepo2 = listOf(
                 RemoteRepository.Builder("blackhole", "default", "http://127.0.0.1:$port").build()
             )
-            val resolver = RecipeArtifactResolver(AetherContext(system2, session2, blackHoleRepo2))
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext(system2, session2, blackHoleRepo2),
+                    NoOpRunnerLogger
+                )
 
             // Should NOT throw — partial results (root artifact) are returned
             val paths = resolver.resolve("$rootGroupId:$rootArtifactId:$rootVersion")
@@ -374,7 +410,10 @@ class RecipeArtifactResolverTest :
             // We can't guarantee network access in all environments, so we only verify
             // the code path is entered (i.e. the call starts, may fail gracefully or succeed).
             val resolver =
-                RecipeArtifactResolver(AetherContext.build(cacheDir.resolve("repository")))
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
             val result = runCatching {
                 resolver.resolve("com.example.nonexistent:artifact-that-does-not-exist")
             }
@@ -489,7 +528,11 @@ class RecipeArtifactResolverTest :
                     fakeRemote.toUri().toString()
                 ).build()
             )
-            val resolver = RecipeArtifactResolver(AetherContext(system, session, fakeRemoteRepo))
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext(system, session, fakeRemoteRepo),
+                    NoOpRunnerLogger
+                )
 
             val paths = resolver.resolve("$rootGroupId:$rootArtifactId:$rootVersion")
             val fileNames = paths.map { it.fileName.toString() }
@@ -672,7 +715,11 @@ class RecipeArtifactResolverTest :
                     )
                         .build()
                 )
-            val resolver = RecipeArtifactResolver(AetherContext(system, session, fakeRemoteRepo))
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext(system, session, fakeRemoteRepo),
+                    NoOpRunnerLogger
+                )
 
             val paths =
                 resolver.resolveAll(

@@ -32,13 +32,13 @@ class DirectParseStageTest :
         afterEach { projectDir.toFile().deleteRecursively() }
 
         test("returns empty list when no coordinates provided") {
-            val stage = DirectParseStage(projectDir)
+            val stage = DirectParseStage(projectDir, NoOpRunnerLogger)
             val result = stage.findAvailableJars(emptyList())
             assertEquals(0, result.size)
         }
 
         test("returns empty list when no local JARs match") {
-            val stage = DirectParseStage(projectDir)
+            val stage = DirectParseStage(projectDir, NoOpRunnerLogger)
             // Use a coordinate that certainly won't be in any local cache
             val result =
                 stage.findAvailableJars(listOf("com.example.nonexistent:ultra-rare-lib:99.99.99"))
@@ -46,7 +46,7 @@ class DirectParseStageTest :
         }
 
         test("only returns paths that actually exist on disk") {
-            val stage = DirectParseStage(projectDir)
+            val stage = DirectParseStage(projectDir, NoOpRunnerLogger)
             val result =
                 stage.findAvailableJars(
                     listOf("com.example:ghost-lib:1.0", "org.phantom:unknown:2.0")
@@ -73,7 +73,7 @@ class DirectParseStageTest :
         }
 
         test("handles malformed coordinates gracefully") {
-            val stage = DirectParseStage(projectDir)
+            val stage = DirectParseStage(projectDir, NoOpRunnerLogger)
             // Coordinates with fewer than 3 parts should be silently skipped
             val result = stage.findAvailableJars(listOf("com.example:lib", "groupOnly"))
             assertEquals(
@@ -84,7 +84,7 @@ class DirectParseStageTest :
         }
 
         test("ignores coordinates with empty segments") {
-            val stage = DirectParseStage(projectDir)
+            val stage = DirectParseStage(projectDir, NoOpRunnerLogger)
             // Coordinates that have the right number of colons but blank fields
             // (e.g. a typo like "com.example::1.0") must be rejected, not silently
             // passed through as Coord("com.example", "", "1.0") which produces a
@@ -133,7 +133,7 @@ class DirectParseStageTest :
         }
 
         test("result list contains no duplicates") {
-            val stage = DirectParseStage(projectDir)
+            val stage = DirectParseStage(projectDir, NoOpRunnerLogger)
             // Even if two coordinates could hypothetically resolve to the same JAR, no duplicates
             val result =
                 stage.findAvailableJars(listOf("com.example:lib:1.0", "com.example:lib:1.0"))
@@ -148,7 +148,7 @@ class DirectParseStageTest :
         test("commonly cached JARs are found when present in local m2") {
             // This test verifies Stage 3 works for real — if commons-lang3 happens to be in
             // the local Maven cache (which is likely on a developer machine), it should be found.
-            val stage = DirectParseStage(projectDir)
+            val stage = DirectParseStage(projectDir, NoOpRunnerLogger)
             val result =
                 stage.findAvailableJars(listOf("org.apache.commons:commons-lang3:3.12.0"))
 
@@ -171,7 +171,7 @@ class DirectParseStageTest :
             val jar = artifactDir.resolve("$artifact-$version.jar").toFile()
                 .also { it.writeBytes(ByteArray(0)) }
 
-            val result = DirectParseStage(projectDir)
+            val result = DirectParseStage(projectDir, NoOpRunnerLogger)
                 .findAvailableJars(listOf("$group:$artifact:$version"))
 
             assertTrue(result.any { it == jar.toPath() }, "Should find JAR in projectDir/.m2")
@@ -188,7 +188,7 @@ class DirectParseStageTest :
             val jar = artifactDir.resolve("$artifact-$version.jar").toFile()
                 .also { it.writeBytes(ByteArray(0)) }
 
-            val result = DirectParseStage(projectDir)
+            val result = DirectParseStage(projectDir, NoOpRunnerLogger)
                 .findAvailableJars(listOf("$group:$artifact:$version"))
 
             assertTrue(
@@ -211,7 +211,7 @@ class DirectParseStageTest :
             val localJar = localDir.resolve("$artifact-$version.jar").toFile()
                 .also { it.writeBytes(ByteArray(0)) }
 
-            val result = DirectParseStage(projectDir)
+            val result = DirectParseStage(projectDir, NoOpRunnerLogger)
                 .findAvailableJars(listOf("$group:$artifact:$version"))
 
             assertTrue(result.any { it == localJar.toPath() }, "Project-local JAR should be found")

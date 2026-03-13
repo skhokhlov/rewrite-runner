@@ -24,7 +24,7 @@ import org.openrewrite.config.YamlResourceLoader
  * styles, and categories. The [load] method returns the activated [org.openrewrite.Recipe]
  * ready for execution by [RecipeRunner].
  */
-class RecipeLoader(val logger: RunnerLogger = NoOpRunnerLogger) {
+class RecipeLoader(val logger: RunnerLogger) {
     /**
      * Build an OpenRewrite [Environment] from the given recipe JARs and optional rewrite.yaml.
      * Returns the activated [Recipe] ready for execution.

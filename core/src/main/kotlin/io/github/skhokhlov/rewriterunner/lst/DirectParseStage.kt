@@ -48,7 +48,7 @@ import kotlin.io.path.name
  * @param projectDir Root directory of the project, used to locate project-local
  *   cache roots (`.m2/repository`, `.gradle/caches`).
  */
-class DirectParseStage(private val projectDir: Path, val logger: RunnerLogger = NoOpRunnerLogger) {
+class DirectParseStage(private val projectDir: Path, val logger: RunnerLogger) {
     private val m2Roots: List<Path> = listOf(
         Paths.get(System.getProperty("user.home"), ".m2", "repository"),
         projectDir.resolve(".m2").resolve("repository")

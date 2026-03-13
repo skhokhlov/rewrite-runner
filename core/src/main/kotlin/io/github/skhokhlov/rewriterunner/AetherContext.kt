@@ -76,7 +76,7 @@ class AetherContext(
             downloadThreads: Int = 5,
             excludeScopesFromGraph: Collection<String> = emptyList(),
             includeMavenCentral: Boolean = true,
-            logger: RunnerLogger = NoOpRunnerLogger
+            logger: RunnerLogger
         ): AetherContext {
             val system = RepositorySystemSupplier().get()
             localRepoDir.toFile().mkdirs()
