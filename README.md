@@ -212,6 +212,7 @@ Library consumers that only need to inspect changes programmatically can skip `R
 | `includeExtensions(List<String>)` | optional | all supported | File extensions to parse; overrides config file setting |
 | `excludeExtensions(List<String>)` | optional | — | File extensions to skip; overrides config file setting |
 | `excludePaths(List<String>)` | optional | — | Glob patterns (relative to project root) for paths to skip during parsing; overrides `parse.excludePaths` from config file |
+| `downloadThreads(Int)` | optional | `5` | Number of parallel artifact download threads. Increase for fast networks; decrease in resource-constrained environments. |
 | `includeMavenCentral(Boolean)` | optional | `true` | Include Maven Central as a resolution repository. Set to `false` for air-gapped or enterprise environments. |
 | `repository(RepositoryConfig)` | optional (repeatable) | — | Add one extra Maven repository for artifact resolution; combined with repositories from config file |
 | `repositories(List<RepositoryConfig>)` | optional | — | Set all extra Maven repositories at once; combined with repositories from config file |
@@ -307,6 +308,7 @@ val result = RewriteRunner.builder()
 Usage: rewrite-runner [-h] [--dry-run] [--info] [--debug] [--no-maven-central]
                           [--active-recipe=<recipe>]
                           [--cache-dir=<path>] [--config=<path>]
+                          [--download-threads=<n>]
                           [--output=<mode>] [--project-dir=<path>]
                           [--rewrite-config=<path>]
                           [--exclude-extensions=<ext>[,<ext>...]]
@@ -324,6 +326,7 @@ Usage: rewrite-runner [-h] [--dry-run] [--info] [--debug] [--no-maven-central]
 | `--cache-dir` | Cache root for downloaded recipe JARs (stored under `<path>/repository`). Project dependencies always resolve from `~/.m2/repository`. | `~/.rewriterunner/cache` |
 | `--config` | Path to tool config file (`rewriterunner.yml`) | `<project-dir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` |
 | `--dry-run` | Run recipe but do not write changes to disk | `false` |
+| `--download-threads` | Number of parallel artifact download threads | `5` |
 | `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
 | `--exclude-extensions` | Comma-separated file extensions to skip | — |
 | `--no-maven-central` | Disable Maven Central; use only repositories from the config file | `false` |
@@ -377,7 +380,9 @@ Specify recipe JARs using Maven coordinates. The `--recipe-artifact` flag can be
 
 `LATEST` resolves to the most recent release. Specific versions (e.g. `2.21.0`) are also accepted.
 
-Downloaded recipe JARs are cached under `~/.rewriterunner/cache/repository` (or `--cache-dir`/repository) and reused on subsequent runs. They are stored separately from the project's own dependencies, which always resolve from `~/.m2/repository`.
+Downloaded recipe JARs are cached under `~/.rewriterunner/cache/repository` (or `--cache-dir/repository`) and reused on subsequent runs. They are stored separately from the project's own dependencies, which always resolve from `~/.m2/repository`.
+
+Only compile/runtime JARs are downloaded for recipe artifacts — test-scoped and provided-scoped transitive dependencies of recipes are skipped.
 
 ## Custom Recipe Compositions
 
@@ -422,6 +427,8 @@ repositories:
 
 cacheDir: ~/.rewriterunner/cache
 
+downloadThreads: 5   # parallel artifact download threads (default: 5)
+
 parse:
   includeExtensions: [".java", ".kt", ".xml"]
   excludeExtensions: [".properties"]
@@ -445,10 +452,12 @@ If successful, the resulting JAR list is passed to `JavaParser` for full type at
 
 ### Stage 2 — Direct dependency resolution
 If Stage 1 fails (broken build, no wrapper, timeout), the tool resolves dependencies without running the full build:
-- **Maven**: parses `pom.xml` using `maven-model`; resolves JARs via Maven Resolver (Aether)
-- **Gradle**: runs `gradle dependencies` for the root project **and all declared subprojects** (discovered from `settings.gradle` / `settings.gradle.kts`), parsing the resolved dependency tree to get accurately resolved versions; falls back to best-effort static regex parsing of `build.gradle` / `build.gradle.kts` if Gradle cannot be invoked
+- **Maven**: parses `pom.xml` using `maven-model`. All scopes except `provided` and `system` are included — test-scoped dependencies (JUnit, Mockito, etc.) are resolved so that test source files can be fully type-attributed.
+- **Gradle**: runs `gradle dependencies` for the root project **and all declared subprojects** (discovered from `settings.gradle` / `settings.gradle.kts`), parsing the resolved dependency tree to get accurately resolved versions; falls back to best-effort static regex parsing of `build.gradle` / `build.gradle.kts` if Gradle cannot be invoked.
 
 > **Note:** The `gradle dependencies` task only reports dependencies for the project it is applied to. Subprojects are queried explicitly (`:sub:dependencies`) so that multi-module builds are fully covered.
+
+**Direct deps only, no POM traversal.** Stage 2 downloads JARs only for the dependencies explicitly declared in the build file — it does not traverse transitive dependency graphs or fetch transitive POM files. This avoids hundreds of extra HTTP requests on a cold run. Missing transitive types appear as `JavaType.Unknown`, which OpenRewrite handles gracefully. Stage 3 supplements the classpath with any transitives already present in local caches from previous builds.
 
 Resolved JARs are cached in `~/.m2/repository` (Maven default), so artifacts already downloaded by the project's own build are reused without re-downloading. Extra repositories from the tool config are also consulted.
 
