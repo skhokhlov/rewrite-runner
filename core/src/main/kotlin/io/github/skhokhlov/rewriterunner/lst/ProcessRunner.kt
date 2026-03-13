@@ -10,8 +10,8 @@ import kotlin.io.path.exists
  * Runs an external process in [workDir] and waits up to [timeoutSeconds] for it to finish.
  *
  * When [captureStdout] is non-null the child's stdout is appended to it; stderr is discarded.
- * When [captureStdout] is null both stdout and stderr are discarded so the child can always
- * write without blocking, regardless of how much it produces (prevents OS pipe-buffer deadlock).
+ * When [captureStdout] is null both stdout and stderr are drained on background threads and
+ * logged at DEBUG level (visible with `--debug`), preventing OS pipe-buffer deadlock.
  *
  * @return The process exit code, or `null` if the process could not be started or timed out.
  */
@@ -27,14 +27,10 @@ internal fun runProcess(
     if (captureStdout != null) {
         // Capture stdout; discard stderr so it never fills and blocks the child.
         pb.redirectError(ProcessBuilder.Redirect.DISCARD)
-    } else {
-        // Output not needed — redirect both streams to DISCARD so the child process
-        // can always write without blocking, regardless of how much it produces.
-        // Previously redirectErrorStream(true) merged the streams but left the merged
-        // pipe unread, causing a deadlock once output exceeded the OS pipe buffer (~64 KB).
-        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
-        pb.redirectError(ProcessBuilder.Redirect.DISCARD)
     }
+    // When captureStdout is null we leave both streams as pipes so we can drain them
+    // (either to logger.debug or /dev/null via background threads) — prevents OS
+    // pipe-buffer deadlock (~64 KB limit) that occurred with redirectErrorStream(true).
 
     val process =
         try {
@@ -47,6 +43,20 @@ internal fun runProcess(
     if (captureStdout != null) {
         // Read all stdout before waitFor so the stdout pipe never fills up.
         captureStdout.append(process.inputStream.bufferedReader().readText())
+    } else {
+        // Drain stdout and stderr on background threads to prevent pipe-buffer deadlock.
+        // Log each line at DEBUG so Maven/Gradle output is visible with --debug.
+        val prefix = command.first().substringAfterLast('/')
+        fun drainStream(stream: java.io.InputStream, tag: String) = Thread(null, {
+            stream.bufferedReader().forEachLine { logger.debug("[$prefix $tag] $it") }
+        }, "process-drain-$tag").apply {
+            isDaemon = true
+            start()
+        }
+        val stdoutThread = drainStream(process.inputStream, "stdout")
+        val stderrThread = drainStream(process.errorStream, "stderr")
+        stdoutThread.join()
+        stderrThread.join()
     }
 
     val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
@@ -59,9 +69,11 @@ internal fun runProcess(
     return process.exitValue()
 }
 
-/** Returns `true` when [dir] contains a `build.gradle` or `build.gradle.kts` file. */
+/** Returns `true` when [dir] contains a `build.gradle` or `build.gradle.kts` or `settings.gradle` or `settings.gradle.kts` file. */
 internal fun hasBuildGradle(dir: Path): Boolean =
-    dir.resolve("build.gradle").exists() || dir.resolve("build.gradle.kts").exists()
+    dir.resolve("build.gradle").exists() || dir.resolve("build.gradle.kts").exists() ||
+        dir.resolve("settings.gradle").exists() ||
+        dir.resolve("settings.gradle.kts").exists()
 
 /**
  * Returns the Gradle executable to use for [projectDir]:
