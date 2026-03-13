@@ -74,16 +74,17 @@ open class BuildToolStage(protected val logger: RunnerLogger = NoOpRunnerLogger)
         val outputFile = Files.createTempFile("openrewrite-cp-", ".txt")
         try {
             val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
-            logger.info("Stage 1: running '$mvnCmd dependency:build-classpath'")
+            val mvnCommand = listOf(
+                mvnCmd,
+                "dependency:build-classpath",
+                "-q",
+                "-DincludeScope=test",
+                "-Dmdep.outputFile=${outputFile.toAbsolutePath()}"
+            )
+            logger.debug("Stage 1: running ${mvnCommand.joinToString(" ")}")
             val result = runProcess(
                 projectDir,
-                listOf(
-                    mvnCmd,
-                    "dependency:build-classpath",
-                    "-q",
-                    "-DincludeScope=test",
-                    "-Dmdep.outputFile=${outputFile.toAbsolutePath()}"
-                ),
+                mvnCommand,
                 logger = logger
             ) ?: return null
 
@@ -120,17 +121,18 @@ open class BuildToolStage(protected val logger: RunnerLogger = NoOpRunnerLogger)
             initScript.toFile().writeText(GRADLE_INIT_SCRIPT)
 
             val gradleCmd = resolveGradleCommand(projectDir)
-            logger.info("Stage 1: running '$gradleCmd printClasspathForOpenRewrite'")
+            val gradleCommand = listOf(
+                gradleCmd,
+                "-q",
+                "printClasspathForOpenRewrite",
+                "--init-script",
+                initScript.toAbsolutePath().toString()
+            )
+            logger.debug("Stage 1: running ${gradleCommand.joinToString(" ")}")
             val output = StringBuilder()
             val result = runProcess(
                 projectDir,
-                listOf(
-                    gradleCmd,
-                    "-q",
-                    "printClasspathForOpenRewrite",
-                    "--init-script",
-                    initScript.toAbsolutePath().toString()
-                ),
+                gradleCommand,
                 captureStdout = output,
                 logger = logger
             ) ?: return null
