@@ -238,6 +238,157 @@ class JavaProjectIntegrationTest :
             )
         }
 
+        // ─── Stage 1 (build tool) verification ───────────────────────────────────
+
+        test("Gradle project with gradlew — Stage 1 wrapper invoked and recipe succeeds") {
+            val fakeJar = Files.createTempFile("fake-dep-", ".jar")
+            val sentinel = Files.createTempFile("gradlew-invoked-", ".flag")
+            sentinel.toFile().delete() // start absent; wrapper will create it
+            try {
+                projectDir.resolve("build.gradle.kts").writeText("""plugins { id("java") }""")
+                projectDir.resolve("Hello.java").writeText(unformattedClass)
+
+                // Fake gradlew: touches a sentinel file (proving Stage 1 invoked it),
+                // then prints a real file path so Stage 1 returns a non-empty classpath.
+                val gradlew = projectDir.resolve("gradlew").toFile()
+                gradlew.writeText(
+                    """
+                    #!/bin/sh
+                    touch "${sentinel.toAbsolutePath()}"
+                    echo "${fakeJar.toAbsolutePath()}"
+                    exit 0
+                    """.trimIndent()
+                )
+                gradlew.setExecutable(true)
+
+                val result = runCli(
+                    "--project-dir", projectDir.toString(),
+                    "--active-recipe", "org.openrewrite.java.format.AutoFormat",
+                    "--cache-dir", cacheDir.toString(),
+                    "--include-extensions", ".java",
+                    "--dry-run"
+                )
+
+                assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
+                assertTrue(result.stdout.contains("---"), "Expected diff output:\n${result.stdout}")
+                assertTrue(
+                    sentinel.toFile().exists(),
+                    "Stage 1 must invoke gradlew wrapper (sentinel file not created)"
+                )
+            } finally {
+                fakeJar.toFile().delete()
+                sentinel.toFile().delete()
+            }
+        }
+
+        test("Maven project with mvnw — Stage 1 wrapper invoked and recipe succeeds") {
+            val fakeJar = Files.createTempFile("fake-dep-", ".jar")
+            val sentinel = Files.createTempFile("mvnw-invoked-", ".flag")
+            sentinel.toFile().delete() // start absent; wrapper will create it
+            try {
+                projectDir.resolve("pom.xml").writeText(
+                    """
+                    <project>
+                      <modelVersion>4.0.0</modelVersion>
+                      <groupId>com.example</groupId>
+                      <artifactId>hello</artifactId>
+                      <version>1.0</version>
+                    </project>
+                    """.trimIndent()
+                )
+                projectDir.resolve("Hello.java").writeText(unformattedClass)
+
+                // Fake mvnw: touches a sentinel file (proving Stage 1 invoked it),
+                // then writes a real file path to the -Dmdep.outputFile argument.
+                val mvnw = projectDir.resolve("mvnw").toFile()
+                mvnw.writeText(
+                    """
+                    #!/bin/sh
+                    touch "${sentinel.toAbsolutePath()}"
+                    for arg in "${'$'}@"; do
+                        case "${'$'}arg" in
+                            -Dmdep.outputFile=*)
+                                echo "${fakeJar.toAbsolutePath()}" > "${'$'}{arg#-Dmdep.outputFile=}"
+                                ;;
+                        esac
+                    done
+                    exit 0
+                    """.trimIndent()
+                )
+                mvnw.setExecutable(true)
+
+                val result = runCli(
+                    "--project-dir", projectDir.toString(),
+                    "--active-recipe", "org.openrewrite.java.format.AutoFormat",
+                    "--cache-dir", cacheDir.toString(),
+                    "--include-extensions", ".java",
+                    "--dry-run"
+                )
+
+                assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
+                assertTrue(result.stdout.contains("---"), "Expected diff output:\n${result.stdout}")
+                assertTrue(
+                    sentinel.toFile().exists(),
+                    "Stage 1 must invoke mvnw wrapper (sentinel file not created)"
+                )
+            } finally {
+                fakeJar.toFile().delete()
+                sentinel.toFile().delete()
+            }
+        }
+
+        test("Gradle project — Stage 1 failure falls through and recipe still succeeds") {
+            projectDir.resolve("build.gradle.kts").writeText("""plugins { id("java") }""")
+            projectDir.resolve("Hello.java").writeText(unformattedClass)
+
+            // Fake gradlew exits non-zero → Stage 1 returns null → pipeline falls through
+            val gradlew = projectDir.resolve("gradlew").toFile()
+            gradlew.writeText("#!/bin/sh\nexit 1\n")
+            gradlew.setExecutable(true)
+
+            val result = runCli(
+                "--project-dir", projectDir.toString(),
+                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
+                "--cache-dir", cacheDir.toString(),
+                "--include-extensions", ".java",
+                "--dry-run"
+            )
+
+            // Even when Stage 1 fails the pipeline must continue and produce output
+            assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
+            assertTrue(result.stdout.contains("---"), "Expected diff output:\n${result.stdout}")
+        }
+
+        test("Maven project — Stage 1 failure falls through and recipe still succeeds") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>hello</artifactId>
+                  <version>1.0</version>
+                </project>
+                """.trimIndent()
+            )
+            projectDir.resolve("Hello.java").writeText(unformattedClass)
+
+            // Fake mvnw exits non-zero → Stage 1 returns null → pipeline falls through
+            val mvnw = projectDir.resolve("mvnw").toFile()
+            mvnw.writeText("#!/bin/sh\nexit 1\n")
+            mvnw.setExecutable(true)
+
+            val result = runCli(
+                "--project-dir", projectDir.toString(),
+                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
+                "--cache-dir", cacheDir.toString(),
+                "--include-extensions", ".java",
+                "--dry-run"
+            )
+
+            assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
+            assertTrue(result.stdout.contains("---"), "Expected diff output:\n${result.stdout}")
+        }
+
         test("extension filter limits processing to java files only") {
             projectDir.resolve("Hello.java").writeText(unformattedClass)
             projectDir.resolve("ignored.txt").writeText("this is plain text")

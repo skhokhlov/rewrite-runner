@@ -249,6 +249,53 @@ class DependencyResolutionStageTest :
             assertEquals(0, coords.size)
         }
 
+        test("parseGradleDependenciesStatically scans subproject build files") {
+            // Root settings declares two subprojects
+            projectDir.resolve("settings.gradle.kts").writeText(
+                """
+                include(":core", ":api")
+                """.trimIndent()
+            )
+            projectDir.resolve("build.gradle.kts").writeText(
+                """
+                dependencies {
+                    implementation("com.google.guava:guava:32.1.2-jre")
+                }
+                """.trimIndent()
+            )
+            val coreDir = projectDir.resolve("core").toFile().also { it.mkdirs() }
+            coreDir.toPath().resolve("build.gradle.kts").writeText(
+                """
+                dependencies {
+                    implementation("org.apache.commons:commons-lang3:3.12.0")
+                }
+                """.trimIndent()
+            )
+            val apiDir = projectDir.resolve("api").toFile().also { it.mkdirs() }
+            apiDir.toPath().resolve("build.gradle").writeText(
+                """
+                dependencies {
+                    implementation 'org.slf4j:slf4j-api:2.0.0'
+                }
+                """.trimIndent()
+            )
+
+            val coords = stage().parseGradleDependenciesStatically(projectDir)
+
+            assertTrue(
+                coords.contains("com.google.guava:guava:32.1.2-jre"),
+                "Root project dependency should be found"
+            )
+            assertTrue(
+                coords.contains("org.apache.commons:commons-lang3:3.12.0"),
+                ":core subproject dependency should be found"
+            )
+            assertTrue(
+                coords.contains("org.slf4j:slf4j-api:2.0.0"),
+                ":api subproject dependency should be found"
+            )
+        }
+
         test("parseGradleDependenciesStatically deduplicates identical coordinates") {
             projectDir.resolve("build.gradle.kts").writeText(
                 """
@@ -459,6 +506,149 @@ class DependencyResolutionStageTest :
         test("discoverSubprojects returns empty list when no settings file") {
             val subs = stage().discoverSubprojects(projectDir)
             assertEquals(0, subs.size)
+        }
+
+        // ─── Version catalog parsing ──────────────────────────────────────────────
+
+        test("parseCatalogLibraryEntry resolves module + version.ref") {
+            val versions = mapOf("guava" to "32.1.2-jre")
+            val line = """guava = { module = "com.google.guava:guava", version.ref = "guava" }"""
+            assertEquals(
+                "com.google.guava:guava:32.1.2-jre",
+                stage().parseCatalogLibraryEntry(line, versions)
+            )
+        }
+
+        test("parseCatalogLibraryEntry resolves module + inline version") {
+            val line = """logback = { module = "ch.qos.logback:logback-classic", version = "1.4.11" }"""
+            assertEquals(
+                "ch.qos.logback:logback-classic:1.4.11",
+                stage().parseCatalogLibraryEntry(line, emptyMap())
+            )
+        }
+
+        test("parseCatalogLibraryEntry resolves group+name + version.ref") {
+            val versions = mapOf("spring" to "6.1.0")
+            val line = """spring-core = { group = "org.springframework", name = "spring-core", version.ref = "spring" }"""
+            assertEquals(
+                "org.springframework:spring-core:6.1.0",
+                stage().parseCatalogLibraryEntry(line, versions)
+            )
+        }
+
+        test("parseCatalogLibraryEntry resolves group+name + inline version") {
+            val line = """spring-web = { group = "org.springframework", name = "spring-web", version = "6.1.0" }"""
+            assertEquals(
+                "org.springframework:spring-web:6.1.0",
+                stage().parseCatalogLibraryEntry(line, emptyMap())
+            )
+        }
+
+        test("parseCatalogLibraryEntry resolves string literal form") {
+            val line = """utils = "com.example:utils:1.0.0""""
+            assertEquals(
+                "com.example:utils:1.0.0",
+                stage().parseCatalogLibraryEntry(line, emptyMap())
+            )
+        }
+
+        test("parseCatalogLibraryEntry returns null when version.ref has no mapping") {
+            val line = """lib = { module = "com.example:lib", version.ref = "missing" }"""
+            assertFalse(
+                stage().parseCatalogLibraryEntry(line, emptyMap()) != null,
+                "Unknown version.ref should yield null"
+            )
+        }
+
+        test("parseCatalogLibraryEntry returns null when no version present") {
+            val line = """lib = { module = "com.example:lib" }"""
+            assertEquals(null, stage().parseCatalogLibraryEntry(line, emptyMap()))
+        }
+
+        test("parseVersionCatalogs reads libs.versions.toml and resolves all library forms") {
+            val gradleDir = projectDir.resolve("gradle").toFile().also { it.mkdirs() }
+            gradleDir.resolve("libs.versions.toml").writeText(
+                """
+                [versions]
+                guava = "32.1.2-jre"
+                spring = "6.1.0"
+
+                [libraries]
+                # module + version.ref
+                guava = { module = "com.google.guava:guava", version.ref = "guava" }
+                # module + inline version
+                logback = { module = "ch.qos.logback:logback-classic", version = "1.4.11" }
+                # group + name + version.ref
+                spring-core = { group = "org.springframework", name = "spring-core", version.ref = "spring" }
+                # string literal
+                commons = "org.apache.commons:commons-lang3:3.12.0"
+
+                [bundles]
+                web = ["guava", "spring-core"]
+                """.trimIndent()
+            )
+
+            val coords = stage().parseVersionCatalogs(projectDir)
+
+            assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"))
+            assertTrue(coords.contains("ch.qos.logback:logback-classic:1.4.11"))
+            assertTrue(coords.contains("org.springframework:spring-core:6.1.0"))
+            assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
+        }
+
+        test("parseVersionCatalogs returns empty when no gradle/ directory") {
+            assertEquals(emptyList(), stage().parseVersionCatalogs(projectDir))
+        }
+
+        test("parseVersionCatalogs ignores comments and blank lines") {
+            val gradleDir = projectDir.resolve("gradle").toFile().also { it.mkdirs() }
+            gradleDir.resolve("libs.versions.toml").writeText(
+                """
+                # top comment
+                [versions]
+                # version comment
+                guava = "32.1.2-jre"
+
+                [libraries]
+                # library comment
+                guava = { module = "com.google.guava:guava", version.ref = "guava" }
+                """.trimIndent()
+            )
+
+            val coords = stage().parseVersionCatalogs(projectDir)
+            assertEquals(listOf("com.google.guava:guava:32.1.2-jre"), coords)
+        }
+
+        test("parseGradleDependenciesStatically includes version catalog coordinates") {
+            projectDir.resolve("build.gradle.kts").writeText(
+                """
+                dependencies {
+                    implementation(libs.guava)
+                    implementation("org.apache.commons:commons-lang3:3.12.0")
+                }
+                """.trimIndent()
+            )
+            val gradleDir = projectDir.resolve("gradle").toFile().also { it.mkdirs() }
+            gradleDir.resolve("libs.versions.toml").writeText(
+                """
+                [versions]
+                guava = "32.1.2-jre"
+
+                [libraries]
+                guava = { module = "com.google.guava:guava", version.ref = "guava" }
+                """.trimIndent()
+            )
+
+            val coords = stage().parseGradleDependenciesStatically(projectDir)
+
+            assertTrue(
+                coords.contains("com.google.guava:guava:32.1.2-jre"),
+                "Catalog-resolved dependency should be present"
+            )
+            assertTrue(
+                coords.contains("org.apache.commons:commons-lang3:3.12.0"),
+                "Literal dependency should still be present"
+            )
         }
 
         // ─── Maven Resolver session configuration ─────────────────────────────────

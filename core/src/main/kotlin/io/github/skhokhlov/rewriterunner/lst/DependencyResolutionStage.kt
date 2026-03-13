@@ -9,6 +9,7 @@ import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.collection.CollectRequest
 import org.eclipse.aether.graph.Dependency
+import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.resolution.ArtifactRequest
 import org.eclipse.aether.resolution.ArtifactResolutionException
 import org.eclipse.aether.resolution.DependencyRequest
@@ -99,14 +100,20 @@ open class DependencyResolutionStage(
      */
     open fun resolveClasspath(projectDir: Path): List<Path> {
         val resolved: ResolvedCoords = when {
-            projectDir.resolve("pom.xml").exists() ->
+            projectDir.resolve("pom.xml").exists() -> {
+                logger.debug("Stage 2: Maven project detected — parsing pom.xml")
                 ResolvedCoords.Declared(parseMavenDependencies(projectDir))
+            }
 
             hasBuildGradle(projectDir) -> {
+                logger.debug("Stage 2: Gradle project detected — running dependencies task")
                 val fromTask = runGradleDependenciesTask(projectDir)
                 if (fromTask != null) {
                     ResolvedCoords.Full(fromTask)
                 } else {
+                    logger.debug(
+                        "Stage 2: falling back to static Gradle build-file parsing"
+                    )
                     ResolvedCoords.Declared(parseGradleDependenciesStatically(projectDir))
                 }
             }
@@ -227,6 +234,10 @@ open class DependencyResolutionStage(
     protected open fun runGradleDependenciesTask(projectDir: Path): List<String>? {
         val gradleCmd = resolveGradleCommand(projectDir)
         val subprojects = discoverSubprojects(projectDir)
+        logger.debug(
+            "Stage 2: discovered ${subprojects.size} subproject(s): " +
+                subprojects.joinToString(", ").ifEmpty { "(none)" }
+        )
         // Build task list: root 'dependencies' + ':sub:dependencies' for each subproject.
         // The `gradle dependencies` task only covers the project it is applied to, so
         // subprojects must be queried explicitly.
@@ -321,56 +332,180 @@ open class DependencyResolutionStage(
     }
 
     /**
-     * Best-effort static regex parse of `build.gradle` / `build.gradle.kts`.
+     * Best-effort static regex parse of `build.gradle` / `build.gradle.kts` files for
+     * the root project and all declared subprojects, combined with coordinates from any
+     * Gradle version catalog files found under `gradle/\*.versions.toml`.
      *
      * Used as a fallback when [runGradleDependenciesTask] cannot be invoked (no Gradle
-     * wrapper, non-zero exit, or no output). Extracts coordinates using two patterns:
+     * wrapper, non-zero exit, or no output). Extracts coordinates using:
      * - Quoted `"group:artifact:version"` strings (Groovy and Kotlin DSL notation).
      * - Three-argument form: `implementation("group", "artifact", "version")`.
+     * - Version catalog entries in `gradle/\*.versions.toml` (resolves `version.ref` aliases).
      *
-     * **Limitations:** Static parsing cannot evaluate version catalog references
-     * (`libs.spring.core`), BOM-managed versions, or dynamically computed version strings.
-     * Those dependencies will be absent from the returned list, and their types will appear
-     * as `JavaType.Unknown` in the LST unless they were already present in local caches
-     * (picked up later by [DirectParseStage]).
+     * **Limitations:** Dynamic expressions (computed version strings, BOM-managed versions
+     * not declared in a catalog) will be absent. Those types appear as `JavaType.Unknown`
+     * in the LST unless Stage 3 picks them up from local caches.
      *
-     * @return Deduplicated list of `groupId:artifactId:version` coordinates found in the
-     *   root build file. Returns an empty list if no build file exists or parsing fails.
+     * @return Deduplicated list of `groupId:artifactId:version` coordinates found across
+     *   all build files and version catalogs. Returns an empty list if nothing is found.
      */
     internal fun parseGradleDependenciesStatically(projectDir: Path): List<String> {
-        val buildFile =
-            projectDir.resolve("build.gradle.kts").takeIf { it.exists() }
-                ?: projectDir.resolve("build.gradle").takeIf { it.exists() }
-                ?: return emptyList()
+        // Collect build files: root + each subproject (":mod" → "mod/build.gradle(.kts)").
+        val subprojectDirs = discoverSubprojects(projectDir).map { subprojectPath ->
+            // Convert Gradle project path ":mod" or ":a:b" to a filesystem path "mod" / "a/b".
+            projectDir.resolve(subprojectPath.trimStart(':').replace(':', '/'))
+        }
+        val buildDirs = listOf(projectDir) + subprojectDirs
 
-        return try {
-            val text = buildFile.toFile().readText()
-            val coordinates = mutableListOf<String>()
+        val coordPattern = Regex("""["']([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+:[\w.\-]+)["']""")
+        val threeArgPattern = Regex(
+            """(?:implementation|api|compileOnly|runtimeOnly)\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)"""
+        )
 
-            // Match quoted strings like "group:artifact:version"
-            val coordPattern = Regex("""["']([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+:[\w.\-]+)["']""")
-            coordPattern.findAll(text).forEach { match ->
-                val coord = match.groupValues[1]
-                // Skip BOM / platform entries
-                if (!coord.contains("bom") && !coord.contains("platform")) {
-                    coordinates.add(coord)
+        val coordinates = mutableListOf<String>()
+        for (dir in buildDirs) {
+            val buildFile = dir.resolve("build.gradle.kts").takeIf { it.exists() }
+                ?: dir.resolve("build.gradle").takeIf { it.exists() }
+                ?: continue
+            logger.debug("Stage 2: statically parsing ${buildFile.toAbsolutePath()}")
+            try {
+                val text = buildFile.toFile().readText()
+                coordPattern.findAll(text).forEach { match ->
+                    val coord = match.groupValues[1]
+                    if (!coord.contains("bom") && !coord.contains("platform")) {
+                        coordinates.add(coord)
+                    }
+                }
+                threeArgPattern.findAll(text).forEach { match ->
+                    coordinates.add(
+                        "${match.groupValues[1]}:${match.groupValues[2]}:${match.groupValues[3]}"
+                    )
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to parse Gradle build file ${buildFile.fileName}: ${e.message}")
+            }
+        }
+
+        coordinates += parseVersionCatalogs(projectDir)
+
+        return coordinates.distinct().also {
+            logger.debug(
+                "Stage 2: static parsing found ${it.size} unique coordinate(s) across " +
+                    "${buildDirs.size} build file(s) + version catalog(s)"
+            )
+        }
+    }
+
+    // ─── Version catalog parsing ───────────────────────────────────────────────
+
+    /**
+     * Parses all `*.versions.toml` files under `<projectDir>/gradle/` and returns
+     * fully-resolved `groupId:artifactId:version` coordinates from the `[libraries]`
+     * section.
+     *
+     * The Gradle version catalog format defines three library entry styles:
+     * 1. `alias = { module = "group:artifact", version.ref = "versionAlias" }`
+     * 2. `alias = { module = "group:artifact", version = "1.0" }`
+     * 3. `alias = { group = "com.example", name = "lib", version[.ref] = "..." }`
+     * 4. `alias = "group:artifact:version"` (string literal form)
+     *
+     * `version.ref` entries are resolved against the `[versions]` section of the same
+     * catalog file. Entries without a resolvable version (e.g. BOM-managed, `required`
+     * rich constraints) are silently skipped — their types may appear as
+     * `JavaType.Unknown` unless Stage 3 finds the JARs in local caches.
+     *
+     * @return Deduplicated list of resolved coordinates across all catalog files.
+     *   Returns an empty list if no `gradle/` directory or no `.versions.toml` files exist.
+     */
+    internal fun parseVersionCatalogs(projectDir: Path): List<String> {
+        val gradleDir = projectDir.resolve("gradle")
+        if (!gradleDir.exists()) return emptyList()
+
+        val catalogFiles = gradleDir.toFile()
+            .listFiles { f -> f.isFile && f.name.endsWith(".versions.toml") }
+            ?.toList()
+            ?: return emptyList()
+
+        val coordinates = mutableListOf<String>()
+        for (catalogFile in catalogFiles) {
+            logger.debug("Stage 2: parsing version catalog ${catalogFile.absolutePath}")
+            try {
+                coordinates += parseCatalogFile(catalogFile.toPath())
+            } catch (e: Exception) {
+                logger.warn("Failed to parse version catalog ${catalogFile.name}: ${e.message}")
+            }
+        }
+        return coordinates.distinct()
+    }
+
+    private fun parseCatalogFile(file: Path): List<String> {
+        val versions = mutableMapOf<String, String>()
+        val coordinates = mutableListOf<String>()
+        var section = ""
+
+        for (rawLine in file.toFile().readLines()) {
+            val line = rawLine.trim()
+            if (line.isEmpty() || line.startsWith("#")) continue
+
+            // Section header: [versions], [libraries], [bundles], [plugins]
+            if (line.startsWith("[")) {
+                section = Regex("""\[(\w+)]""").find(line)?.groupValues?.get(1) ?: ""
+                continue
+            }
+
+            when (section) {
+                "versions" -> {
+                    // Simple string form only: guava = "32.1.2-jre"
+                    // Rich constraint forms ({ require = "..." }) are skipped.
+                    val m = Regex("""^([\w.\-]+)\s*=\s*"([^"]+)""").find(line) ?: continue
+                    versions[m.groupValues[1]] = m.groupValues[2]
+                }
+                "libraries" -> {
+                    parseCatalogLibraryEntry(line, versions)?.let { coordinates += it }
                 }
             }
-
-            // Match Kotlin DSL form: implementation("group", "artifact", "version")
-            val threeArgPattern = Regex(
-                """(?:implementation|api|compileOnly|runtimeOnly)\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)"""
-            )
-            threeArgPattern.findAll(text).forEach { match ->
-                coordinates.add(
-                    "${match.groupValues[1]}:${match.groupValues[2]}:${match.groupValues[3]}"
-                )
-            }
-
-            coordinates.distinct()
-        } catch (e: Exception) {
-            logger.warn("Failed to parse Gradle build file: ${e.message}")
-            emptyList()
         }
+        return coordinates
+    }
+
+    /**
+     * Parses a single `[libraries]` entry from a version catalog TOML file.
+     *
+     * Handles four forms:
+     * - String literal: `alias = "group:artifact:version"`
+     * - Module + version.ref: `alias = { module = "group:artifact", version.ref = "key" }`
+     * - Module + inline version: `alias = { module = "group:artifact", version = "1.0" }`
+     * - Verbose group/name: `alias = { group = "g", name = "a", version[.ref] = "..." }`
+     *
+     * Returns null when the version cannot be determined (BOM-managed, rich constraint).
+     */
+    internal fun parseCatalogLibraryEntry(line: String, versions: Map<String, String>): String? {
+        // Form 4: string literal with all three parts
+        val literal = Regex(
+            """^[\w.\-]+\s*=\s*"([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+:[\w.\-]+)"""
+        ).find(line)
+        if (literal != null) return literal.groupValues[1]
+
+        // Determine group:artifact from either `module` or `group`+`name`
+        val groupArtifact =
+            Regex("""module\s*=\s*"([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+)""").find(line)
+                ?.groupValues?.get(1)
+                ?: run {
+                    val g = Regex("""group\s*=\s*"([^"]+)""").find(line)?.groupValues?.get(1)
+                    val n = Regex("""name\s*=\s*"([^"]+)""").find(line)?.groupValues?.get(1)
+                    if (g != null && n != null) "$g:$n" else null
+                }
+                ?: return null
+
+        // Resolve version: prefer version.ref (resolves via [versions] map), fall back to
+        // inline version = "...". `version\s*=` does not match `version.ref` because the
+        // pattern requires `=` immediately after optional whitespace (not `.ref`).
+        val version =
+            Regex("""version\.ref\s*=\s*"([^"]+)""").find(line)?.groupValues?.get(1)
+                ?.let { versions[it] }
+                ?: Regex("""version\s*=\s*"([^"]+)""").find(line)?.groupValues?.get(1)
+                ?: return null // BOM-managed or rich constraint — skip
+
+        return "$groupArtifact:$version"
     }
 }
