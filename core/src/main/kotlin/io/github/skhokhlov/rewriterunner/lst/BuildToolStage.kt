@@ -200,45 +200,29 @@ open class BuildToolStage(protected val logger: RunnerLogger) {
 
     private fun tryMavenCompile(projectDir: Path): Boolean {
         val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
-        return try {
-            val result = runProcess(
-                projectDir,
-                listOf(mvnCmd, "compile", "-q"),
-                logger = logger
-            ) ?: return false
-            if (result == 0) {
-                logger.info("Maven compilation succeeded")
-                true
-            } else {
-                logger.warn("Maven compilation failed with exit code $result")
-                false
-            }
-        } catch (e: Exception) {
-            logger.warn("Maven compilation threw an exception: ${e.message}")
-            false
-        }
+        return runCompileTask(projectDir, listOf(mvnCmd, "compile", "-q"), "Maven")
     }
 
-    private fun tryGradleCompile(projectDir: Path): Boolean {
-        val gradleCmd = resolveGradleCommand(projectDir)
-        return try {
-            val result = runProcess(
-                projectDir,
-                listOf(gradleCmd, "classes", "-q"),
-                logger = logger
-            ) ?: return false
+    private fun tryGradleCompile(projectDir: Path): Boolean = runCompileTask(
+        projectDir,
+        listOf(resolveGradleCommand(projectDir), "classes", "-q"),
+        "Gradle"
+    )
+
+    private fun runCompileTask(projectDir: Path, command: List<String>, toolName: String): Boolean =
+        try {
+            val result = runProcess(projectDir, command, logger = logger) ?: return false
             if (result == 0) {
-                logger.info("Gradle compilation succeeded")
+                logger.info("$toolName compilation succeeded")
                 true
             } else {
-                logger.warn("Gradle compilation failed with exit code $result")
+                logger.warn("$toolName compilation failed with exit code $result")
                 false
             }
         } catch (e: Exception) {
-            logger.warn("Gradle compilation threw an exception: ${e.message}")
+            logger.warn("$toolName compilation threw an exception: ${e.message}")
             false
         }
-    }
 
     companion object {
         // Uses tasks.register() (lazy) instead of the deprecated eager `task` syntax.
