@@ -88,6 +88,9 @@ class RewriteRunner private constructor(private val config: Builder) {
             localRepoDir = recipeLocalRepoDir,
             extraRepositories = effectiveRepositories,
             downloadThreads = effectiveDownloadThreads,
+            // Prune test/provided/system scope nodes from the graph during collection so
+            // their POMs are never fetched. Recipes only need compile/runtime JARs to run.
+            excludeScopesFromGraph = listOf("test", "provided", "system"),
             includeMavenCentral = effectiveIncludeMavenCentral,
             logger = logger
         )

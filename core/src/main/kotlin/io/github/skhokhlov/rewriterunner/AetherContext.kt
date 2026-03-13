@@ -7,7 +7,12 @@ import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
 import org.eclipse.aether.repository.LocalRepository
 import org.eclipse.aether.repository.RemoteRepository
+import org.eclipse.aether.repository.RepositoryPolicy
 import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.eclipse.aether.util.graph.selector.AndDependencySelector
+import org.eclipse.aether.util.graph.selector.ExclusionDependencySelector
+import org.eclipse.aether.util.graph.selector.OptionalDependencySelector
+import org.eclipse.aether.util.graph.selector.ScopeDependencySelector
 import org.eclipse.aether.util.graph.transformer.ClassicConflictResolver
 import org.eclipse.aether.util.graph.transformer.JavaScopeDeriver
 import org.eclipse.aether.util.graph.transformer.JavaScopeSelector
@@ -56,6 +61,12 @@ class AetherContext(
          * @param downloadThreads Number of parallel artifact download threads used by the
          *   connector. Defaults to 5. Increase for faster downloads on high-bandwidth networks;
          *   decrease in resource-constrained environments.
+         * @param excludeScopesFromGraph Dependency scopes to prune from the collection graph
+         *   during POM traversal. Pruned nodes are never collected, so their POM files are
+         *   never downloaded. Use `listOf("test", "provided", "system")` for recipe artifact
+         *   resolution where only compile/runtime JARs are needed. Leave empty (default) for
+         *   project dependency resolution where test-scoped deps are needed for LST type
+         *   resolution of test sources.
          */
         fun build(
             localRepoDir: Path,
@@ -63,6 +74,7 @@ class AetherContext(
             connectTimeoutMs: Int = 30_000,
             requestTimeoutMs: Int = 60_000,
             downloadThreads: Int = 5,
+            excludeScopesFromGraph: Collection<String> = emptyList(),
             includeMavenCentral: Boolean = true,
             logger: RunnerLogger = NoOpRunnerLogger
         ): AetherContext {
@@ -88,6 +100,28 @@ class AetherContext(
                         JavaScopeDeriver()
                     )
                 )
+                // Prune the dependency collection graph to skip downloading POMs for nodes
+                // that will never be used:
+                //  - OptionalDependencySelector: skips optional transitive deps.
+                //  - ExclusionDependencySelector: respects <exclusions> declared in POMs.
+                //  - ScopeDependencySelector (when excludeScopesFromGraph is non-empty):
+                //    prevents collecting nodes whose scope is in the excluded set, so their
+                //    POMs are never fetched. Used for recipe resolution where test/provided/
+                //    system transitive deps are useless.
+                .setDependencySelector(
+                    if (excludeScopesFromGraph.isEmpty()) {
+                        AndDependencySelector(
+                            OptionalDependencySelector(),
+                            ExclusionDependencySelector()
+                        )
+                    } else {
+                        AndDependencySelector(
+                            ScopeDependencySelector(null, excludeScopesFromGraph),
+                            OptionalDependencySelector(),
+                            ExclusionDependencySelector()
+                        )
+                    }
+                )
                 .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
                 .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
                 .setConfigProperty("aether.connector.basic.threads", downloadThreads)
@@ -98,12 +132,24 @@ class AetherContext(
                     "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
                     false
                 )
+                // Bypass per-session update rechecks. Once an artifact's update status has been
+                // checked in the current JVM session, skip re-checking it for subsequent requests.
+                .setConfigProperty("aether.updateCheckManager.sessionState", "bypass")
                 // Ignore <repositories> sections declared in dependency POMs.
                 // Without this, Maven Resolver contacts every third-party repo declared by
                 // transitive dependencies, causing slow resolution or hangs.
                 .setIgnoreArtifactDescriptorRepositories(true)
                 .build()
 
+            // Trust policy applied to all repositories:
+            // - UPDATE_POLICY_DAILY: once an artifact is in the local cache it is refetched from remote daily, eliminating redundant HEAD/GET checks on re-runs.
+            // - CHECKSUM_POLICY_IGNORE: do not fail or re-download when a repository omits
+            //   checksum files (common on corporate proxies and private registries).
+            val trustPolicy = RepositoryPolicy(
+                true,
+                RepositoryPolicy.UPDATE_POLICY_DAILY,
+                RepositoryPolicy.CHECKSUM_POLICY_IGNORE
+            )
             val remoteRepos = mutableListOf<RemoteRepository>()
             if (includeMavenCentral) {
                 remoteRepos.add(
@@ -111,18 +157,16 @@ class AetherContext(
                         "central",
                         "default",
                         "https://repo.maven.apache.org/maven2"
-                    ).build()
+                    ).setPolicy(trustPolicy).build()
                 )
             }
             extraRepositories.forEachIndexed { index, cfg ->
                 // Use a stable, URL-safe ID: "extra-0", "extra-1", etc.
-                // hashCode() was previously used but can produce negative integers which
-                // may confuse Maven Resolver's repository identity tracking.
                 val builder = RemoteRepository.Builder(
                     "extra-$index",
                     "default",
                     cfg.url
-                )
+                ).setPolicy(trustPolicy)
                 if (cfg.username != null && cfg.password != null) {
                     builder.setAuthentication(
                         AuthenticationBuilder()

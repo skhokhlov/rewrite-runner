@@ -119,10 +119,12 @@ open class DependencyResolutionStage(
             return emptyList()
         }
 
-        return when (resolved) {
-            is ResolvedCoords.Full -> resolveArtifactsDirectly(resolved.coords)
-            is ResolvedCoords.Declared -> resolveWithPomTraversal(resolved.coords)
-        }
+        // Both Full (Gradle task output) and Declared (Maven POM / static Gradle parsing)
+        // routes use direct artifact resolution. Full coords are already the complete
+        // transitive graph returned by Gradle; Declared coords are only direct deps
+        // (transitive deps are skipped — OpenRewrite tolerates JavaType.Unknown for
+        // missing transitives, and Stage 3 supplements local-cache JARs).
+        return resolveArtifactsDirectly(resolved.coords)
     }
 
     /**
