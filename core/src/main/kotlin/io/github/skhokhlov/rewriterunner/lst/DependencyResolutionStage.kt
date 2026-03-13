@@ -150,21 +150,7 @@ open class DependencyResolutionStage(
             context.system.resolveArtifacts(context.session, requests)
                 .mapNotNull { it.artifact?.path }
         } catch (e: ArtifactResolutionException) {
-            val partial = e.results.mapNotNull { it.artifact?.path }
-            if (partial.isNotEmpty()) {
-                val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
-                logger.warn(
-                    "Partial classpath resolution " +
-                        "(${partial.size} JAR(s); some deps missing): $firstError"
-                )
-                partial
-            } else {
-                logger.warn(
-                    "Could not resolve project classpath: " +
-                        e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
-                )
-                emptyList()
-            }
+            handlePartialResolution(e.results.mapNotNull { it.artifact?.path }, e.message)
         }
     }
 
@@ -185,21 +171,24 @@ open class DependencyResolutionStage(
                 .artifactResults
                 .mapNotNull { it.artifact?.path }
         } catch (e: DependencyResolutionException) {
-            val partial = e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty()
-            if (partial.isNotEmpty()) {
-                val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
-                logger.warn(
-                    "Partial classpath resolution " +
-                        "(${partial.size} JAR(s); some deps missing): $firstError"
-                )
-                partial
-            } else {
-                logger.warn(
-                    "Could not resolve project classpath: " +
-                        e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
-                )
-                emptyList()
-            }
+            handlePartialResolution(
+                e.result?.artifactResults?.mapNotNull { it.artifact?.path }.orEmpty(),
+                e.message
+            )
+        }
+    }
+
+    private fun handlePartialResolution(partial: List<Path>, errorMessage: String?): List<Path> {
+        val firstError = errorMessage?.lineSequence()?.firstOrNull { it.isNotBlank() }
+        return if (partial.isNotEmpty()) {
+            logger.warn(
+                "Partial classpath resolution " +
+                    "(${partial.size} JAR(s); some deps missing): $firstError"
+            )
+            partial
+        } else {
+            logger.warn("Could not resolve project classpath: $firstError")
+            emptyList()
         }
     }
 

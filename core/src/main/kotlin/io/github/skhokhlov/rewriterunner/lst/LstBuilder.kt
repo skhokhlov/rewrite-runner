@@ -347,40 +347,13 @@ class LstBuilder(
         absFilePath: Path,
         projectDir: Path,
         cache: MutableMap<Path, Pair<String, String>?>
-    ): Pair<String, String> {
-        val jvmMajor = normalizeJvmVersion(System.getProperty("java.version") ?: "")
-        val fallback = Pair(jvmMajor, jvmMajor)
-
-        var dir: Path? = absFilePath.parent
-        while (dir != null && dir.startsWith(projectDir)) {
-            if (dir in cache) {
-                val cached = cache[dir]
-                if (cached != null) return cached
-                // null → build file here but no explicit version; keep walking up
-            } else {
-                val pomFile = dir.resolve("pom.xml")
-                val buildFile = dir.resolve("build.gradle.kts").takeIf { it.exists() }
-                    ?: dir.resolve("build.gradle").takeIf { it.exists() }
-                val detected: Pair<String, String>? = when {
-                    pomFile.exists() -> detectMavenJavaVersion(dir)
-
-                    buildFile != null -> detectGradleJavaVersion(buildFile)
-
-                    else -> {
-                        // No build file at this level; skip caching and try parent
-                        if (dir == projectDir) break
-                        dir = dir.parent
-                        continue
-                    }
-                }
-                cache[dir] = detected // cache null too (build file present, no explicit version)
-                if (detected != null) return detected
-            }
-            if (dir == projectDir) break
-            dir = dir.parent
-        }
-        return fallback
-    }
+    ): Pair<String, String> = walkUpForVersion(
+        absFilePath,
+        projectDir,
+        cache,
+        ::detectMavenJavaVersion,
+        ::detectGradleJavaVersion
+    )
 
     /**
      * Detects the JVM target version for a Kotlin source file by walking up its directory
@@ -404,6 +377,20 @@ class LstBuilder(
         absFilePath: Path,
         projectDir: Path,
         cache: MutableMap<Path, Pair<String, String>?>
+    ): Pair<String, String> = walkUpForVersion(
+        absFilePath,
+        projectDir,
+        cache,
+        ::detectMavenKotlinVersion,
+        ::detectGradleKotlinVersion
+    )
+
+    private fun walkUpForVersion(
+        absFilePath: Path,
+        projectDir: Path,
+        cache: MutableMap<Path, Pair<String, String>?>,
+        mavenDetector: (Path) -> Pair<String, String>?,
+        gradleDetector: (Path) -> Pair<String, String>?
     ): Pair<String, String> {
         val jvmMajor = normalizeJvmVersion(System.getProperty("java.version") ?: "")
         val fallback = Pair(jvmMajor, jvmMajor)
@@ -419,17 +406,18 @@ class LstBuilder(
                 val buildFile = dir.resolve("build.gradle.kts").takeIf { it.exists() }
                     ?: dir.resolve("build.gradle").takeIf { it.exists() }
                 val detected: Pair<String, String>? = when {
-                    pomFile.exists() -> detectMavenKotlinVersion(dir)
+                    pomFile.exists() -> mavenDetector(dir)
 
-                    buildFile != null -> detectGradleKotlinVersion(buildFile)
+                    buildFile != null -> gradleDetector(buildFile)
 
                     else -> {
+                        // No build file at this level; skip caching and try parent
                         if (dir == projectDir) break
                         dir = dir.parent
                         continue
                     }
                 }
-                cache[dir] = detected
+                cache[dir] = detected // cache null too (build file present, no explicit version)
                 if (detected != null) return detected
             }
             if (dir == projectDir) break
