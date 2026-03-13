@@ -9,6 +9,8 @@ import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.collection.CollectRequest
 import org.eclipse.aether.graph.Dependency
+import org.eclipse.aether.resolution.ArtifactRequest
+import org.eclipse.aether.resolution.ArtifactResolutionException
 import org.eclipse.aether.resolution.DependencyRequest
 import org.eclipse.aether.resolution.DependencyResolutionException
 import org.eclipse.aether.util.filter.ScopeDependencyFilter
@@ -66,6 +68,16 @@ open class DependencyResolutionStage(
     private val context: AetherContext,
     protected val logger: RunnerLogger = NoOpRunnerLogger
 ) {
+    private sealed class ResolvedCoords {
+        abstract val coords: List<String>
+
+        /** Fully-resolved transitive coordinates from `gradle dependencies` — skip POM traversal. */
+        class Full(override val coords: List<String>) : ResolvedCoords()
+
+        /** Declared (direct) coordinates only — POM traversal required for transitive graph. */
+        class Declared(override val coords: List<String>) : ResolvedCoords()
+    }
+
     /**
      * Resolves the project's compile classpath by parsing its build descriptor and
      * downloading dependencies via Maven Resolver.
@@ -86,17 +98,73 @@ open class DependencyResolutionStage(
      *   warning logged) when only some dependencies are available.
      */
     open fun resolveClasspath(projectDir: Path): List<Path> {
-        val coordinates = when {
-            projectDir.resolve("pom.xml").exists() -> parseMavenDependencies(projectDir)
-            hasBuildGradle(projectDir) -> parseGradleDependencies(projectDir)
-            else -> emptyList()
+        val resolved: ResolvedCoords = when {
+            projectDir.resolve("pom.xml").exists() ->
+                ResolvedCoords.Declared(parseMavenDependencies(projectDir))
+
+            hasBuildGradle(projectDir) -> {
+                val fromTask = runGradleDependenciesTask(projectDir)
+                if (fromTask != null) {
+                    ResolvedCoords.Full(fromTask)
+                } else {
+                    ResolvedCoords.Declared(parseGradleDependenciesStatically(projectDir))
+                }
+            }
+
+            else -> ResolvedCoords.Declared(emptyList())
         }
 
-        if (coordinates.isEmpty()) {
+        if (resolved.coords.isEmpty()) {
             logger.info("No dependencies found in build descriptor")
             return emptyList()
         }
 
+        return when (resolved) {
+            is ResolvedCoords.Full -> resolveArtifactsDirectly(resolved.coords)
+            is ResolvedCoords.Declared -> resolveWithPomTraversal(resolved.coords)
+        }
+    }
+
+    /**
+     * Resolves a fully-traversed coordinate list directly via [ArtifactRequest], skipping
+     * POM downloads. Used when [runGradleDependenciesTask] returns the complete transitive
+     * graph, so there is no need to re-traverse it through Maven Resolver.
+     */
+    protected open fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
+        logger.info(
+            "Resolving ${coordinates.size} fully-resolved coordinates directly (skipping POM traversal)"
+        )
+        val requests = coordinates.map {
+            ArtifactRequest(DefaultArtifact(it), context.remoteRepos, null)
+        }
+        return try {
+            context.system.resolveArtifacts(context.session, requests)
+                .mapNotNull { it.artifact?.path }
+        } catch (e: ArtifactResolutionException) {
+            val partial = e.results.mapNotNull { it.artifact?.path }
+            if (partial.isNotEmpty()) {
+                val firstError = e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
+                logger.warn(
+                    "Partial classpath resolution " +
+                        "(${partial.size} JAR(s); some deps missing): $firstError"
+                )
+                partial
+            } else {
+                logger.warn(
+                    "Could not resolve project classpath: " +
+                        e.message?.lineSequence()?.firstOrNull { it.isNotBlank() }
+                )
+                emptyList()
+            }
+        }
+    }
+
+    /**
+     * Resolves declared (direct) coordinates via POM traversal using Maven Resolver's
+     * dependency graph, applying nearest-wins conflict resolution across the full
+     * transitive graph. Used for Maven projects and static Gradle parsing fallback.
+     */
+    protected open fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
         logger.info("Resolving ${coordinates.size} declared dependencies via Maven Resolver")
         val deps = coordinates.map { Dependency(DefaultArtifact(it), "runtime") }
         val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
@@ -146,16 +214,6 @@ open class DependencyResolutionStage(
     }
 
     // ─── Gradle dependency resolution ─────────────────────────────────────────
-
-    internal fun parseGradleDependencies(projectDir: Path): List<String> {
-        // Try the Gradle dependencies task first — gives accurately resolved versions
-        // including version catalog lookups, BOM imports, and conflict resolution.
-        val fromTask = runGradleDependenciesTask(projectDir)
-        if (fromTask != null) return fromTask
-
-        // Fall back to static regex parsing of the build file.
-        return parseGradleDependenciesStatically(projectDir)
-    }
 
     /**
      * Runs `gradle dependencies` for the root project and all declared subprojects,

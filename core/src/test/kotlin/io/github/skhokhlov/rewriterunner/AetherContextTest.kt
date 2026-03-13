@@ -66,6 +66,41 @@ class AetherContextTest :
             )
         }
 
+        // ─── downloadThreads ──────────────────────────────────────────────────────
+
+        test("build uses default downloadThreads of 5") {
+            val ctx = AetherContext.build(localRepoDir = tempDir.resolve("repo"))
+            assertEquals(
+                5,
+                ctx.session.configProperties["aether.connector.basic.threads"],
+                "Default download threads should be 5"
+            )
+        }
+
+        test("build with custom downloadThreads=10 sets the connector threads property") {
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                downloadThreads = 10
+            )
+            assertEquals(
+                10,
+                ctx.session.configProperties["aether.connector.basic.threads"],
+                "Download threads should be 10"
+            )
+        }
+
+        test("build with downloadThreads=1 sets single-threaded downloads") {
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                downloadThreads = 1
+            )
+            assertEquals(
+                1,
+                ctx.session.configProperties["aether.connector.basic.threads"],
+                "Download threads should be 1"
+            )
+        }
+
         test("build with includeMavenCentral=false excludes Maven Central from remoteRepos") {
             val extraRepo = io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
                 url = "https://nexus.example.com/repository/maven-public"

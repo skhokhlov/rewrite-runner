@@ -31,7 +31,7 @@ class MavenTransferListener(val logger: RunnerLogger = NoOpRunnerLogger) :
         val size = formatBytes(bytes)
         val speed = if (elapsedMs > 0) "${formatBytes(bytes * 1_000L / elapsedMs)}/s" else "?"
         logger.info(
-            "Downloaded from ${r.repositoryId}: ${r.repositoryUrl}${r.resourceName} ($size at $speed)"
+            "Downloaded from ${r.repositoryId}: ${r.repositoryUrl}${r.resourceName} to ${r.path} ($size at $speed)"
         )
     }
 

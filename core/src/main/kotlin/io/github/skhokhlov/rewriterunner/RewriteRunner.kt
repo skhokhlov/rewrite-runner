@@ -78,6 +78,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         }
         val effectiveIncludeMavenCentral =
             config.includeMavenCentral ?: toolConfig.includeMavenCentral
+        val effectiveDownloadThreads = config.downloadThreads ?: toolConfig.downloadThreads
         val effectiveRepositories = toolConfig.resolvedRepositories() + config.repositories
         // Recipe artifacts are isolated in the tool's own cache so they never mix with
         // the project's build artifacts in the user's Maven local repository.
@@ -86,6 +87,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         val recipeContext = AetherContext.build(
             localRepoDir = recipeLocalRepoDir,
             extraRepositories = effectiveRepositories,
+            downloadThreads = effectiveDownloadThreads,
             includeMavenCentral = effectiveIncludeMavenCentral,
             logger = logger
         )
@@ -95,6 +97,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         val projectContext = AetherContext.build(
             localRepoDir = mavenLocalRepoDir,
             extraRepositories = effectiveRepositories,
+            downloadThreads = effectiveDownloadThreads,
             includeMavenCentral = effectiveIncludeMavenCentral,
             logger = logger
         )
@@ -245,6 +248,8 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var includeMavenCentral: Boolean? = null
             private set
+        internal var downloadThreads: Int? = null
+            private set
         internal var repositories: List<RepositoryConfig> = emptyList()
             private set
         internal var excludePaths: List<String> = emptyList()
@@ -328,6 +333,12 @@ class RewriteRunner private constructor(private val config: Builder) {
         fun excludeExtensions(extensions: List<String>): Builder = apply {
             excludeExtensions = extensions
         }
+
+        /**
+         * Set the number of parallel artifact download threads. Defaults to 5.
+         * When not set, falls back to `downloadThreads` from the tool config.
+         */
+        fun downloadThreads(n: Int): Builder = apply { downloadThreads = n }
 
         /**
          * Override whether Maven Central is included as a remote repository.
