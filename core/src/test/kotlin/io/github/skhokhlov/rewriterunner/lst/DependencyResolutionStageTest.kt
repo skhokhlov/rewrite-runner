@@ -526,15 +526,14 @@ class DependencyResolutionStageTest :
         // ─── Conflict resolution (single-pass batch resolution) ──────────────────
 
         test(
-            "resolveClasspath applies Maven conflict resolution when two declared deps transitively require different versions of a shared artifact"
+            "resolveClasspath resolves only declared direct deps — transitive shared-util is absent"
         ) {
-            // Regression test: the original per-coordinate loop called Maven Resolver once per
-            // declared dependency in isolation, so ConflictResolver never saw competing versions
-            // across the full graph — both bc-fips:1.0.2.1 and bc-fips:1.0.2.6 would each be
-            // downloaded and put on the classpath.
-            //
-            // Fix: build a single CollectRequest with all declared dependencies so Maven Resolver's
-            // ConflictResolver/HighestVersionSelector fires across the entire combined graph.
+            // resolveClasspath uses resolveArtifactsDirectly for all coordinate sources,
+            // so only the explicitly declared dep JARs are downloaded (no POM traversal).
+            // Transitive dependencies (like shared-util) are intentionally omitted to
+            // avoid the overhead of POM downloads; OpenRewrite handles JavaType.Unknown for
+            // missing transitives. Conflict resolution for transitives is therefore not
+            // applicable in this path.
             val group = "conflict.test"
             val groupPath = group.replace('.', '/')
             val fakeRemote = cacheDir.resolve("fake-remote")
@@ -625,13 +624,18 @@ class DependencyResolutionStageTest :
 
             val resolved = DependencyResolutionStage(ctx).resolveClasspath(projectDir)
 
+            // Only the two direct deps should be resolved — no transitive shared-util
+            val depAlphaJars = resolved.filter { it.fileName.toString().startsWith("dep-alpha") }
+            val depBetaJars = resolved.filter { it.fileName.toString().startsWith("dep-beta") }
             val sharedUtilJars = resolved.filter {
                 it.fileName.toString().startsWith("shared-util")
             }
+            assertEquals(1, depAlphaJars.size, "dep-alpha should be resolved as a direct dep")
+            assertEquals(1, depBetaJars.size, "dep-beta should be resolved as a direct dep")
             assertEquals(
-                1,
+                0,
                 sharedUtilJars.size,
-                "Conflict resolution should select exactly one version of shared-util; got: $sharedUtilJars"
+                "shared-util is a transitive dep and should NOT be resolved (direct-only mode)"
             )
         }
 

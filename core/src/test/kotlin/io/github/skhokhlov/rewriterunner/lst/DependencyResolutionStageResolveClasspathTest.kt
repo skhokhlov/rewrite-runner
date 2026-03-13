@@ -229,7 +229,9 @@ class DependencyResolutionStageResolveClasspathTest :
             assertTrue(!pomCalled, "resolveWithPomTraversal should NOT be called")
         }
 
-        test("resolveClasspath calls resolveWithPomTraversal when gradle task returns null") {
+        test(
+            "resolveClasspath calls resolveArtifactsDirectly when gradle task returns null (static fallback)"
+        ) {
             projectDir.resolve("build.gradle.kts").writeText(
                 """
                 dependencies {
@@ -258,13 +260,15 @@ class DependencyResolutionStageResolveClasspathTest :
                 }
             stage.resolveClasspath(projectDir)
             assertTrue(
-                pomCalled,
-                "resolveWithPomTraversal should be called for static gradle fallback"
+                directCalled,
+                "resolveArtifactsDirectly should be called even for static gradle fallback — no POM traversal"
             )
-            assertTrue(!directCalled, "resolveArtifactsDirectly should NOT be called")
+            assertTrue(!pomCalled, "resolveWithPomTraversal should NOT be called")
         }
 
-        test("resolveClasspath calls resolveWithPomTraversal for maven project") {
+        test(
+            "resolveClasspath calls resolveArtifactsDirectly for maven project (no POM traversal)"
+        ) {
             projectDir.resolve("pom.xml").writeText(
                 """
                 <project>
@@ -300,10 +304,13 @@ class DependencyResolutionStageResolveClasspathTest :
                     }
                 }
             stage.resolveClasspath(projectDir)
-            assertTrue(pomCalled, "resolveWithPomTraversal should be called for Maven projects")
             assertTrue(
-                !directCalled,
-                "resolveArtifactsDirectly should NOT be called for Maven projects"
+                directCalled,
+                "resolveArtifactsDirectly should be called for Maven projects — no POM traversal"
+            )
+            assertTrue(
+                !pomCalled,
+                "resolveWithPomTraversal should NOT be called for Maven projects"
             )
         }
 
