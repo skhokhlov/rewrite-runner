@@ -4,6 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Deep-dive docs** (read these before working on the relevant area):
 - [`docs/architecture.md`](docs/architecture.md) — execution pipeline, 3-stage LST, file routing, version detection, module layout
+- [`docs/dependency-resolution.md`](docs/dependency-resolution.md) — how/why recipe vs project deps are resolved, Aether session settings, scope pruning, local repo strategy
 - [`docs/library-api.md`](docs/library-api.md) — `RewriteRunner` builder, `RunResult`, `ToolConfig` YAML schema, exit codes
 - [`docs/testing.md`](docs/testing.md) — TDD requirement, test patterns, gotchas, test file map
 - [`docs/build.md`](docs/build.md) — `buildSrc` convention plugins, dependency versions, CI/CD, known issues
