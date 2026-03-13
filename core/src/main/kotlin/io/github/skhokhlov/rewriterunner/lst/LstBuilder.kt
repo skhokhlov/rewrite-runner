@@ -707,7 +707,7 @@ class LstBuilder(
                 depResolutionStage.parseMavenDependencies(projectDir)
 
             else ->
-                depResolutionStage.parseGradleDependencies(projectDir)
+                depResolutionStage.parseGradleDependenciesStatically(projectDir)
         }
     } catch (_: Exception) {
         emptyList()

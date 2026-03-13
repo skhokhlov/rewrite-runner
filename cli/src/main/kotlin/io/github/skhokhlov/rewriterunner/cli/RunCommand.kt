@@ -110,6 +110,12 @@ class RunCommand : Callable<Int> {
     )
     var noMavenCentral: Boolean = false
 
+    @Option(
+        names = ["--download-threads"],
+        description = ["Number of parallel artifact download threads. Defaults to 5."]
+    )
+    var downloadThreads: Int? = null
+
     override fun call(): Int {
         val logger =
             LogbackRunnerLogger(showInfo = infoLogging || debugLogging, showDebug = debugLogging)
@@ -127,6 +133,7 @@ class RunCommand : Callable<Int> {
             cacheDir?.let { builder.cacheDir(it) }
             configFile?.let { builder.configFile(it) }
             if (noMavenCentral) builder.includeMavenCentral(false)
+            downloadThreads?.let { builder.downloadThreads(it) }
 
             val runResult = builder.build().run()
 

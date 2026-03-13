@@ -154,6 +154,21 @@ class RunCommandTest :
             )
         }
 
+        test("--download-threads is parsed and propagated to the command") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs(
+                "--active-recipe",
+                "io.github.skhokhlov.rewriterunner.MyRecipe",
+                "--download-threads",
+                "8"
+            )
+            assertEquals(
+                8,
+                cmd.downloadThreads,
+                "--download-threads 8 should set downloadThreads to 8"
+            )
+        }
+
         test("multiple --recipe-artifact flags are collected into a list") {
             val cmd = RunCommand()
             CommandLine(cmd).parseArgs(

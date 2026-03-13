@@ -172,6 +172,20 @@ class ToolConfigTest :
             assertEquals(false, config.includeMavenCentral)
         }
 
+        // ─── downloadThreads ──────────────────────────────────────────────────────
+
+        test("downloadThreads defaults to 5 when not specified") {
+            val config = ToolConfig()
+            assertEquals(5, config.downloadThreads)
+        }
+
+        test("loads downloadThreads from yaml") {
+            val configFile = tempDir.resolve("runner.yml")
+            configFile.writeText("downloadThreads: 8")
+            val config = ToolConfig.load(configFile)
+            assertEquals(8, config.downloadThreads)
+        }
+
         test("repository without credentials has null username and password") {
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(

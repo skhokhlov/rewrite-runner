@@ -53,12 +53,16 @@ class AetherContext(
          * @param requestTimeoutMs Socket read / request timeout in milliseconds. Defaults to
          *   60 000. An explicit value prevents hanging when a remote server accepts the TCP
          *   connection but never sends an HTTP response.
+         * @param downloadThreads Number of parallel artifact download threads used by the
+         *   connector. Defaults to 5. Increase for faster downloads on high-bandwidth networks;
+         *   decrease in resource-constrained environments.
          */
         fun build(
             localRepoDir: Path,
             extraRepositories: List<RepositoryConfig> = emptyList(),
             connectTimeoutMs: Int = 30_000,
             requestTimeoutMs: Int = 60_000,
+            downloadThreads: Int = 5,
             includeMavenCentral: Boolean = true,
             logger: RunnerLogger = NoOpRunnerLogger
         ): AetherContext {
@@ -86,6 +90,7 @@ class AetherContext(
                 )
                 .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
                 .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
+                .setConfigProperty("aether.connector.basic.threads", downloadThreads)
                 // Disable downloading remote prefix-filter index files (Maven Resolver 2.x).
                 // Without this, Maven Resolver downloads large /.index/prefixes.txt files from
                 // each remote repository before resolving any artifacts, causing delays/hangs.

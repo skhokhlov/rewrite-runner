@@ -91,7 +91,7 @@ class DependencyResolutionStageResolveClasspathTest :
                 ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> {
                         parsedGradle =
-                            parseGradleDependencies(projectDir).isEmpty() ||
+                            parseGradleDependenciesStatically(projectDir).isEmpty() ||
                             projectDir.resolve("build.gradle.kts").toFile().exists()
                         return emptyList()
                     }
@@ -167,7 +167,7 @@ class DependencyResolutionStageResolveClasspathTest :
 
         // ─── parseGradleDependencies edge cases ──────────────────────────────────
 
-        test("parseGradleDependencies handles three-arg Kotlin DSL form") {
+        test("parseGradleDependenciesStatically handles three-arg Kotlin DSL form") {
             projectDir.resolve("build.gradle.kts").writeText(
                 """
                 dependencies {
@@ -178,12 +178,12 @@ class DependencyResolutionStageResolveClasspathTest :
             )
             val stage =
                 DependencyResolutionStage(AetherContext.build(cacheDir.resolve("repository")))
-            val coords = stage.parseGradleDependencies(projectDir)
+            val coords = stage.parseGradleDependenciesStatically(projectDir)
             assertTrue(coords.contains("org.springframework:spring-core:6.1.0"))
             assertTrue(coords.contains("com.fasterxml.jackson.core:jackson-databind:2.16.0"))
         }
 
-        test("parseGradleDependencies routes to build_gradle when kts absent") {
+        test("parseGradleDependenciesStatically routes to build_gradle when kts absent") {
             projectDir.resolve("build.gradle").writeText(
                 """
                 dependencies {
@@ -193,8 +193,118 @@ class DependencyResolutionStageResolveClasspathTest :
             )
             val stage =
                 DependencyResolutionStage(AetherContext.build(cacheDir.resolve("repository")))
-            val coords = stage.parseGradleDependencies(projectDir)
+            val coords = stage.parseGradleDependenciesStatically(projectDir)
             assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
+        }
+
+        // ─── resolveClasspath POM-skip routing ───────────────────────────────────
+
+        test("resolveClasspath calls resolveArtifactsDirectly when gradle task returns coords") {
+            projectDir.resolve("build.gradle.kts").writeText("plugins { kotlin(\"jvm\") }")
+
+            var directCalled = false
+            var pomCalled = false
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"))
+                ) {
+                    override fun runGradleDependenciesTask(projectDir: Path) =
+                        listOf("org.apache.commons:commons-lang3:3.12.0")
+
+                    override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
+                        directCalled = true
+                        return emptyList()
+                    }
+
+                    override fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
+                        pomCalled = true
+                        return emptyList()
+                    }
+                }
+            stage.resolveClasspath(projectDir)
+            assertTrue(
+                directCalled,
+                "resolveArtifactsDirectly should be called for gradle task output"
+            )
+            assertTrue(!pomCalled, "resolveWithPomTraversal should NOT be called")
+        }
+
+        test("resolveClasspath calls resolveWithPomTraversal when gradle task returns null") {
+            projectDir.resolve("build.gradle.kts").writeText(
+                """
+                dependencies {
+                    implementation("org.apache.commons:commons-lang3:3.12.0")
+                }
+                """.trimIndent()
+            )
+
+            var directCalled = false
+            var pomCalled = false
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"))
+                ) {
+                    override fun runGradleDependenciesTask(projectDir: Path): List<String>? = null
+
+                    override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
+                        directCalled = true
+                        return emptyList()
+                    }
+
+                    override fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
+                        pomCalled = true
+                        return emptyList()
+                    }
+                }
+            stage.resolveClasspath(projectDir)
+            assertTrue(
+                pomCalled,
+                "resolveWithPomTraversal should be called for static gradle fallback"
+            )
+            assertTrue(!directCalled, "resolveArtifactsDirectly should NOT be called")
+        }
+
+        test("resolveClasspath calls resolveWithPomTraversal for maven project") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>test</artifactId>
+                    <version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.apache.commons</groupId>
+                            <artifactId>commons-lang3</artifactId>
+                            <version>3.12.0</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """.trimIndent()
+            )
+
+            var directCalled = false
+            var pomCalled = false
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"))
+                ) {
+                    override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
+                        directCalled = true
+                        return emptyList()
+                    }
+
+                    override fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
+                        pomCalled = true
+                        return emptyList()
+                    }
+                }
+            stage.resolveClasspath(projectDir)
+            assertTrue(pomCalled, "resolveWithPomTraversal should be called for Maven projects")
+            assertTrue(
+                !directCalled,
+                "resolveArtifactsDirectly should NOT be called for Maven projects"
+            )
         }
 
         // ─── Extra repositories (buildRemoteRepos coverage) ───────────────────────
