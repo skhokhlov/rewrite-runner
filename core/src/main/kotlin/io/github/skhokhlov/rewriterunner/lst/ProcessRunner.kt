@@ -9,9 +9,10 @@ import kotlin.io.path.exists
 /**
  * Runs an external process in [workDir] and waits up to [timeoutSeconds] for it to finish.
  *
- * When [captureStdout] is non-null the child's stdout is appended to it; stderr is discarded.
- * When [captureStdout] is null both stdout and stderr are drained on background threads and
- * logged at DEBUG level (visible with `--debug`), preventing OS pipe-buffer deadlock.
+ * Both stdout and stderr are always drained on background threads to prevent OS pipe-buffer
+ * deadlock (~64 KB limit). Each line is logged at DEBUG level (visible with `--debug`).
+ * When [captureStdout] is non-null, stdout lines are also appended to it (for classpath
+ * extraction); stderr is still drained and logged.
  *
  * @return The process exit code, or `null` if the process could not be started or timed out.
  */
@@ -24,14 +25,6 @@ internal fun runProcess(
 ): Int? {
     val pb = ProcessBuilder(command).directory(workDir.toFile())
 
-    if (captureStdout != null) {
-        // Capture stdout; discard stderr so it never fills and blocks the child.
-        pb.redirectError(ProcessBuilder.Redirect.DISCARD)
-    }
-    // When captureStdout is null we leave both streams as pipes so we can drain them
-    // (either to logger.debug or /dev/null via background threads) — prevents OS
-    // pipe-buffer deadlock (~64 KB limit) that occurred with redirectErrorStream(true).
-
     val process =
         try {
             pb.start()
@@ -40,24 +33,22 @@ internal fun runProcess(
             return null
         }
 
-    if (captureStdout != null) {
-        // Read all stdout before waitFor so the stdout pipe never fills up.
-        captureStdout.append(process.inputStream.bufferedReader().readText())
-    } else {
-        // Drain stdout and stderr on background threads to prevent pipe-buffer deadlock.
-        // Log each line at DEBUG so Maven/Gradle output is visible with --debug.
-        val prefix = command.first().substringAfterLast('/')
-        fun drainStream(stream: java.io.InputStream, tag: String) = Thread(null, {
-            stream.bufferedReader().forEachLine { logger.debug("[$prefix $tag] $it") }
-        }, "process-drain-$tag").apply {
-            isDaemon = true
-            start()
+    // Always drain both streams on background threads to prevent pipe-buffer deadlock.
+    // Log each line at DEBUG so Maven/Gradle output is visible with --debug.
+    val prefix = command.first().substringAfterLast('/')
+    fun drainStream(stream: java.io.InputStream, tag: String) = Thread(null, {
+        stream.bufferedReader().forEachLine {
+            logger.debug("[$prefix $tag] $it")
+            if (tag == "stdout") captureStdout?.append(it)?.append('\n')
         }
-        val stdoutThread = drainStream(process.inputStream, "stdout")
-        val stderrThread = drainStream(process.errorStream, "stderr")
-        stdoutThread.join()
-        stderrThread.join()
+    }, "process-drain-$tag").apply {
+        isDaemon = true
+        start()
     }
+    val stdoutThread = drainStream(process.inputStream, "stdout")
+    val stderrThread = drainStream(process.errorStream, "stderr")
+    stdoutThread.join()
+    stderrThread.join()
 
     val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
     if (!finished) {
