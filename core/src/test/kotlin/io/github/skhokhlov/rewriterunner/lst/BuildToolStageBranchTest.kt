@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.lst
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,7 +22,7 @@ private val isWindows = System.getProperty("os.name", "").lowercase().contains("
 class BuildToolStageBranchTest :
     FunSpec({
         var projectDir: Path = Path.of("")
-        val stage = BuildToolStage()
+        val stage = BuildToolStage(NoOpRunnerLogger)
 
         beforeEach { projectDir = Files.createTempDirectory("btsb-") }
 

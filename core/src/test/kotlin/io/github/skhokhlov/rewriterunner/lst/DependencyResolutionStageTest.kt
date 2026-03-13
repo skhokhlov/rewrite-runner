@@ -3,6 +3,7 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -40,7 +41,10 @@ class DependencyResolutionStageTest :
             cacheDir.toFile().deleteRecursively()
         }
 
-        fun stage() = DependencyResolutionStage(AetherContext.build(cacheDir.resolve("repository")))
+        fun stage() = DependencyResolutionStage(
+            AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+            NoOpRunnerLogger
+        )
 
         // ─── Maven pom.xml parsing ────────────────────────────────────────────────
 
@@ -520,7 +524,9 @@ class DependencyResolutionStageTest :
         }
 
         test("parseCatalogLibraryEntry resolves module + inline version") {
-            val line = """logback = { module = "ch.qos.logback:logback-classic", version = "1.4.11" }"""
+            val line = """
+                logback = { module = "ch.qos.logback:logback-classic", version = "1.4.11" }
+            """.trimIndent()
             assertEquals(
                 "ch.qos.logback:logback-classic:1.4.11",
                 stage().parseCatalogLibraryEntry(line, emptyMap())
@@ -529,7 +535,9 @@ class DependencyResolutionStageTest :
 
         test("parseCatalogLibraryEntry resolves group+name + version.ref") {
             val versions = mapOf("spring" to "6.1.0")
-            val line = """spring-core = { group = "org.springframework", name = "spring-core", version.ref = "spring" }"""
+            val line = """
+                spring-core = { group = "org.springframework", name = "spring-core", version.ref = "spring" }
+            """.trimIndent()
             assertEquals(
                 "org.springframework:spring-core:6.1.0",
                 stage().parseCatalogLibraryEntry(line, versions)
@@ -537,7 +545,9 @@ class DependencyResolutionStageTest :
         }
 
         test("parseCatalogLibraryEntry resolves group+name + inline version") {
-            val line = """spring-web = { group = "org.springframework", name = "spring-web", version = "6.1.0" }"""
+            val line = """
+                spring-web = { group = "org.springframework", name = "spring-web", version = "6.1.0" }
+            """.trimIndent()
             assertEquals(
                 "org.springframework:spring-web:6.1.0",
                 stage().parseCatalogLibraryEntry(line, emptyMap())
@@ -812,7 +822,10 @@ class DependencyResolutionStageTest :
                 )
             val ctx = AetherContext(system, session, fakeRemoteRepo)
 
-            val resolved = DependencyResolutionStage(ctx).resolveClasspath(projectDir)
+            val resolved = DependencyResolutionStage(
+                ctx,
+                NoOpRunnerLogger
+            ).resolveClasspath(projectDir)
 
             // Only the two direct deps should be resolved — no transitive shared-util
             val depAlphaJars = resolved.filter { it.fileName.toString().startsWith("dep-alpha") }

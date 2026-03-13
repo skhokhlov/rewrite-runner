@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -32,7 +33,7 @@ class RecipeLoaderYamlTest :
             )
 
             val recipe =
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "com.example.test.FindTxtFiles",
                     rewriteYaml = yamlFile
@@ -45,7 +46,7 @@ class RecipeLoaderYamlTest :
         test("load skips rewrite_yaml when path is null") {
             // Built-in recipe loaded with null yaml path — should work fine
             val recipe =
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "org.openrewrite.FindSourceFiles",
                     rewriteYaml = null
@@ -59,7 +60,7 @@ class RecipeLoaderYamlTest :
             // File does not exist; RecipeLoader should silently skip it and
             // fall back to scanning the classpath for the built-in recipe.
             val recipe =
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "org.openrewrite.FindSourceFiles",
                     rewriteYaml = nonExistentYaml
@@ -81,7 +82,7 @@ class RecipeLoaderYamlTest :
             )
 
             val recipe =
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "com.example.test.DeleteProperties",
                     rewriteYaml = yamlFile

@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -26,7 +27,7 @@ class RecipeLoaderTest :
 
         test("load returns a usable recipe when no recipe JARs are provided") {
             val recipe =
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "org.openrewrite.java.format.AutoFormat",
                     rewriteYaml = null
@@ -50,7 +51,7 @@ class RecipeLoaderTest :
             // in RecipeLoader.load(): the URLClassLoader must NOT be closed before the caller
             // invokes the recipe.
             val recipe =
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "org.openrewrite.FindSourceFiles",
                     rewriteYaml = null
@@ -84,7 +85,7 @@ class RecipeLoaderTest :
 
         test("load with invalid recipe name throws IllegalArgumentException") {
             val result = runCatching {
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "com.example.recipe.ThatDefinitelyDoesNotExist",
                     rewriteYaml = null
@@ -105,7 +106,7 @@ class RecipeLoaderTest :
             // IllegalArgumentException so the CLI shows a clear, actionable error message
             // instead of "Unhandled exception: org.openrewrite.RecipeException".
             val result = runCatching {
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "org.openrewrite.gradle.MigrateDependenciesToVersionCatalog",
                     rewriteYaml = null
@@ -116,7 +117,7 @@ class RecipeLoaderTest :
                 ex is IllegalArgumentException,
                 "Should throw IllegalArgumentException; got ${ex?.javaClass?.name}: ${ex?.message}"
             )
-            val msg = (ex as IllegalArgumentException).message ?: ""
+            val msg = ex.message ?: ""
             assertTrue(
                 msg.contains("not found", ignoreCase = true),
                 "Exception message should explain the recipe was not found: $msg"
@@ -137,7 +138,7 @@ class RecipeLoaderTest :
                 """.trimIndent()
 
             val recipe =
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "com.example.test.FindTxtFiles",
                     rewriteYamlContent = yamlContent
@@ -149,7 +150,7 @@ class RecipeLoaderTest :
 
         test("load with null yaml content string falls back to classpath scan") {
             val recipe =
-                RecipeLoader().load(
+                RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
                     activeRecipeName = "org.openrewrite.FindSourceFiles",
                     rewriteYamlContent = null

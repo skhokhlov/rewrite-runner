@@ -21,7 +21,7 @@ internal fun runProcess(
     command: List<String>,
     captureStdout: StringBuilder? = null,
     timeoutSeconds: Long = 120,
-    logger: RunnerLogger = NoOpRunnerLogger
+    logger: RunnerLogger
 ): Int? {
     val pb = ProcessBuilder(command).directory(workDir.toFile())
 

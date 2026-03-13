@@ -18,7 +18,7 @@ import org.openrewrite.internal.InMemoryLargeSourceSet
  * simultaneously, which is required for cross-file analysis (e.g., renaming a type used
  * across multiple files). For large projects, increase the JVM heap with `-Xmx`.
  */
-class RecipeRunner(val logger: RunnerLogger = NoOpRunnerLogger) {
+class RecipeRunner(val logger: RunnerLogger) {
     /**
      * Run [recipe] against [sourceFiles] and return all [org.openrewrite.Result]s.
      *
