@@ -20,13 +20,24 @@ import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.SourceFile
 import org.openrewrite.docker.DockerParser
+import org.openrewrite.gradle.GradleParser
+import org.openrewrite.gradle.marker.GradleBuildscript
+import org.openrewrite.gradle.marker.GradleDependencyConfiguration
+import org.openrewrite.gradle.marker.GradleProject
 import org.openrewrite.groovy.GroovyParser
 import org.openrewrite.hcl.HclParser
 import org.openrewrite.java.JavaParser
+import org.openrewrite.java.internal.JavaTypeCache
+import org.openrewrite.java.marker.JavaSourceSet
 import org.openrewrite.java.marker.JavaVersion
 import org.openrewrite.json.JsonParser
 import org.openrewrite.kotlin.KotlinParser
+import org.openrewrite.marker.BuildTool
+import org.openrewrite.marker.GitProvenance
+import org.openrewrite.marker.OperatingSystemProvenance
+import org.openrewrite.marker.ci.BuildEnvironment
 import org.openrewrite.maven.MavenParser
+import org.openrewrite.maven.tree.MavenRepository
 import org.openrewrite.properties.PropertiesParser
 import org.openrewrite.protobuf.ProtoParser
 import org.openrewrite.toml.TomlParser
@@ -166,7 +177,27 @@ class LstBuilder(
         logger.info("Parsing extensions: $effectiveExtensions")
 
         // ── 3-stage classpath resolution ──────────────────────────────────────
-        val classpath = resolveClasspath(projectDir)
+        val resolutionResult = resolveClasspath(projectDir)
+        val classpath = resolutionResult.classpath
+
+        // ── Shared type cache — all JVM parsers share one instance ────────────
+        val typeCache = JavaTypeCache()
+
+        // ── Provenance markers — computed once, attached to all source files ──
+        val buildEnv: BuildEnvironment? = try {
+            BuildEnvironment.build { key -> System.getenv(key) }
+        } catch (e: Exception) {
+            logger.debug("BuildEnvironment unavailable: ${e.message}")
+            null
+        }
+        val gitProvenance: GitProvenance? = try {
+            GitProvenance.fromProjectDirectory(projectDir, buildEnv)
+        } catch (e: Exception) {
+            logger.debug("Git provenance unavailable: ${e.message}")
+            null
+        }
+        val osProvenance: OperatingSystemProvenance = OperatingSystemProvenance.current()
+        val buildToolMarker: BuildTool? = detectBuildToolMarker(projectDir)
 
         // ── Per-file version caches (module dir → (source, target)) ─────────
         // Populated lazily; null means a build file was found but carried no
@@ -186,6 +217,12 @@ class LstBuilder(
         // files are actually present in the project.
         val gradleDslClasspath: List<Path> by lazy { resolveGradleDslClasspath(projectDir) }
 
+        // ── JavaSourceSet markers — built once per name, shared across files ──
+        // JavaSourceSet.build() processes the classpath; reuse the same marker instance
+        // for all files in the same source set rather than rebuilding per file.
+        val mainSourceSet: JavaSourceSet by lazy { JavaSourceSet.build("main", classpath) }
+        val testSourceSet: JavaSourceSet by lazy { JavaSourceSet.build("test", classpath) }
+
         // ── Parse each language ───────────────────────────────────────────────
         val allSources = mutableListOf<SourceFile>()
 
@@ -194,6 +231,7 @@ class LstBuilder(
             val parser = JavaParser
                 .fromJavaVersion()
                 .classpath(classpath)
+                .typeCache(typeCache)
                 .build()
             parser.parse(files, projectDir, ctx).forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
@@ -205,9 +243,12 @@ class LstBuilder(
                 logger.debug(
                     "Java version for ${sourceFile.sourcePath}: source=$source, target=$target"
                 )
+                val sourceSet = if (isTestPath(absPath)) testSourceSet else mainSourceSet
                 allSources.add(
                     sourceFile.withMarkers(
-                        sourceFile.markers.add(buildJavaVersionMarker(source, target))
+                        sourceFile.markers
+                            .add(buildJavaVersionMarker(source, target))
+                            .addIfAbsent(sourceSet)
                     )
                 )
             }
@@ -215,7 +256,7 @@ class LstBuilder(
 
         filesByExt[".kt"]?.let { files ->
             logger.info("Parsing ${files.size} Kotlin file(s)")
-            val parser = KotlinParser.builder().classpath(classpath).build()
+            val parser = KotlinParser.builder().classpath(classpath).typeCache(typeCache).build()
             parser.parse(files, projectDir, ctx).forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
                 val (source, target) =
@@ -223,9 +264,12 @@ class LstBuilder(
                 logger.debug(
                     "Kotlin JVM target for ${sourceFile.sourcePath}: source=$source, target=$target"
                 )
+                val sourceSet = if (isTestPath(absPath)) testSourceSet else mainSourceSet
                 allSources.add(
                     sourceFile.withMarkers(
-                        sourceFile.markers.add(buildJavaVersionMarker(source, target))
+                        sourceFile.markers
+                            .add(buildJavaVersionMarker(source, target))
+                            .addIfAbsent(sourceSet)
                     )
                 )
             }
@@ -240,7 +284,9 @@ class LstBuilder(
 
             if (plainKtsFiles.isNotEmpty()) {
                 logger.info("Parsing ${plainKtsFiles.size} Kotlin Script file(s)")
-                val parser = KotlinParser.builder().classpath(classpath).build()
+                val parser = KotlinParser.builder().classpath(
+                    classpath
+                ).typeCache(typeCache).build()
                 parser.parse(plainKtsFiles, projectDir, ctx).forEach { sourceFile ->
                     val absPath = projectDir.resolve(sourceFile.sourcePath)
                     val (source, target) =
@@ -257,31 +303,79 @@ class LstBuilder(
                 logger.info("Parsing ${gradleKtsFiles.size} Gradle Kotlin DSL script(s)")
                 if (gradleDslClasspath.isNotEmpty()) {
                     logger.info(
-                        "Augmenting KotlinParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
+                        "Augmenting GradleParser KTS classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
                     )
                 }
-                val parser = KotlinParser.builder().classpath(
-                    classpath + gradleDslClasspath
-                ).build()
-                parser.parse(gradleKtsFiles, projectDir, ctx).forEach { allSources.add(it) }
+                try {
+                    GradleParser.builder()
+                        .kotlinParser(
+                            KotlinParser.builder()
+                                .classpath(classpath + gradleDslClasspath)
+                                .typeCache(typeCache)
+                        )
+                        .buildscriptClasspath(gradleDslClasspath)
+                        .build()
+                        .parse(gradleKtsFiles, projectDir, ctx)
+                        .forEach { sf ->
+                            allSources.add(addGradleProjectMarker(sf, projectDir, resolutionResult))
+                        }
+                } catch (e: Exception) {
+                    logger.warn(
+                        "GradleParser failed for Kotlin DSL, falling back to KotlinParser: ${e.message}"
+                    )
+                    KotlinParser.builder()
+                        .classpath(classpath + gradleDslClasspath)
+                        .typeCache(typeCache)
+                        .build()
+                        .parse(gradleKtsFiles, projectDir, ctx)
+                        .forEach { allSources.add(it) }
+                }
             }
         }
 
         filesByExt[".groovy"]?.let { files ->
             logger.info("Parsing ${files.size} Groovy file(s)")
-            val parser = GroovyParser.builder().classpath(classpath).build()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            val parser = GroovyParser.builder().classpath(classpath).typeCache(typeCache).build()
+            parser.parse(files, projectDir, ctx).forEach { sourceFile ->
+                val absPath = projectDir.resolve(sourceFile.sourcePath)
+                val sourceSet = if (isTestPath(absPath)) testSourceSet else mainSourceSet
+                allSources.add(
+                    sourceFile.withMarkers(sourceFile.markers.addIfAbsent(sourceSet))
+                )
+            }
         }
 
         filesByExt[".gradle"]?.let { files ->
             logger.info("Parsing ${files.size} Gradle Groovy DSL file(s)")
             if (gradleDslClasspath.isNotEmpty()) {
                 logger.info(
-                    "Augmenting GroovyParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
+                    "Augmenting GradleParser classpath with ${gradleDslClasspath.size} Gradle DSL JAR(s)"
                 )
             }
-            val parser = GroovyParser.builder().classpath(classpath + gradleDslClasspath).build()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            try {
+                GradleParser.builder()
+                    .groovyParser(
+                        GroovyParser.builder()
+                            .classpath(classpath + gradleDslClasspath)
+                            .typeCache(typeCache)
+                    )
+                    .buildscriptClasspath(gradleDslClasspath)
+                    .build()
+                    .parse(files, projectDir, ctx)
+                    .forEach { sf ->
+                        allSources.add(addGradleProjectMarker(sf, projectDir, resolutionResult))
+                    }
+            } catch (e: Exception) {
+                logger.warn(
+                    "GradleParser failed for Groovy DSL, falling back to GroovyParser: ${e.message}"
+                )
+                GroovyParser.builder()
+                    .classpath(classpath + gradleDslClasspath)
+                    .typeCache(typeCache)
+                    .build()
+                    .parse(files, projectDir, ctx)
+                    .forEach { allSources.add(it) }
+            }
         }
 
         val yamlFiles = ((filesByExt[".yaml"] ?: emptyList()) + (filesByExt[".yml"] ?: emptyList()))
@@ -354,7 +448,16 @@ class LstBuilder(
         }
 
         logger.info("LST build complete: ${allSources.size} SourceFile(s)")
-        return allSources
+
+        // ── Attach provenance markers to every source file ────────────────────
+        return allSources.map { sf ->
+            var markers = sf.markers
+            buildEnv?.let { markers = markers.addIfAbsent(it) }
+            gitProvenance?.let { markers = markers.addIfAbsent(it) }
+            markers = markers.addIfAbsent(osProvenance)
+            buildToolMarker?.let { markers = markers.addIfAbsent(it) }
+            if (markers === sf.markers) sf else sf.withMarkers(markers)
+        }
     }
 
     // ─── Java version detection ───────────────────────────────────────────────
@@ -469,8 +572,7 @@ class LstBuilder(
                 // null → build file here but no explicit version; keep walking up
             } else {
                 val pomFile = dir.resolve("pom.xml")
-                val buildFile = dir.resolve("build.gradle.kts").takeIf { it.exists() }
-                    ?: dir.resolve("build.gradle").takeIf { it.exists() }
+                val buildFile = findBuildFile(dir)
                 val detected: Pair<String, String>? = when {
                     pomFile.exists() -> mavenDetector(dir)
 
@@ -690,7 +792,7 @@ class LstBuilder(
         projectDir.resolve("build/classes/kotlin/test")
     ).filter { Files.isDirectory(it) }
 
-    private fun resolveClasspath(projectDir: Path): List<Path> {
+    private fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
         // Stage 1: Build tool subprocess
         logger.info("Stage 1: attempting build-tool classpath extraction")
         val stage1 = buildToolStage.extractClasspath(projectDir)
@@ -707,27 +809,30 @@ class LstBuilder(
                 logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
             }
             logger.info("Stage 1 succeeded: ${stage1.size} JAR(s)")
-            return stage1 + classDirs
+            return ClasspathResolutionResult(stage1 + classDirs)
         }
 
         logger.info("Stage 1 failed, falling through to Stage 2")
 
         // Stage 2: Direct Maven Resolver
         logger.info("Stage 2: resolving dependencies via Maven Resolver")
-        val stage2 = try {
+        val stage2Result = try {
             depResolutionStage.resolveClasspath(projectDir)
         } catch (e: Exception) {
             logger.warn("Stage 2 threw an exception: ${e.message}")
-            emptyList()
+            ClasspathResolutionResult(emptyList())
         }
 
-        if (stage2.isNotEmpty()) {
+        if (stage2Result.classpath.isNotEmpty()) {
             val classDirs = projectClassDirs(projectDir)
             if (classDirs.isNotEmpty()) {
                 logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
             }
-            logger.info("Stage 2 succeeded: ${stage2.size} JAR(s)")
-            return stage2 + classDirs
+            logger.info("Stage 2 succeeded: ${stage2Result.classpath.size} JAR(s)")
+            return ClasspathResolutionResult(
+                classpath = stage2Result.classpath + classDirs,
+                gradleProjectData = stage2Result.gradleProjectData
+            )
         }
 
         logger.info("Stage 2 failed or produced no JARs, falling through to Stage 3")
@@ -744,7 +849,7 @@ class LstBuilder(
         logger.info(
             "Stage 3: using ${stage3.size} locally cached JAR(s) — unresolved types will be JavaType.Unknown"
         )
-        return stage3 + classDirs
+        return ClasspathResolutionResult(stage3 + classDirs)
     }
 
     /**
@@ -943,6 +1048,169 @@ class LstBuilder(
                 .orElse(null)
         }
     }
+
+    // ─── GradleProject marker construction ───────────────────────────────────
+
+    /**
+     * Attaches a [GradleProject] marker to [sf] when [resolutionResult] contains project data
+     * for the build file's Gradle project path. Returns [sf] unchanged when data is unavailable.
+     */
+    private fun addGradleProjectMarker(
+        sf: SourceFile,
+        projectDir: Path,
+        resolutionResult: ClasspathResolutionResult
+    ): SourceFile {
+        val gradleProjectData = resolutionResult.gradleProjectData ?: return sf
+        val buildFile = projectDir.resolve(sf.sourcePath)
+        val projectPath = resolveGradleProjectPath(buildFile, projectDir, gradleProjectData.keys)
+        val projectData = gradleProjectData[projectPath] ?: return sf
+        val marker = buildGradleProjectMarker(projectPath, projectDir, projectData)
+        return sf.withMarkers(sf.markers.addIfAbsent(marker))
+    }
+
+    /**
+     * Maps a build file path to a Gradle project path (e.g. `":"` for root,
+     * `":api"` for a subproject whose build file is at `api/build.gradle`).
+     */
+    private fun resolveGradleProjectPath(
+        buildFile: Path,
+        projectDir: Path,
+        availablePaths: Set<String>
+    ): String {
+        val parentDir = buildFile.parent?.let {
+            projectDir.relativize(it).toString().replace('\\', '/')
+        } ?: ""
+        // ":api" → "api", ":core:util" → "core/util"
+        return availablePaths.find { path ->
+            path.trimStart(':').replace(':', '/') == parentDir
+        } ?: ":"
+    }
+
+    /**
+     * Constructs a [GradleProject] marker from the given [projectPath] and [projectData].
+     */
+    private fun buildGradleProjectMarker(
+        projectPath: String,
+        projectDir: Path,
+        projectData: GradleProjectData
+    ): GradleProject {
+        val name = readSettingsProjectName(projectDir) ?: projectDir.fileName.toString()
+        val buildText = try {
+            findBuildFile(projectDir)?.toFile()?.readText()
+        } catch (e: Exception) {
+            null
+        }
+        val group = buildText?.let {
+            Regex("""(?:^|\n)\s*group\s*[=:]\s*["']([^"']+)["']""").find(it)?.groupValues?.get(1)
+        } ?: ""
+        val version = buildText?.let {
+            Regex("""(?:^|\n)\s*version\s*[=:]\s*["']([^"']+)["']""").find(it)?.groupValues?.get(1)
+        } ?: "unspecified"
+
+        val standardResolvable = setOf(
+            "compileClasspath",
+            "runtimeClasspath",
+            "testCompileClasspath",
+            "testRuntimeClasspath"
+        )
+
+        val nameToConfiguration = projectData.configurationsByName.mapValues { (configName, _) ->
+            GradleDependencyConfiguration.builder()
+                .name(configName)
+                .description(null)
+                .isTransitive(true)
+                .isCanBeResolved(configName in standardResolvable)
+                .isCanBeConsumed(false)
+                .isCanBeDeclared(true)
+                .extendsFrom(emptyList())
+                .requested(emptyList())
+                .directResolved(emptyList())
+                .exceptionType(null)
+                .message(null)
+                .constraints(emptyList())
+                .attributes(emptyMap())
+                .build()
+        }
+
+        val repos = depResolutionStage.parseRepositoryUrls(projectDir, buildText).map { url ->
+            MavenRepository.builder().uri(url).knownToExist(true).build()
+        }
+
+        return GradleProject.builder()
+            .group(group.ifEmpty { null })
+            .name(name)
+            .version(version.ifEmpty { null })
+            .path(projectPath)
+            .mavenRepositories(repos) // TODO: add repos from RewriteRunner config
+            .nameToConfiguration(nameToConfiguration)
+            .build()
+    }
+
+    /** Reads `rootProject.name` from `settings.gradle(.kts)`. */
+    private fun readSettingsProjectName(projectDir: Path): String? = try {
+        val settingsFile = findSettingsFile(projectDir) ?: return null
+        val text = settingsFile.toFile().readText()
+        Regex("""rootProject\.name\s*[=:]\s*["']([^"']+)["']""").find(text)?.groupValues?.get(1)
+    } catch (e: Exception) {
+        null
+    }
+
+    // ─── Build tool detection (for BuildTool provenance marker) ──────────────
+
+    /**
+     * Detects the build tool type and version for attaching a [BuildTool] marker.
+     * Returns null when no build tool is found at [projectDir].
+     */
+    private fun detectBuildToolMarker(projectDir: Path): BuildTool? = when {
+        projectDir.resolve("pom.xml").exists() -> {
+            val version = detectMavenVersion(projectDir)
+            BuildTool(UUID.randomUUID(), BuildTool.Type.Maven, version)
+        }
+
+        hasBuildGradle(projectDir) -> {
+            val version = detectGradleWrapperVersion(projectDir) ?: "unknown"
+            BuildTool(UUID.randomUUID(), BuildTool.Type.Gradle, version)
+        }
+
+        else -> null
+    }
+
+    /** Reads the Gradle version from `gradle/wrapper/gradle-wrapper.properties`. */
+    private fun detectGradleWrapperVersion(projectDir: Path): String? =
+        parseGradleVersionFromWrapper(
+            projectDir.resolve("gradle/wrapper/gradle-wrapper.properties")
+        )
+
+    /** Attempts to read the Maven version from `mvn --version` (5-second timeout). */
+    private fun detectMavenVersion(projectDir: Path): String = try {
+        val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
+        val output = StringBuilder()
+        val result =
+            runProcess(
+                projectDir,
+                listOf(mvnCmd, "--version"),
+                captureStdout = output,
+                timeoutSeconds = 5,
+                logger = logger
+            )
+        if (result == 0) {
+            Regex("""Apache Maven ([\d.]+)""").find(output.toString())?.groupValues?.get(1)
+                ?: "unknown"
+        } else {
+            "unknown"
+        }
+    } catch (e: Exception) {
+        "unknown"
+    }
+
+    // ─── Source set inference ─────────────────────────────────────────────────
+
+    /**
+     * Returns true when [absPath] is under a `test` directory segment (e.g. `src/test/java/`).
+     */
+    private fun isTestPath(absPath: Path): Boolean = absPath.toString().contains(
+        "${java.io.File.separatorChar}test${java.io.File.separatorChar}"
+    )
 
     // ─── File collection ──────────────────────────────────────────────────────
 

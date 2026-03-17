@@ -108,7 +108,7 @@ class RecipeLoaderTest :
             val result = runCatching {
                 RecipeLoader(NoOpRunnerLogger).load(
                     recipeJars = emptyList(),
-                    activeRecipeName = "org.openrewrite.gradle.MigrateDependenciesToVersionCatalog",
+                    activeRecipeName = "com.example.nonexistent.FakeRecipeThatDoesNotExist",
                     rewriteYaml = null
                 )
             }

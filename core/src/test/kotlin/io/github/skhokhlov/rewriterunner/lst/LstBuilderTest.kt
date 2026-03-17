@@ -39,7 +39,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
                 }
             return LstBuilder(
                 logger = NoOpRunnerLogger,
@@ -103,7 +104,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path) = emptyList<Path>()
+                    override fun resolveClasspath(projectDir: Path) =
+                        ClasspathResolutionResult(emptyList())
                 }
             val builder =
                 LstBuilder(
@@ -136,7 +138,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path) = emptyList<Path>()
+                    override fun resolveClasspath(projectDir: Path) =
+                        ClasspathResolutionResult(emptyList())
                 }
             val builder =
                 LstBuilder(
@@ -208,7 +211,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path) = emptyList<Path>()
+                    override fun resolveClasspath(projectDir: Path) =
+                        ClasspathResolutionResult(emptyList())
                 }
             val builder =
                 LstBuilder(
@@ -588,9 +592,9 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
                         stage2Called = true
-                        return emptyList()
+                        return ClasspathResolutionResult(emptyList())
                     }
                 }
 
@@ -617,9 +621,9 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
                         stage2Called = true
-                        return emptyList()
+                        return ClasspathResolutionResult(emptyList())
                     }
                 }
 
