@@ -60,8 +60,13 @@ The resolved classpath is **shared across all language parsers** — `JavaParser
 | `.gradle` | `GroovyParser` | Project classpath + Gradle DSL |
 | `.yaml` / `.yml` | `YamlParser` | — |
 | `.json` | `JsonParser` | — |
-| `.xml` | `XmlParser` | — |
+| `pom.xml` | `MavenParser` | Fully resolved (parent POMs, property interpolation, BOM imports); adds `MavenResolutionResult` marker, enabling `rewrite-maven` recipes |
+| `*.xml` (other) | `XmlParser` | — |
 | `.properties` | `PropertiesParser` | — |
+| `.toml` | `TomlParser` | — |
+| `.hcl` / `.tf` / `.tfvars` | `HclParser` | — |
+| `.proto` | `ProtoParser` | — |
+| `.dockerfile` / `.containerfile` / `Dockerfile*` / `Containerfile*` | `DockerParser` | — (matched by extension **and** by filename prefix) |
 
 ## Gradle DSL Classpath
 

@@ -93,6 +93,9 @@ cli/src/
 - `ResultFormatter` has a secondary constructor accepting `PrintWriter`; `RunCommand` passes picocli's `@Spec` output writer
 - Extension filtering: CLI flags take precedence over config file settings
 - OpenRewrite requires all source files in memory simultaneously — for large projects use `-Xmx6g`
+- Dockerfile/Containerfile files are collected both by extension (`.dockerfile`, `.containerfile`) and by filename prefix (`Dockerfile*`, `Containerfile*`) — all go into the `.dockerfile` bucket for `DockerParser`
+- `pom.xml` files are routed to `MavenParser` (full resolution — parent POMs, property interpolation, BOM imports); all other `.xml` files use `XmlParser`. This split happens inside the `.xml` routing block in `LstBuilder.build()` by filtering on `file.name == "pom.xml"`. `MavenParser` adds `MavenResolutionResult` marker, enabling the full `rewrite-maven` recipe catalog. Resolution uses `~/.m2/settings.xml` and local repo; artifacts already cached require no network access.
+- Parsers requiring external runtimes (Python via RPC, JavaScript/TypeScript via Node.js, C# via .NET) are **not** included — they need out-of-process services
 
 ## Logging
 
