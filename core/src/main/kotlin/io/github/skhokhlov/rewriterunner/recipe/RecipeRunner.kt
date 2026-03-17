@@ -1,11 +1,11 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
-import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.LargeSourceSet
 import org.openrewrite.Recipe
+import org.openrewrite.RecipeRun
 import org.openrewrite.Result
 import org.openrewrite.SourceFile
 import org.openrewrite.internal.InMemoryLargeSourceSet
@@ -18,7 +18,7 @@ import org.openrewrite.internal.InMemoryLargeSourceSet
  * simultaneously, which is required for cross-file analysis (e.g., renaming a type used
  * across multiple files). For large projects, increase the JVM heap with `-Xmx`.
  */
-class RecipeRunner(val logger: RunnerLogger) {
+open class RecipeRunner(val logger: RunnerLogger) {
     /**
      * Run [recipe] against [sourceFiles] and return all [org.openrewrite.Result]s.
      *
@@ -38,12 +38,33 @@ class RecipeRunner(val logger: RunnerLogger) {
         logger.info("Running recipe '${recipe.name}' against ${sourceFiles.size} source files")
 
         val largeSourceSet: LargeSourceSet = InMemoryLargeSourceSet(sourceFiles)
-        val recipeRun = recipe.run(largeSourceSet, ctx)
+        val recipeRun =
+            try {
+                executeRecipe(recipe, largeSourceSet, ctx)
+            } catch (e: LinkageError) {
+                throw IllegalStateException(
+                    "Failed to load recipe class — a required dependency may not have been " +
+                        "downloaded. Try re-running with --debug to see which artifacts failed " +
+                        "to resolve.",
+                    e
+                )
+            }
         val results = recipeRun.changeset.allResults
 
         logger.info("Recipe produced ${results.size} result(s)")
         return results
     }
+
+    /**
+     * Calls [recipe].run against [sourceSet]. Extracted as a protected open method so that
+     * tests can subclass [RecipeRunner] and simulate failure scenarios (e.g. [LinkageError]
+     * caused by a missing transitive dependency JAR) without needing a real broken classpath.
+     */
+    protected open fun executeRecipe(
+        recipe: Recipe,
+        sourceSet: LargeSourceSet,
+        ctx: ExecutionContext
+    ): RecipeRun = recipe.run(sourceSet, ctx)
 
     private fun defaultContext(): ExecutionContext = InMemoryExecutionContext { throwable ->
         logger.warn("Recipe execution error: ${throwable.message}")

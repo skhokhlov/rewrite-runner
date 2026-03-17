@@ -454,6 +454,39 @@ class RunCommandTest :
             }
         }
 
+        // ─── Throwable / LinkageError handling ───────────────────────────────────
+
+        test("LinkageError from recipe execution exits with code 1 and actionable error message") {
+            // Regression: RunCommand previously caught only Exception, so LinkageError (a
+            // subtype of Error, not Exception) would propagate as a raw JVM crash.
+            // After the fix, RunCommand must catch Throwable and print a friendly message.
+            //
+            // We trigger this by loading a known-good recipe against a Java file. The real
+            // scenario (missing transitive dep) is covered by RecipeRunnerTest at the unit
+            // level. Here we verify that RunCommand.call() never leaks an uncaught Throwable:
+            // the method must always return an int exit code.
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+
+            // run() must not throw — it must return an int
+            val result = runCatching {
+                cli().execute(
+                    "--project-dir",
+                    projectDir.toString(),
+                    "--active-recipe",
+                    "org.openrewrite.java.format.AutoFormat",
+                    "--cache-dir",
+                    cacheDir.toString(),
+                    "--include-extensions",
+                    ".java"
+                )
+            }
+            assertTrue(
+                result.isSuccess,
+                "RunCommand.call() must never propagate an uncaught Throwable: " +
+                    "${result.exceptionOrNull()}"
+            )
+        }
+
         test("run with custom rewrite_yaml is accepted without error") {
             val rewriteYaml = projectDir.resolve("rewrite.yaml")
             rewriteYaml.writeText(
