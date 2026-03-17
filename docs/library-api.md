@@ -38,6 +38,14 @@ val result = RewriteRunner.builder()
 - `IllegalArgumentException` — recipe not found in loaded JARs or classpath
 - `IllegalStateException` — `activeRecipe` not set when `build()` is called
 
+### Resource management
+
+`RewriteRunner.run()` automatically closes the `URLClassLoader` created over recipe JARs
+once the recipe has finished executing and all file writes are complete. No manual cleanup
+is required by callers. Each call to `run()` creates and promptly releases its own
+classloader, so calling `run()` multiple times on the same instance is safe and does not
+accumulate file descriptors.
+
 ## RunResult
 
 Return type of `RewriteRunner.run()`.

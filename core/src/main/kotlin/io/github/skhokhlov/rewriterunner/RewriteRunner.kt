@@ -114,106 +114,120 @@ class RewriteRunner private constructor(private val config: Builder) {
             emptyList()
         }
 
-        // 3. Load recipe (precedence: string content > explicit path > implicit projectDir/rewrite.yaml)
+        // Stages 3–6 run inside RecipeLoader.use{} so the URLClassLoader over recipe JARs
+        // is always closed when this block exits (success or exception), releasing file
+        // descriptors promptly rather than waiting for GC.
         logger.lifecycle("[3/6] Loading recipe '${config.activeRecipe}'")
-        val recipe = if (config.rewriteConfigContent != null) {
-            RecipeLoader(logger).load(
-                recipeJars = recipeJars,
-                activeRecipeName = config.activeRecipe,
-                rewriteYamlContent = config.rewriteConfigContent
-            )
-        } else {
-            val effectiveRewriteConfig =
-                config.rewriteConfig
-                    ?: config.projectDir.resolve("rewrite.yaml").takeIf { it.exists() }
-                    ?: config.projectDir.resolve("rewrite.yml")
-            RecipeLoader(logger).load(
-                recipeJars = recipeJars,
-                activeRecipeName = config.activeRecipe,
-                rewriteYaml = effectiveRewriteConfig
-            )
-        }
-        logger.info("      Recipe ready: ${recipe.name}")
+        return RecipeLoader(logger).use { recipeLoader ->
 
-        // 4. Build LST (3-stage pipeline)
-        // OpenRewrite requires all source files in memory simultaneously to support
-        // cross-file analysis. For large projects set -Xmx accordingly, e.g.:
-        //   java -Xmx6g -jar rewrite-runner-all.jar …
-        logger.lifecycle("[4/6] Building LST for ${config.projectDir}")
-        val lstBuilder = LstBuilder(
-            logger = logger,
-            cacheDir = effectiveCacheDir,
-            toolConfig = toolConfig,
-            depResolutionStage = DependencyResolutionStage(projectContext, logger)
-        )
-        val effectiveParseConfig = if (config.excludePaths.isNotEmpty()) {
-            toolConfig.parse.copy(excludePaths = config.excludePaths)
-        } else {
-            toolConfig.parse
-        }
-        val lstStart = System.currentTimeMillis()
-        val sourceFiles = lstBuilder.build(
-            projectDir = config.projectDir,
-            parseConfig = effectiveParseConfig,
-            includeExtensionsCli = config.includeExtensions,
-            excludeExtensionsCli = config.excludeExtensions
-        )
-        logger.lifecycle(
-            "      LST built: ${sourceFiles.size} file(s) in ${System.currentTimeMillis() - lstStart}ms"
-        )
-
-        // 5. Run recipe
-        logger.lifecycle(
-            "[5/6] Running recipe '${recipe.name}' against ${sourceFiles.size} file(s)"
-        )
-        val recipeStart = System.currentTimeMillis()
-        val results = RecipeRunner(logger).run(recipe, sourceFiles)
-        logger.lifecycle(
-            "      Recipe complete: ${results.size} file(s) changed" +
-                " in ${System.currentTimeMillis() - recipeStart}ms"
-        )
-
-        // 6. Apply changes (unless dryRun)
-        val writtenFiles = mutableListOf<Path>()
-        if (!config.dryRun) {
-            logger.lifecycle("[6/6] Writing changes to disk")
-            for (result in results) {
-                if (result.after == null) {
-                    // Recipe deleted this file — remove it from disk
-                    val beforePath = result.before?.let { config.projectDir.resolve(it.sourcePath) }
-                    if (beforePath != null) {
-                        try {
-                            Files.deleteIfExists(beforePath)
-                            logger.info("      Deleted ${result.before!!.sourcePath}")
-                        } catch (e: Exception) {
-                            logger.warn("Failed to delete file $beforePath: ${e.message}")
-                        }
-                    }
+            // 3. Load recipe (precedence: string content > explicit path > implicit projectDir/rewrite.yaml)
+            val recipe =
+                if (config.rewriteConfigContent != null) {
+                    recipeLoader.load(
+                        recipeJars = recipeJars,
+                        activeRecipeName = config.activeRecipe,
+                        rewriteYamlContent = config.rewriteConfigContent
+                    )
                 } else {
-                    val after = result.after!!
-                    val target = config.projectDir.resolve(after.sourcePath)
-                    Files.createDirectories(target.parent)
-                    target.toFile().writeText(after.printAll(), Charsets.UTF_8)
-                    writtenFiles.add(target)
-                    logger.info("      Wrote ${after.sourcePath}")
+                    val effectiveRewriteConfig =
+                        config.rewriteConfig
+                            ?: config.projectDir.resolve("rewrite.yaml").takeIf { it.exists() }
+                            ?: config.projectDir.resolve("rewrite.yml")
+                    recipeLoader.load(
+                        recipeJars = recipeJars,
+                        activeRecipeName = config.activeRecipe,
+                        rewriteYaml = effectiveRewriteConfig
+                    )
                 }
-            }
-            if (results.isEmpty()) {
-                logger.lifecycle("      No changes — nothing to write")
-            } else {
-                logger.lifecycle("      Done: ${writtenFiles.size} file(s) written")
-            }
-        } else {
+            // The URLClassLoader must NOT be closed before recipe.run() — OpenRewrite
+            // visitor inner-classes are loaded lazily at that point.  RecipeLoader.close()
+            // is deferred to the end of this use{} block, after all stages complete.
+            logger.info("      Recipe ready: ${recipe.name}")
+
+            // 4. Build LST (3-stage pipeline)
+            // OpenRewrite requires all source files in memory simultaneously to support
+            // cross-file analysis. For large projects set -Xmx accordingly, e.g.:
+            //   java -Xmx6g -jar rewrite-runner-all.jar …
+            logger.lifecycle("[4/6] Building LST for ${config.projectDir}")
+            val lstBuilder =
+                LstBuilder(
+                    logger = logger,
+                    cacheDir = effectiveCacheDir,
+                    toolConfig = toolConfig,
+                    depResolutionStage = DependencyResolutionStage(projectContext, logger)
+                )
+            val effectiveParseConfig =
+                if (config.excludePaths.isNotEmpty()) {
+                    toolConfig.parse.copy(excludePaths = config.excludePaths)
+                } else {
+                    toolConfig.parse
+                }
+            val lstStart = System.currentTimeMillis()
+            val sourceFiles =
+                lstBuilder.build(
+                    projectDir = config.projectDir,
+                    parseConfig = effectiveParseConfig,
+                    includeExtensionsCli = config.includeExtensions,
+                    excludeExtensionsCli = config.excludeExtensions
+                )
             logger.lifecycle(
-                "[6/6] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
+                "      LST built: ${sourceFiles.size} file(s) in ${System.currentTimeMillis() - lstStart}ms"
+            )
+
+            // 5. Run recipe
+            logger.lifecycle(
+                "[5/6] Running recipe '${recipe.name}' against ${sourceFiles.size} file(s)"
+            )
+            val recipeStart = System.currentTimeMillis()
+            val results = RecipeRunner(logger).run(recipe, sourceFiles)
+            logger.lifecycle(
+                "      Recipe complete: ${results.size} file(s) changed" +
+                    " in ${System.currentTimeMillis() - recipeStart}ms"
+            )
+
+            // 6. Apply changes (unless dryRun)
+            val writtenFiles = mutableListOf<Path>()
+            if (!config.dryRun) {
+                logger.lifecycle("[6/6] Writing changes to disk")
+                for (result in results) {
+                    if (result.after == null) {
+                        // Recipe deleted this file — remove it from disk
+                        val beforePath =
+                            result.before?.let { config.projectDir.resolve(it.sourcePath) }
+                        if (beforePath != null) {
+                            try {
+                                Files.deleteIfExists(beforePath)
+                                logger.info("      Deleted ${result.before!!.sourcePath}")
+                            } catch (e: Exception) {
+                                logger.warn("Failed to delete file $beforePath: ${e.message}")
+                            }
+                        }
+                    } else {
+                        val after = result.after!!
+                        val target = config.projectDir.resolve(after.sourcePath)
+                        Files.createDirectories(target.parent)
+                        target.toFile().writeText(after.printAll(), Charsets.UTF_8)
+                        writtenFiles.add(target)
+                        logger.info("      Wrote ${after.sourcePath}")
+                    }
+                }
+                if (results.isEmpty()) {
+                    logger.lifecycle("      No changes — nothing to write")
+                } else {
+                    logger.lifecycle("      Done: ${writtenFiles.size} file(s) written")
+                }
+            } else {
+                logger.lifecycle(
+                    "[6/6] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
+                )
+            }
+
+            RunResult(
+                results = results,
+                changedFiles = writtenFiles,
+                projectDir = config.projectDir
             )
         }
-
-        return RunResult(
-            results = results,
-            changedFiles = writtenFiles,
-            projectDir = config.projectDir
-        )
     }
 
     /**
