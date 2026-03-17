@@ -80,12 +80,19 @@ try {
 core/src/test/kotlin/.../
 ├── config/ToolConfigTest.kt
 ├── lst/
-│   ├── LstBuilderTest.kt
+│   ├── LstBuilderTest.kt           ← parser routing, 3-stage pipeline, compile-on-demand, Gradle DSL classpath
+│   ├── FileCollectorTest.kt        ← extension filtering, directory exclusion, glob patterns
 │   ├── BuildToolStageTest.kt
+│   ├── BuildToolStageBranchTest.kt
 │   ├── DependencyResolutionStageTest.kt
+│   ├── DependencyResolutionStageResolveClasspathTest.kt
 │   ├── DirectParseStageTest.kt
+│   ├── GatherDeclaredCoordinatesTest.kt
+│   ├── GradleVersionParsingTest.kt
 │   ├── JavaVersionDetectionTest.kt
-│   └── KotlinVersionDetectionTest.kt
+│   ├── JavaVersionParsingTest.kt
+│   ├── KotlinVersionDetectionTest.kt
+│   └── MultiModuleJavaVersionTest.kt
 └── output/ResultFormatterTest.kt
 
 cli/src/test/kotlin/.../
@@ -105,3 +112,6 @@ cli/src/test/kotlin/.../
 
 - `DependencyResolutionStage.parseMavenDependencies` and `parseGradleDependencies` are `internal` — accessible from test code in the same module
 - `BuildToolStage` and `DependencyResolutionStage` are `open` classes with `open` methods — subclass instead of mocking
+- `VersionDetector.parseGradleVersionFromWrapper` and `LstBuilder.parseGradleVersionFromWrapper` are `internal` — the `LstBuilder` method is a thin delegation to `VersionDetector`; `GradleVersionParsingTest` calls it via `LstBuilder` for backward compatibility
+- `LstBuilder.resolveGradleDslClasspath` is `internal` — thin delegation to `GradleDslClasspathResolver`; tested via `LstBuilderTest`
+- `FileCollector` is `internal` — tested directly in `FileCollectorTest`
