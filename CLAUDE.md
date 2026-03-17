@@ -60,6 +60,10 @@ core/src/
 │   ├── config/ToolConfig.kt        # YAML config + env var interpolation
 │   ├── lst/
 │   │   ├── LstBuilder.kt           # Orchestrates 3-stage pipeline + multi-language parsing
+│   │   ├── FileCollector.kt        # NIO walk, excluded-dir filtering, glob exclusions, extension resolution
+│   │   ├── VersionDetector.kt      # Java/Kotlin JVM-version walk-up + parseGradleVersionFromWrapper
+│   │   ├── GradleDslClasspathResolver.kt  # Locate Gradle installation for DSL classpath
+│   │   ├── MarkerFactory.kt        # BuildTool, GitProvenance, OperatingSystem, GradleProject markers
 │   │   ├── BuildToolStage.kt       # Stage 1: Maven/Gradle subprocess
 │   │   ├── DependencyResolutionStage.kt  # Stage 2: Maven Resolver download
 │   │   └── DirectParseStage.kt     # Stage 3: Local cache scan
@@ -70,7 +74,7 @@ core/src/
 │       └── RecipeRunner.kt
 └── test/kotlin/.../rewriterunner/
     ├── config/ToolConfigTest.kt
-    ├── lst/                        # LstBuilderTest, stage tests, JavaVersionDetectionTest, KotlinVersionDetectionTest
+    ├── lst/                        # LstBuilderTest, FileCollectorTest, stage tests, version detection tests
     └── output/ResultFormatterTest.kt
 
 cli/src/
@@ -94,7 +98,9 @@ cli/src/
 - Extension filtering: CLI flags take precedence over config file settings
 - OpenRewrite requires all source files in memory simultaneously — for large projects use `-Xmx6g`
 - Dockerfile/Containerfile files are collected both by extension (`.dockerfile`, `.containerfile`) and by filename prefix (`Dockerfile*`, `Containerfile*`) — all go into the `.dockerfile` bucket for `DockerParser`
-- `pom.xml` files are routed to `MavenParser` (full resolution — parent POMs, property interpolation, BOM imports); all other `.xml` files use `XmlParser`. This split happens inside the `.xml` routing block in `LstBuilder.build()` by filtering on `file.name == "pom.xml"`. `MavenParser` adds `MavenResolutionResult` marker, enabling the full `rewrite-maven` recipe catalog. Resolution uses `~/.m2/settings.xml` and local repo; artifacts already cached require no network access.
+- `pom.xml` files are routed to `MavenParser` (full resolution — parent POMs, property interpolation, BOM imports); all other `.xml` files use `XmlParser`. This split happens in the `.xml` routing block inside `LstBuilder.build()` by filtering on `file.name == "pom.xml"`. `MavenParser` adds `MavenResolutionResult` marker, enabling the full `rewrite-maven` recipe catalog. Resolution uses `~/.m2/settings.xml` and local repo; artifacts already cached require no network access.
+- `LstBuilder` delegates to `FileCollector` (file walk/filtering), `VersionDetector` (Java/Kotlin version detection), `GradleDslClasspathResolver` (Gradle installation lookup), and `MarkerFactory` (provenance/build-tool markers). These are internal helpers instantiated inside `LstBuilder`'s constructor body.
+- `LstBuilder.parseGradleVersionFromWrapper` and `LstBuilder.resolveGradleDslClasspath` are `internal` thin delegations to `VersionDetector` / `GradleDslClasspathResolver` preserved for test backward compatibility.
 - Parsers requiring external runtimes (Python via RPC, JavaScript/TypeScript via Node.js, C# via .NET) are **not** included — they need out-of-process services
 
 ## Logging

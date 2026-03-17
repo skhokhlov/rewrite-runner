@@ -14,6 +14,12 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.openrewrite.maven.tree.MavenResolutionResult
 
+/**
+ * Integration tests for [LstBuilder.build]: parser routing, 3-stage classpath pipeline,
+ * compile-on-demand, and Gradle DSL classpath resolution.
+ *
+ * Extension filtering and file collection logic is covered by [FileCollectorTest].
+ */
 class LstBuilderTest :
     FunSpec({
         var projectDir: Path = Path.of("")
@@ -51,12 +57,13 @@ class LstBuilderTest :
             )
         }
 
-        // ─── Extension filtering ──────────────────────────────────────────────────
+        // ─── Extension filtering (integration smoke tests) ────────────────────────
+        // Full unit tests for FileCollector.resolveExtensions / collectFiles live in
+        // FileCollectorTest.
 
         test("includeExtensions CLI flag restricts parsed file types") {
             projectDir.resolve("Hello.java").writeText("class Hello {}")
             projectDir.resolve("config.yaml").writeText("key: value")
-            projectDir.resolve("data.json").writeText("{}")
 
             val sources = lstBuilder().build(
                 projectDir = projectDir,
@@ -150,83 +157,12 @@ class LstBuilderTest :
                     depResolutionStage = noOpDepStage
                 )
 
-            // CLI flag should override the config's yaml-only setting
             val sources = builder.build(
                 projectDir = projectDir,
                 includeExtensionsCli = listOf(".java")
             )
             assertEquals(1, sources.size)
             assertTrue(sources.first().sourcePath.toString().endsWith(".java"))
-        }
-
-        // ─── Directory exclusion ──────────────────────────────────────────────────
-
-        test("files inside build directory are excluded") {
-            projectDir.resolve("Hello.java").writeText("class Hello {}")
-            projectDir.resolve("build").createDirectories()
-            projectDir.resolve("build/Generated.java").writeText("class Generated {}")
-
-            val sources =
-                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
-            assertEquals(1, sources.size, "build/ files should be excluded")
-            assertTrue(sources.first().sourcePath.toString() == "Hello.java")
-        }
-
-        test("files inside target directory are excluded") {
-            projectDir.resolve("Hello.java").writeText("class Hello {}")
-            projectDir.resolve("target").createDirectories()
-            projectDir.resolve("target/Compiled.java").writeText("class Compiled {}")
-
-            val sources =
-                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
-            assertEquals(1, sources.size, "target/ files should be excluded")
-        }
-
-        test("files inside node_modules are excluded") {
-            projectDir.resolve("config.yaml").writeText("key: value")
-            projectDir.resolve("node_modules").createDirectories()
-            projectDir.resolve("node_modules/package.json").writeText("{}")
-
-            val sources =
-                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".json"))
-            assertEquals(0, sources.size, "node_modules/ files should be excluded")
-        }
-
-        test("glob excludePaths patterns are applied") {
-            projectDir.resolve("src").createDirectories()
-            projectDir.resolve("src/Main.java").writeText("class Main {}")
-            projectDir.resolve("generated").createDirectories()
-            projectDir.resolve("generated/Gen.java").writeText("class Gen {}")
-
-            val config =
-                ToolConfig(
-                    parse = ParseConfig(excludePaths = listOf("generated/**")),
-                    logger = NoOpRunnerLogger
-                )
-            val noOpDepStage =
-                object : DependencyResolutionStage(
-                    AetherContext.build(
-                        projectDir.resolve("cache").resolve("repository"),
-                        logger = NoOpRunnerLogger
-                    ),
-                    NoOpRunnerLogger
-                ) {
-                    override fun resolveClasspath(projectDir: Path) =
-                        ClasspathResolutionResult(emptyList())
-                }
-            val builder =
-                LstBuilder(
-                    logger = NoOpRunnerLogger,
-                    cacheDir = projectDir.resolve("cache"),
-                    toolConfig = config,
-                    buildToolStage = failingBuildTool,
-                    depResolutionStage = noOpDepStage
-                )
-
-            val sources =
-                builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
-            assertEquals(1, sources.size)
-            assertTrue(sources.first().sourcePath.toString().contains("Main"))
         }
 
         // ─── Multi-language parsing ───────────────────────────────────────────────
@@ -254,9 +190,7 @@ class LstBuilderTest :
             assertTrue(paths.any { it.endsWith(".java") }, "Java should be parsed")
             assertTrue(paths.any { it.endsWith(".kt") }, "Kotlin should be parsed")
             assertTrue(
-                paths.any {
-                    it.endsWith(".gradle.kts")
-                },
+                paths.any { it.endsWith(".gradle.kts") },
                 "Gradle Kotlin DSL should be parsed"
             )
             assertTrue(paths.any { it.endsWith(".gradle") }, "Gradle Groovy DSL should be parsed")
@@ -264,17 +198,12 @@ class LstBuilderTest :
             assertTrue(paths.any { it.endsWith(".yaml") }, "YAML should be parsed")
             assertTrue(paths.any { it.endsWith(".json") }, "JSON should be parsed")
             assertTrue(
-                paths.any {
-                    it.endsWith(".xml")
-                },
+                paths.any { it.endsWith(".xml") },
                 "XML (pom.xml via MavenParser) should be parsed"
             )
             assertTrue(paths.any { it.endsWith(".properties") }, "Properties should be parsed")
             assertTrue(paths.any { it.endsWith(".toml") }, "TOML should be parsed")
-            assertTrue(
-                paths.any { it.endsWith(".tf") },
-                "Terraform (.tf) should be parsed"
-            )
+            assertTrue(paths.any { it.endsWith(".tf") }, "Terraform (.tf) should be parsed")
             assertTrue(paths.any { it.endsWith(".proto") }, "Protobuf should be parsed")
             assertTrue(paths.any { it == "Dockerfile" }, "Dockerfile should be parsed by name")
         }
@@ -457,7 +386,6 @@ class LstBuilderTest :
             projectDir.resolve("Dockerfile").writeText("FROM ubuntu:22.04\n")
             projectDir.resolve("app.properties").writeText("key=value")
 
-            // Include only .properties, so .dockerfile is not in effective set
             val sources =
                 lstBuilder().build(
                     projectDir = projectDir,
@@ -640,13 +568,11 @@ class LstBuilderTest :
         }
 
         test("parsing succeeds even when all classpath stages fail") {
-            // Both stage 1 and stage 2 fail → stage 3 fallback → parse with empty classpath
             projectDir.resolve("Hello.java").writeText("class Hello {}")
 
             val sources =
                 lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
 
-            // Should still parse the file even without a resolved classpath
             assertEquals(
                 1,
                 sources.size,
@@ -686,7 +612,6 @@ class LstBuilderTest :
             var tryCompileCalled = false
             val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
 
-            // Pre-create a class directory so the tool sees it as already compiled
             projectDir.resolve("target/classes").createDirectories()
 
             val trackingBuildTool2 =
@@ -718,7 +643,7 @@ class LstBuilderTest :
                 object : BuildToolStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
 
-                    override fun tryCompile(projectDir: Path): Boolean = false // compilation fails
+                    override fun tryCompile(projectDir: Path): Boolean = false
                 }
 
             projectDir.resolve("Hello.java").writeText("class Hello {}")
@@ -738,7 +663,6 @@ class LstBuilderTest :
         test("class dirs produced by tryCompile are included in classpath") {
             val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
 
-            // Simulate a build tool that produces target/classes when tryCompile is called
             val compilingBuildTool =
                 object : BuildToolStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
@@ -750,7 +674,6 @@ class LstBuilderTest :
                 }
 
             projectDir.resolve("Hello.java").writeText("class Hello {}")
-            // No exception and file is parsed — class dir created by compile is picked up
             val sources =
                 lstBuilder(buildTool = compilingBuildTool).build(
                     projectDir = projectDir,
@@ -792,14 +715,10 @@ class LstBuilderTest :
 
         test("resolveGradleDslClasspath returns empty list when no Gradle installation found") {
             val builder = lstBuilder()
-            // Use an isolated temp dir with no wrapper and no GRADLE_HOME (env cannot be unset,
-            // but the dir will have no wrapper so this tests the no-distribution-found branch
-            // whenever GRADLE_HOME is not set in the test environment).
             val emptyProject = Files.createTempDirectory("gradle-dsl-test-")
             try {
                 val gradleHome = System.getenv("GRADLE_HOME")
                 if (gradleHome.isNullOrBlank()) {
-                    // No GRADLE_HOME set — we expect empty unless ~/.gradle/wrapper/dists exists
                     val distsRoot =
                         Path.of(System.getProperty("user.home")).resolve(".gradle/wrapper/dists")
                     if (!distsRoot.toFile().exists()) {
@@ -809,9 +728,7 @@ class LstBuilderTest :
                             "Should return empty list when no Gradle found"
                         )
                     }
-                    // If dists exist the fallback will fire; that's correct behaviour — skip assert
                 }
-                // If GRADLE_HOME is set the method will succeed; that's also correct.
             } finally {
                 emptyProject.toFile().deleteRecursively()
             }
@@ -821,7 +738,6 @@ class LstBuilderTest :
             val wrapperDir = projectDir.resolve("gradle/wrapper").also {
                 it.createDirectories()
             }
-            // Write wrapper properties pointing at a Gradle version we know is cached
             val distsRoot =
                 Path.of(System.getProperty("user.home")).resolve(".gradle/wrapper/dists")
             val cachedVersion = if (distsRoot.toFile().exists()) {
@@ -830,7 +746,7 @@ class LstBuilderTest :
                     ?.firstOrNull()
                     ?.name
                     ?.removePrefix("gradle-")
-                    ?.substringBeforeLast("-") // strip "-bin" / "-all"
+                    ?.substringBeforeLast("-")
             } else {
                 null
             }
@@ -847,7 +763,6 @@ class LstBuilderTest :
                     "All resolved paths should be JARs"
                 )
             }
-            // If no distribution is cached in CI, the test is a no-op (environment variability).
         }
 
         test("resolveGradleDslClasspath returns only lib/ JARs, not plugins or agents") {
@@ -857,7 +772,7 @@ class LstBuilderTest :
 
             val builder = lstBuilder()
             val jars = builder.resolveGradleDslClasspath(projectDir)
-            if (jars.isEmpty()) return@test // no Gradle found, skip
+            if (jars.isEmpty()) return@test
 
             assertTrue(
                 jars.none { it.toString().contains("/lib/plugins/") },

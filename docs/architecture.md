@@ -46,9 +46,23 @@ The resolved classpath is **shared across all language parsers** — `JavaParser
 
 `LstBuilder` also adds project class directories (`target/classes`, `build/classes/java/main`, etc.) to the classpath for cross-module type resolution.
 
+## LST Module Structure
+
+`LstBuilder` is an orchestrator that delegates each concern to a focused helper class:
+
+| Class | Responsibility |
+|-------|---------------|
+| `LstBuilder` | Orchestration, 3-stage classpath pipeline, parser dispatch |
+| `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions, extension resolution |
+| `VersionDetector` | Java/Kotlin JVM-version walk-up, `normalizeJvmVersion`, `parseGradleVersionFromWrapper` |
+| `GradleDslClasspathResolver` | Locate Gradle installation (`GRADLE_HOME`, wrapper, `~/.gradle/wrapper/dists/`) |
+| `MarkerFactory` | `BuildTool`, `GitProvenance`, `OperatingSystemProvenance`, `BuildEnvironment`, `GradleProject` markers |
+
+`BuildToolStage` and `DependencyResolutionStage` remain injected into `LstBuilder` as `open` classes; the helper classes above are internal and are instantiated by `LstBuilder`.
+
 ## File Routing by Extension
 
-`LstBuilder` routes files by extension. Excludes `build/`, `target/`, `node_modules/`, `.git/`, `.gradle/`, `.idea/`, `out/`, `dist/` by default.
+`LstBuilder` delegates file collection to `FileCollector`. Excludes `build/`, `target/`, `node_modules/`, `.git/`, `.gradle/`, `.idea/`, `out/`, `dist/` by default.
 
 | Extension | Parser | Classpath |
 |-----------|--------|-----------|
@@ -77,7 +91,7 @@ Only JARs in `lib/` (not `lib/plugins/` or `lib/agents/`) are included — provi
 
 ## Java / Kotlin Version Detection
 
-`LstBuilder` attaches a `JavaVersion` marker to each source file using a **walk-up mechanism**: starts at the file's directory and walks up to project root, so subproject-specific config overrides root config.
+`VersionDetector` attaches a `JavaVersion` marker to each source file using a **walk-up mechanism**: starts at the file's directory and walks up to project root, so subproject-specific config overrides root config.
 
 **For `.java` files** — reads from nearest build file:
 - Maven: `<source>`, `<target>`, `<release>` in `maven-compiler-plugin`
@@ -101,7 +115,7 @@ core/                              # Library module (no embedded deps)
 │       ├── RewriteRunner.kt       # Library facade / builder API
 │       ├── RunResult.kt
 │       ├── config/ToolConfig.kt
-│       ├── lst/                   # LstBuilder + 3 stages
+│       ├── lst/                   # LstBuilder (orchestrator) + FileCollector, VersionDetector, GradleDslClasspathResolver, MarkerFactory + 3 stage classes
 │       ├── output/ResultFormatter.kt
 │       └── recipe/                # RecipeArtifactResolver, RecipeLoader, RecipeRunner
 cli/                               # Fat JAR module

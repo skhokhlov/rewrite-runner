@@ -5,39 +5,24 @@ import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
-import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.UUID
 import kotlin.io.path.exists
-import kotlin.io.path.extension
-import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader
-import org.codehaus.plexus.util.xml.Xpp3Dom
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.SourceFile
 import org.openrewrite.docker.DockerParser
 import org.openrewrite.gradle.GradleParser
-import org.openrewrite.gradle.marker.GradleBuildscript
-import org.openrewrite.gradle.marker.GradleDependencyConfiguration
-import org.openrewrite.gradle.marker.GradleProject
 import org.openrewrite.groovy.GroovyParser
 import org.openrewrite.hcl.HclParser
 import org.openrewrite.java.JavaParser
 import org.openrewrite.java.internal.JavaTypeCache
 import org.openrewrite.java.marker.JavaSourceSet
-import org.openrewrite.java.marker.JavaVersion
 import org.openrewrite.json.JsonParser
 import org.openrewrite.kotlin.KotlinParser
-import org.openrewrite.marker.BuildTool
-import org.openrewrite.marker.GitProvenance
-import org.openrewrite.marker.OperatingSystemProvenance
-import org.openrewrite.marker.ci.BuildEnvironment
 import org.openrewrite.maven.MavenParser
-import org.openrewrite.maven.tree.MavenRepository
 import org.openrewrite.properties.PropertiesParser
 import org.openrewrite.protobuf.ProtoParser
 import org.openrewrite.toml.TomlParser
@@ -64,39 +49,11 @@ import org.openrewrite.yaml.YamlParser
  * **Java/Kotlin version detection** — each `.java`, `.kt`, and `.kts` source file receives a
  * [org.openrewrite.java.marker.JavaVersion] marker whose `sourceCompatibility`/`targetCompatibility`
  * values reflect the **nearest** build descriptor found by walking up from the file's own directory
- * toward [build]'s `projectDir`. This means each subproject's source files automatically pick up
- * that subproject's setting:
- *
- * ```
- * root/
- *   pom.xml                          ← Java 11
- *   subproject1/
- *     pom.xml                        ← Java 17   ← wins for files under subproject1/
- *     src/main/java/Hello.java       ← gets JavaVersion("17", "17")
- *   subproject2/
- *     src/main/java/World.java       ← no subproject pom.xml → falls back to root → "11"
- * ```
- *
- * Detection priority within a single build descriptor:
- * - **Maven (Java)**: plugin `<release>` > plugin `<source>`/`<target>` > `<properties>` entries.
- * - **Maven (Kotlin)**: `kotlin-maven-plugin <jvmTarget>` > then same as Java above.
- * - **Gradle (Java)**: `compileJava.options.release` > `sourceCompatibility`/`targetCompatibility` >
- *   `jvmToolchain()` / `JavaLanguageVersion.of()`.
- * - **Gradle (Kotlin)**: `jvmTarget` / `JvmTarget.JVM_N` > then same as Gradle Java above.
- *
- * Legacy `"1.8"` format is normalised to `"8"`. Unresolvable placeholders (e.g.
- * `${java.version}`) are skipped, and the walk-up continues. If no explicit version is
- * found anywhere in the ancestor chain, the running JVM's major version is used as fallback.
+ * toward [build]'s `projectDir`. See [VersionDetector] for the full algorithm.
  *
  * **Maven POM parsing** — `pom.xml` files are routed to [org.openrewrite.maven.MavenParser],
  * producing `Xml.Document` nodes annotated with [org.openrewrite.maven.tree.MavenResolutionResult]
- * and related Maven markers. This populates the fully resolved POM model (parent POM property
- * interpolation, dependency management, BOM imports), enabling the full `rewrite-maven` recipe
- * catalog (e.g. `AddDependency`, `UpgradeDependencyVersion`) to work correctly. Resolution uses
- * Maven's own machinery (`~/.m2/settings.xml`, local repo at `~/.m2/repository`); artifacts
- * already cached from prior builds require no network access. Parse errors during resolution are
- * forwarded to the [ctx] error handler and do not abort the build.
- * All other `*.xml` files continue to use [org.openrewrite.xml.XmlParser].
+ * and related Maven markers. All other `*.xml` files use [org.openrewrite.xml.XmlParser].
  */
 class LstBuilder(
     private val logger: RunnerLogger,
@@ -112,39 +69,20 @@ class LstBuilder(
         logger
     )
 ) {
-    /** Default set of extensions supported out of the box. */
-    private val defaultExtensions =
-        setOf(
-            ".java",
-            ".kt",
-            ".kts",
-            ".groovy",
-            ".gradle",
-            ".yaml",
-            ".yml",
-            ".json",
-            ".xml",
-            ".properties",
-            ".toml",
-            ".hcl",
-            ".tf",
-            ".tfvars",
-            ".proto",
-            ".dockerfile",
-            ".containerfile"
-        )
+    private val fileCollector = FileCollector()
+    private val versionDetector = VersionDetector(logger)
+    private val gradleDslClasspathResolver = GradleDslClasspathResolver(logger, versionDetector)
+    private val markerFactory = MarkerFactory(logger, depResolutionStage, versionDetector)
 
-    /** Directories excluded from the recursive walk. */
-    private val excludedDirNames = setOf(
-        ".git",
-        "build",
-        "target",
-        "node_modules",
-        ".gradle",
-        ".idea",
-        "out",
-        "dist"
-    )
+    // ─── Thin delegation methods for backward-compatible test access ──────────
+
+    /** Exposed for [GradleVersionParsingTest] — delegates to [VersionDetector]. */
+    internal fun parseGradleVersionFromWrapper(wrapperProps: Path): String? =
+        versionDetector.parseGradleVersionFromWrapper(wrapperProps)
+
+    /** Exposed for [LstBuilderTest] Gradle DSL tests — delegates to [GradleDslClasspathResolver]. */
+    internal fun resolveGradleDslClasspath(projectDir: Path): List<Path> =
+        gradleDslClasspathResolver.resolveGradleDslClasspath(projectDir)
 
     /**
      * Parse all source files in [projectDir] into OpenRewrite SourceFile trees.
@@ -171,9 +109,8 @@ class LstBuilder(
         ctx: ExecutionContext =
             InMemoryExecutionContext { logger.warn("Parse error: ${it.message}") }
     ): List<SourceFile> {
-        // Determine effective extension set
         val effectiveExtensions =
-            resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
+            fileCollector.resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
         logger.info("Parsing extensions: $effectiveExtensions")
 
         // ── 3-stage classpath resolution ──────────────────────────────────────
@@ -184,42 +121,32 @@ class LstBuilder(
         val typeCache = JavaTypeCache()
 
         // ── Provenance markers — computed once, attached to all source files ──
-        val buildEnv: BuildEnvironment? = try {
-            BuildEnvironment.build { key -> System.getenv(key) }
-        } catch (e: Exception) {
-            logger.debug("BuildEnvironment unavailable: ${e.message}")
-            null
-        }
-        val gitProvenance: GitProvenance? = try {
-            GitProvenance.fromProjectDirectory(projectDir, buildEnv)
-        } catch (e: Exception) {
-            logger.debug("Git provenance unavailable: ${e.message}")
-            null
-        }
-        val osProvenance: OperatingSystemProvenance = OperatingSystemProvenance.current()
-        val buildToolMarker: BuildTool? = detectBuildToolMarker(projectDir)
+        val buildEnv = markerFactory.buildEnvironment()
+        val gitProvenance = markerFactory.gitProvenance(projectDir, buildEnv)
+        val osProvenance = markerFactory.operatingSystem()
+        val buildToolMarker = markerFactory.detectBuildToolMarker(projectDir)
 
         // ── Per-file version caches (module dir → (source, target)) ─────────
-        // Populated lazily; null means a build file was found but carried no
-        // explicit version — triggers continued walk-up on next access.
         val javaVersionCache = mutableMapOf<Path, Pair<String, String>?>()
         val kotlinVersionCache = mutableMapOf<Path, Pair<String, String>?>()
 
         // ── Collect files by extension ────────────────────────────────────────
-        val filesByExt = collectFiles(projectDir, effectiveExtensions, parseConfig.excludePaths)
+        val filesByExt = fileCollector.collectFiles(
+            projectDir,
+            effectiveExtensions,
+            parseConfig.excludePaths
+        )
         val totalFiles = filesByExt.values.sumOf { it.size }
         logger.lifecycle(
             "Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)"
         )
 
         // ── Gradle DSL classpath (resolved at most once per build() call) ─────
-        // Populated lazily; only incurs the filesystem walk when .gradle or .gradle.kts
-        // files are actually present in the project.
-        val gradleDslClasspath: List<Path> by lazy { resolveGradleDslClasspath(projectDir) }
+        val gradleDslClasspath: List<Path> by lazy {
+            gradleDslClasspathResolver.resolveGradleDslClasspath(projectDir)
+        }
 
         // ── JavaSourceSet markers — built once per name, shared across files ──
-        // JavaSourceSet.build() processes the classpath; reuse the same marker instance
-        // for all files in the same source set rather than rebuilding per file.
         val mainSourceSet: JavaSourceSet by lazy { JavaSourceSet.build("main", classpath) }
         val testSourceSet: JavaSourceSet by lazy { JavaSourceSet.build("test", classpath) }
 
@@ -235,7 +162,7 @@ class LstBuilder(
                 .build()
             parser.parse(files, projectDir, ctx).forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
-                val (source, target) = detectJavaVersionForFile(
+                val (source, target) = versionDetector.detectJavaVersionForFile(
                     absPath,
                     projectDir,
                     javaVersionCache
@@ -247,7 +174,7 @@ class LstBuilder(
                 allSources.add(
                     sourceFile.withMarkers(
                         sourceFile.markers
-                            .add(buildJavaVersionMarker(source, target))
+                            .add(versionDetector.buildJavaVersionMarker(source, target))
                             .addIfAbsent(sourceSet)
                     )
                 )
@@ -260,7 +187,11 @@ class LstBuilder(
             parser.parse(files, projectDir, ctx).forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
                 val (source, target) =
-                    detectKotlinVersionForFile(absPath, projectDir, kotlinVersionCache)
+                    versionDetector.detectKotlinVersionForFile(
+                        absPath,
+                        projectDir,
+                        kotlinVersionCache
+                    )
                 logger.debug(
                     "Kotlin JVM target for ${sourceFile.sourcePath}: source=$source, target=$target"
                 )
@@ -268,7 +199,7 @@ class LstBuilder(
                 allSources.add(
                     sourceFile.withMarkers(
                         sourceFile.markers
-                            .add(buildJavaVersionMarker(source, target))
+                            .add(versionDetector.buildJavaVersionMarker(source, target))
                             .addIfAbsent(sourceSet)
                     )
                 )
@@ -276,9 +207,6 @@ class LstBuilder(
         }
 
         filesByExt[".kts"]?.let { files ->
-            // Gradle Kotlin DSL scripts (*.gradle.kts) need the Gradle API on the classpath
-            // for type resolution. Plain Kotlin scripts (.kts) are parsed with the project
-            // classpath only, the same as regular .kt sources.
             val gradleKtsFiles = files.filter { it.name.endsWith(".gradle.kts") }
             val plainKtsFiles = files.filter { !it.name.endsWith(".gradle.kts") }
 
@@ -290,10 +218,16 @@ class LstBuilder(
                 parser.parse(plainKtsFiles, projectDir, ctx).forEach { sourceFile ->
                     val absPath = projectDir.resolve(sourceFile.sourcePath)
                     val (source, target) =
-                        detectKotlinVersionForFile(absPath, projectDir, kotlinVersionCache)
+                        versionDetector.detectKotlinVersionForFile(
+                            absPath,
+                            projectDir,
+                            kotlinVersionCache
+                        )
                     allSources.add(
                         sourceFile.withMarkers(
-                            sourceFile.markers.add(buildJavaVersionMarker(source, target))
+                            sourceFile.markers.add(
+                                versionDetector.buildJavaVersionMarker(source, target)
+                            )
                         )
                     )
                 }
@@ -317,7 +251,13 @@ class LstBuilder(
                         .build()
                         .parse(gradleKtsFiles, projectDir, ctx)
                         .forEach { sf ->
-                            allSources.add(addGradleProjectMarker(sf, projectDir, resolutionResult))
+                            allSources.add(
+                                markerFactory.addGradleProjectMarker(
+                                    sf,
+                                    projectDir,
+                                    resolutionResult
+                                )
+                            )
                         }
                 } catch (e: Exception) {
                     logger.warn(
@@ -363,7 +303,9 @@ class LstBuilder(
                     .build()
                     .parse(files, projectDir, ctx)
                     .forEach { sf ->
-                        allSources.add(addGradleProjectMarker(sf, projectDir, resolutionResult))
+                        allSources.add(
+                            markerFactory.addGradleProjectMarker(sf, projectDir, resolutionResult)
+                        )
                     }
             } catch (e: Exception) {
                 logger.warn(
@@ -378,17 +320,16 @@ class LstBuilder(
             }
         }
 
-        val yamlFiles = ((filesByExt[".yaml"] ?: emptyList()) + (filesByExt[".yml"] ?: emptyList()))
+        val yamlFiles =
+            ((filesByExt[".yaml"] ?: emptyList()) + (filesByExt[".yml"] ?: emptyList()))
         if (yamlFiles.isNotEmpty()) {
             logger.info("Parsing ${yamlFiles.size} YAML file(s)")
-            val parser = YamlParser()
-            parser.parse(yamlFiles, projectDir, ctx).forEach { allSources.add(it) }
+            YamlParser().parse(yamlFiles, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".json"]?.let { files ->
             logger.info("Parsing ${files.size} JSON file(s)")
-            val parser = JsonParser()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            JsonParser().parse(files, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".xml"]?.let { files ->
@@ -397,27 +338,27 @@ class LstBuilder(
 
             if (pomFiles.isNotEmpty()) {
                 logger.info("Parsing ${pomFiles.size} Maven POM file(s) with MavenParser")
-                val parser = MavenParser.builder().build()
-                parser.parse(pomFiles, projectDir, ctx).forEach { allSources.add(it) }
+                MavenParser.builder().build()
+                    .parse(pomFiles, projectDir, ctx)
+                    .forEach { allSources.add(it) }
             }
 
             if (otherXmlFiles.isNotEmpty()) {
                 logger.info("Parsing ${otherXmlFiles.size} XML file(s)")
-                val parser = XmlParser()
-                parser.parse(otherXmlFiles, projectDir, ctx).forEach { allSources.add(it) }
+                XmlParser().parse(otherXmlFiles, projectDir, ctx).forEach { allSources.add(it) }
             }
         }
 
         filesByExt[".properties"]?.let { files ->
             logger.info("Parsing ${files.size} properties file(s)")
-            val parser = PropertiesParser()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            PropertiesParser().parse(files, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         filesByExt[".toml"]?.let { files ->
             logger.info("Parsing ${files.size} TOML file(s)")
-            val parser = TomlParser.builder().build()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            TomlParser.builder().build()
+                .parse(files, projectDir, ctx)
+                .forEach { allSources.add(it) }
         }
 
         val hclFiles = listOfNotNull(
@@ -427,14 +368,16 @@ class LstBuilder(
         ).flatten()
         if (hclFiles.isNotEmpty()) {
             logger.info("Parsing ${hclFiles.size} HCL file(s)")
-            val parser = HclParser.builder().build()
-            parser.parse(hclFiles, projectDir, ctx).forEach { allSources.add(it) }
+            HclParser.builder().build()
+                .parse(hclFiles, projectDir, ctx)
+                .forEach { allSources.add(it) }
         }
 
         filesByExt[".proto"]?.let { files ->
             logger.info("Parsing ${files.size} Protobuf file(s)")
-            val parser = ProtoParser.builder().build()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            ProtoParser.builder().build()
+                .parse(files, projectDir, ctx)
+                .forEach { allSources.add(it) }
         }
 
         val dockerFiles = listOfNotNull(
@@ -443,8 +386,9 @@ class LstBuilder(
         ).flatten()
         if (dockerFiles.isNotEmpty()) {
             logger.info("Parsing ${dockerFiles.size} Dockerfile(s)")
-            val parser = DockerParser.builder().build()
-            parser.parse(dockerFiles, projectDir, ctx).forEach { allSources.add(it) }
+            DockerParser.builder().build()
+                .parse(dockerFiles, projectDir, ctx)
+                .forEach { allSources.add(it) }
         }
 
         logger.info("LST build complete: ${allSources.size} SourceFile(s)")
@@ -460,332 +404,15 @@ class LstBuilder(
         }
     }
 
-    // ─── Java version detection ───────────────────────────────────────────────
-
-    /** Creates a [JavaVersion] marker with the given source/target version strings. */
-    private fun buildJavaVersionMarker(source: String, target: String): JavaVersion {
-        val createdBy =
-            System.getProperty("java.runtime.version") ?: System.getProperty("java.version") ?: ""
-        val vmVendor = System.getProperty("java.vm.vendor") ?: ""
-        return JavaVersion(UUID.randomUUID(), createdBy, vmVendor, source, target)
-    }
-
-    /**
-     * Detects the Java source/target version for a specific source file by walking
-     * up its directory tree until a build file with an explicit Java version is found.
-     *
-     * **Walk-up algorithm:**
-     * Starting from the file's immediate parent directory, each level is examined:
-     * 1. If the directory contains `pom.xml`, parse it for Maven compiler settings.
-     * 2. Otherwise if it contains `build.gradle.kts` or `build.gradle`, parse it for
-     *    Gradle compatibility settings.
-     * 3. If no build file exists at this level, step up to the parent and repeat.
-     * 4. If a build file is found but declares **no** explicit Java version (e.g. an
-     *    aggregator `pom.xml` with no compiler configuration), step up and continue —
-     *    this enables submodule → parent version inheritance without requiring full
-     *    Maven/Gradle model resolution.
-     * 5. If [projectDir] is reached without finding any explicit version, return the
-     *    running JVM's major version as fallback.
-     *
-     * **Multi-subproject example:**
-     * ```
-     * root/
-     *   pom.xml                          ← Java 11 (root)
-     *   subproject1/
-     *     pom.xml                        ← Java 17
-     *     src/main/java/Hello.java  →  walk: subproject1/src/main/java/ (no pom)
-     *                                        subproject1/src/main/ (no pom)
-     *                                        subproject1/src/ (no pom)
-     *                                        subproject1/ → pom.xml found → "17" ✓
-     *   subproject2/
-     *     src/main/java/World.java  →  walk: ... no pom in subproject2/ ...
-     *                                        root/ → pom.xml found → "11" ✓
-     * ```
-     *
-     * **Caching:** results are stored per directory so each `pom.xml` / `build.gradle`
-     * is read at most once per [build] invocation regardless of how many Java files
-     * reside under a given module. A `null` cache entry means a build file was found
-     * but contained no explicit version (triggers continued walk-up on next access).
-     *
-     * @param absFilePath Absolute path of the Java source file being parsed.
-     * @param projectDir  Root directory of the project (inclusive upper bound of the walk).
-     * @param cache       Mutable cache: directory → detected `(source, target)` pair,
-     *                    or `null` when a build file was present but had no explicit version.
-     */
-    private fun detectJavaVersionForFile(
-        absFilePath: Path,
-        projectDir: Path,
-        cache: MutableMap<Path, Pair<String, String>?>
-    ): Pair<String, String> = walkUpForVersion(
-        absFilePath,
-        projectDir,
-        cache,
-        ::detectMavenJavaVersion,
-        ::detectGradleJavaVersion
-    )
-
-    /**
-     * Detects the JVM target version for a Kotlin source file by walking up its directory
-     * tree toward [projectDir], using [detectMavenKotlinVersion] and
-     * [detectGradleKotlinVersion] at each level.
-     *
-     * The algorithm is identical to [detectJavaVersionForFile]: Kotlin-specific settings
-     * (`kotlinOptions.jvmTarget`, `kotlin-maven-plugin <jvmTarget>`) are checked first;
-     * if absent, the same `jvmToolchain` / `sourceCompatibility` / maven-compiler-plugin
-     * settings used for Java are treated as the JVM target for Kotlin too.
-     *
-     * If no explicit version is found anywhere in the ancestor chain, falls back to the
-     * running JVM's major version.
-     *
-     * @param absFilePath Absolute path of the Kotlin source file being parsed.
-     * @param projectDir  Root directory of the project (inclusive upper bound of the walk).
-     * @param cache       Mutable cache: directory → detected `(source, target)` pair,
-     *                    or `null` when a build file was present but had no explicit version.
-     */
-    private fun detectKotlinVersionForFile(
-        absFilePath: Path,
-        projectDir: Path,
-        cache: MutableMap<Path, Pair<String, String>?>
-    ): Pair<String, String> = walkUpForVersion(
-        absFilePath,
-        projectDir,
-        cache,
-        ::detectMavenKotlinVersion,
-        ::detectGradleKotlinVersion
-    )
-
-    private fun walkUpForVersion(
-        absFilePath: Path,
-        projectDir: Path,
-        cache: MutableMap<Path, Pair<String, String>?>,
-        mavenDetector: (Path) -> Pair<String, String>?,
-        gradleDetector: (Path) -> Pair<String, String>?
-    ): Pair<String, String> {
-        val jvmMajor = normalizeJvmVersion(System.getProperty("java.version") ?: "")
-        val fallback = Pair(jvmMajor, jvmMajor)
-
-        var dir: Path? = absFilePath.parent
-        while (dir != null && dir.startsWith(projectDir)) {
-            if (dir in cache) {
-                val cached = cache[dir]
-                if (cached != null) return cached
-                // null → build file here but no explicit version; keep walking up
-            } else {
-                val pomFile = dir.resolve("pom.xml")
-                val buildFile = findBuildFile(dir)
-                val detected: Pair<String, String>? = when {
-                    pomFile.exists() -> mavenDetector(dir)
-
-                    buildFile != null -> gradleDetector(buildFile)
-
-                    else -> {
-                        // No build file at this level; skip caching and try parent
-                        if (dir == projectDir) break
-                        dir = dir.parent
-                        continue
-                    }
-                }
-                cache[dir] = detected // cache null too (build file present, no explicit version)
-                if (detected != null) return detected
-            }
-            if (dir == projectDir) break
-            dir = dir.parent
-        }
-        return fallback
-    }
-
-    /**
-     * Extracts the JVM target version for Kotlin from Maven's `kotlin-maven-plugin`
-     * `<jvmTarget>` configuration, then falls back to [detectMavenJavaVersion].
-     */
-    private fun detectMavenKotlinVersion(dir: Path): Pair<String, String>? {
-        return try {
-            val model = MavenXpp3Reader().read(dir.resolve("pom.xml").toFile().inputStream())
-            val kotlinPlugin = model.build?.plugins?.find { it.artifactId == "kotlin-maven-plugin" }
-            val dom = kotlinPlugin?.configuration as? Xpp3Dom
-            val jvmTarget = dom?.getChild("jvmTarget")?.value
-                ?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
-            if (jvmTarget != null) {
-                val v = normalizeJvmVersion(jvmTarget)
-                return Pair(v, v)
-            }
-            detectMavenJavaVersion(dir)
-        } catch (e: Exception) {
-            logger.warn("Failed to detect Kotlin JVM target from pom.xml: ${e.message}")
-            null
-        }
-    }
-
-    /**
-     * Extracts the JVM target version for Kotlin from a Gradle build file.
-     *
-     * Checks `kotlinOptions.jvmTarget` / `JvmTarget.JVM_N` first (highest precedence),
-     * then delegates to [detectGradleJavaVersion] for shared settings
-     * (`compileJava.options.release`, `sourceCompatibility`, `jvmToolchain`).
-     *
-     * Handles:
-     * - `jvmTarget = "17"` / `jvmTarget = '17'` (Groovy/Kotlin DSL)
-     * - `jvmTarget.set(JvmTarget.JVM_17)` (Kotlin DSL property API)
-     * - `jvmTarget.set(a.b.JvmTarget.JVM_17)` (fully-qualified class name)
-     * - `JvmTarget.JVM_1_8` → normalized to "8"
-     */
-    private fun detectGradleKotlinVersion(buildFile: Path): Pair<String, String>? = try {
-        val text = buildFile.toFile().readText()
-        // jvmTarget = "17"  |  jvmTarget = JvmTarget.JVM_17
-        // jvmTarget.set(JvmTarget.JVM_17)  |  jvmTarget.set(a.b.c.JvmTarget.JVM_1_8)
-        val jvmTargetPattern =
-            Regex(
-                """jvmTarget\s*(?:[=:]\s*|\.set\s*\(\s*)""" +
-                    """(?:(?:\w+\.)*JvmTarget\.JVM_(?:1_)?)?["']?(?:1\.)?(\d+)["']?"""
-            )
-        val jvmTarget = jvmTargetPattern.find(text)?.groupValues?.get(1)
-        if (jvmTarget != null) {
-            Pair(jvmTarget, jvmTarget)
-        } else {
-            detectGradleJavaVersion(buildFile)
-        }
-    } catch (e: Exception) {
-        logger.warn("Failed to detect Kotlin JVM target from Gradle build file: ${e.message}")
-        null
-    }
-
-    /**
-     * Extracts Java source/target version from Maven's maven-compiler-plugin.
-     * Priority: plugin <release> > plugin <source>/<target> > project properties.
-     *
-     * Legacy "1.8" format (e.g. `<source>1.8</source>`) is normalised to "8".
-     */
-    private fun detectMavenJavaVersion(projectDir: Path): Pair<String, String>? {
-        return try {
-            val model = MavenXpp3Reader().read(projectDir.resolve("pom.xml").toFile().inputStream())
-
-            // Priority 1: maven-compiler-plugin <configuration>
-            val compilerPlugin = model.build?.plugins?.find {
-                it.artifactId ==
-                    "maven-compiler-plugin"
-            }
-            val dom = compilerPlugin?.configuration as? Xpp3Dom
-            if (dom != null) {
-                val release = dom.getChild("release")?.value?.takeIf {
-                    it.isNotBlank() &&
-                        !it.startsWith("\${")
-                }
-                if (release != null) {
-                    val v = normalizeJvmVersion(release)
-                    return Pair(v, v)
-                }
-
-                val source = dom.getChild("source")?.value?.takeIf {
-                    it.isNotBlank() &&
-                        !it.startsWith("\${")
-                }
-                val target = dom.getChild("target")?.value?.takeIf {
-                    it.isNotBlank() &&
-                        !it.startsWith("\${")
-                }
-                if (source != null || target != null) {
-                    return Pair(
-                        normalizeJvmVersion(source ?: target ?: ""),
-                        normalizeJvmVersion(target ?: source ?: "")
-                    )
-                }
-            }
-
-            // Priority 2: project <properties>
-            val props = model.properties
-            val propsRelease = props["maven.compiler.release"]?.toString()?.takeIf {
-                it.isNotBlank()
-            }
-            if (propsRelease != null) {
-                val v = normalizeJvmVersion(propsRelease)
-                return Pair(v, v)
-            }
-
-            val propsSource = props["maven.compiler.source"]?.toString()?.takeIf { it.isNotBlank() }
-            val propsTarget = props["maven.compiler.target"]?.toString()?.takeIf { it.isNotBlank() }
-            if (propsSource != null || propsTarget != null) {
-                return Pair(
-                    normalizeJvmVersion(propsSource ?: propsTarget ?: ""),
-                    normalizeJvmVersion(propsTarget ?: propsSource ?: "")
-                )
-            }
-
-            null
-        } catch (e: Exception) {
-            logger.warn("Failed to detect Java version from pom.xml: ${e.message}")
-            null
-        }
-    }
-
-    /**
-     * Extracts Java source/target version from a Gradle build file via regex.
-     * Handles Groovy DSL (`sourceCompatibility = '17'`) and Kotlin DSL
-     * (`sourceCompatibility = JavaVersion.VERSION_17`, `jvmToolchain(21)`,
-     * `java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }`).
-     */
-    private fun detectGradleJavaVersion(buildFile: Path): Pair<String, String>? = try {
-        val text = buildFile.toFile().readText()
-
-        // sourceCompatibility / targetCompatibility in various forms.
-        // Handles quoted strings ('17', '1.8'), JavaVersion constants (VERSION_17,
-        // VERSION_1_8), and the legacy "1.N" format used for Java 8 (maps to "N").
-        val sourcePattern =
-            Regex(
-                """sourceCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_(?:1_)?)?['"]?(?:1\.)?(\d+)['"]?"""
-            )
-        val targetPattern =
-            Regex(
-                """targetCompatibility\s*[=:]\s*(?:JavaVersion\.VERSION_(?:1_)?)?['"]?(?:1\.)?(\d+)['"]?"""
-            )
-        // jvmToolchain(21) — Kotlin/Gradle toolchain shorthand
-        val jvmToolchainPattern = Regex("""jvmToolchain\s*\(\s*(\d+)\s*\)""")
-        // java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
-        val javaToolchainPattern = Regex("""JavaLanguageVersion\.of\s*\(\s*(\d+)\s*\)""")
-        // compileJava.options.release = 17 or options.release.set(17)
-        val releasePattern = Regex("""[.\s]release\s*[=.(]\s*(\d+)""")
-
-        val source = sourcePattern.find(text)?.groupValues?.get(1)
-        val target = targetPattern.find(text)?.groupValues?.get(1)
-        val toolchain = jvmToolchainPattern.find(text)?.groupValues?.get(1)
-            ?: javaToolchainPattern.find(text)?.groupValues?.get(1)
-        val release = releasePattern.find(text)?.groupValues?.get(1)
-
-        when {
-            release != null -> Pair(release, release)
-
-            source != null || target != null -> Pair(
-                source ?: target ?: "",
-                target ?: source ?: ""
-            )
-
-            toolchain != null -> Pair(toolchain, toolchain)
-
-            else -> null
-        }
-    } catch (e: Exception) {
-        logger.warn("Failed to detect Java version from Gradle build file: ${e.message}")
-        null
-    }
-
-    /** Converts JVM version strings like "1.8.0_xxx" → "8", "21.0.1" → "21". */
-    private fun normalizeJvmVersion(version: String): String {
-        val v = if (version.startsWith("1.")) version.removePrefix("1.") else version
-        return v.substringBefore(".")
-    }
-
     // ─── Classpath resolution (3 stages) ─────────────────────────────────────
 
     /**
      * Directories where the project's own compiled classes might live.
-     * Added to the classpath so that intra-project wildcard imports (e.g.
-     * `import com.example.pkg.*;`) and cross-module references resolve correctly,
-     * preventing javac from producing `Type$UnknownType` for project-owned types.
+     * Added to the classpath so that intra-project type references resolve correctly.
      */
     private fun projectClassDirs(projectDir: Path): List<Path> = listOf(
-        // Maven
         projectDir.resolve("target/classes"),
         projectDir.resolve("target/test-classes"),
-        // Gradle
         projectDir.resolve("build/classes/java/main"),
         projectDir.resolve("build/classes/java/test"),
         projectDir.resolve("build/classes/kotlin/main"),
@@ -793,12 +420,9 @@ class LstBuilder(
     ).filter { Files.isDirectory(it) }
 
     private fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
-        // Stage 1: Build tool subprocess
         logger.info("Stage 1: attempting build-tool classpath extraction")
         val stage1 = buildToolStage.extractClasspath(projectDir)
         if (stage1 != null) {
-            // If there are no pre-compiled class directories, try compiling now so that
-            // intra-project type references resolve instead of becoming JavaType.Unknown.
             var classDirs = projectClassDirs(projectDir)
             if (classDirs.isEmpty()) {
                 logger.info("No compiled class directories found — attempting compilation")
@@ -814,7 +438,6 @@ class LstBuilder(
 
         logger.info("Stage 1 failed, falling through to Stage 2")
 
-        // Stage 2: Direct Maven Resolver
         logger.info("Stage 2: resolving dependencies via Maven Resolver")
         val stage2Result = try {
             depResolutionStage.resolveClasspath(projectDir)
@@ -837,7 +460,6 @@ class LstBuilder(
 
         logger.info("Stage 2 failed or produced no JARs, falling through to Stage 3")
 
-        // Stage 3: Local cache scan
         logger.info("Stage 3: scanning local Maven/Gradle caches")
         val directParseStage = DirectParseStage(projectDir, logger)
         val declaredCoords = gatherDeclaredCoordinates(projectDir)
@@ -856,11 +478,6 @@ class LstBuilder(
      * Extract declared dependency coordinates from the project's build descriptor without
      * triggering any network downloads. Returns `groupId:artifactId:version` strings
      * suitable for [DirectParseStage.findAvailableJars].
-     *
-     * Previously this called [DependencyResolutionStage.resolveClasspath], which returns
-     * `List<Path>` (local JAR paths). Passing those paths to [DirectParseStage] caused
-     * [DirectParseStage.parseCoord] to always return null (paths contain no `:` triplet),
-     * making Stage 3 a permanent no-op.
      */
     internal fun gatherDeclaredCoordinates(projectDir: Path): List<String> = try {
         when {
@@ -874,415 +491,9 @@ class LstBuilder(
         emptyList()
     }
 
-    // ─── Gradle DSL classpath resolution ─────────────────────────────────────
-
-    /**
-     * Resolves the Gradle DSL classpath for Gradle script files.
-     *
-     * Used when parsing Gradle Groovy DSL build scripts (`.gradle`) and Gradle Kotlin DSL
-     * build scripts (`*.gradle.kts`, e.g. `build.gradle.kts`, `settings.gradle.kts`).
-     * Plain Kotlin scripts (`.kts` files whose name does not end with `.gradle.kts`) and
-     * regular `.kt` sources do **not** receive this classpath.
-     *
-     * Lookup order:
-     * 1. `GRADLE_HOME` environment variable — use `$GRADLE_HOME/lib/`.
-     * 2. Gradle wrapper properties (`gradle/wrapper/gradle-wrapper.properties`) in
-     *    [projectDir] — parse the declared Gradle version and locate the unpacked
-     *    distribution under `~/.gradle/wrapper/dists/`.
-     * 3. Any available distribution under `~/.gradle/wrapper/dists/` — picks the
-     *    most recently modified one as a best-effort fallback.
-     *
-     * Only JARs directly inside `lib/` are included (not `lib/plugins/` or
-     * `lib/agents/`) to keep the classpath focused on the core Gradle API and
-     * Kotlin DSL types used in build scripts.
-     *
-     * Returns an empty list (and logs a warning) when no Gradle installation can be found.
-     */
-    internal fun resolveGradleDslClasspath(projectDir: Path): List<Path> {
-        val gradleHome = findGradleHome(projectDir)
-        if (gradleHome == null) {
-            logger.warn(
-                "Gradle DSL classpath not added: no Gradle installation found " +
-                    "(set GRADLE_HOME or add a Gradle wrapper to the project)"
-            )
-            return emptyList()
-        }
-        val libDir = gradleHome.resolve("lib")
-        if (!Files.isDirectory(libDir)) {
-            logger.warn("Gradle lib/ directory not found at $libDir")
-            return emptyList()
-        }
-        return Files.list(libDir).use { stream ->
-            stream
-                .filter { it.fileName.toString().endsWith(".jar") }
-                .filter { Files.isRegularFile(it) }
-                .toList()
-        }
-    }
-
-    /**
-     * Resolves the root directory of a Gradle installation, trying (in order):
-     * 1. `GRADLE_HOME` env var.
-     * 2. Gradle version declared in the project's wrapper properties.
-     * 3. Any distribution cached under `~/.gradle/wrapper/dists/` (most recently modified).
-     */
-    private fun findGradleHome(projectDir: Path): Path? {
-        // 1. Explicit GRADLE_HOME
-        val gradleHomeEnv = System.getenv("GRADLE_HOME")
-        if (!gradleHomeEnv.isNullOrBlank()) {
-            val path = Path.of(gradleHomeEnv)
-            if (Files.isDirectory(path)) {
-                logger.info("Using Gradle installation from GRADLE_HOME: $path")
-                return path
-            }
-        }
-
-        val gradleUserHome = Path.of(System.getProperty("user.home")).resolve(".gradle")
-        val distsRoot = gradleUserHome.resolve("wrapper/dists")
-
-        // 2. Wrapper properties — extract version and find matching distribution
-        val wrapperProps = projectDir.resolve("gradle/wrapper/gradle-wrapper.properties")
-        if (Files.isRegularFile(wrapperProps)) {
-            val gradleVersion = parseGradleVersionFromWrapper(wrapperProps)
-            if (gradleVersion != null && Files.isDirectory(distsRoot)) {
-                val match = findGradleDistribution(distsRoot, gradleVersion)
-                if (match != null) {
-                    logger.info(
-                        "Using Gradle $gradleVersion distribution from wrapper cache: $match"
-                    )
-                    return match
-                }
-            }
-        }
-
-        // 3. Best-effort: newest distribution in ~/.gradle/wrapper/dists/
-        if (Files.isDirectory(distsRoot)) {
-            val newest = Files.list(distsRoot).use { stream ->
-                stream
-                    .filter { Files.isDirectory(it) }
-                    .filter { it.fileName.toString().startsWith("gradle-") }
-                    .flatMap { distDir ->
-                        // Structure: distDir/<hash>/gradle-<version>/ (the actual Gradle home).
-                        // Collect to list inside the use block to avoid closing the stream early.
-                        Files.list(distDir).use { hashStream ->
-                            hashStream
-                                .filter { Files.isDirectory(it) }
-                                .flatMap { hashDir ->
-                                    Files.list(hashDir).use { subStream ->
-                                        subStream
-                                            .filter { Files.isDirectory(it.resolve("lib")) }
-                                            .toList()
-                                            .stream()
-                                    }
-                                }
-                                .toList()
-                                .stream()
-                        }
-                    }
-                    .max(Comparator.comparingLong { Files.getLastModifiedTime(it).toMillis() })
-                    .orElse(null)
-            }
-            if (newest != null) {
-                logger.info("Using Gradle distribution (best-effort fallback): $newest")
-                return newest
-            }
-        }
-
-        return null
-    }
-
-    /**
-     * Parses the Gradle version string from `gradle-wrapper.properties`.
-     * Extracts the version from the `distributionUrl` value, e.g.
-     * `https://services.gradle.org/distributions/gradle-8.7-bin.zip` → `"8.7"`.
-     */
-    internal fun parseGradleVersionFromWrapper(wrapperProps: Path): String? = try {
-        val props = java.util.Properties()
-        wrapperProps.toFile().inputStream().use { props.load(it) }
-        val url = props.getProperty("distributionUrl") ?: return null
-        // Match "gradle-X.Y[.Z][-qualifier-N]-bin" or "-all", e.g.:
-        //   gradle-8.7-bin.zip          → "8.7"
-        //   gradle-8.7.3-bin.zip        → "8.7.3"
-        //   gradle-9.0-rc-1-bin.zip     → "9.0-rc-1"
-        //   gradle-9.0-milestone-1-bin.zip → "9.0-milestone-1"
-        Regex("""gradle-(\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z]+-\d+)?)-(?:bin|all)""")
-            .find(url)?.groupValues?.get(1)
-    } catch (e: Exception) {
-        logger.warn("Failed to parse Gradle wrapper properties: ${e.message}")
-        null
-    }
-
-    /**
-     * Scans [distsRoot] for an unpacked Gradle distribution matching [version].
-     *
-     * The Gradle wrapper unpacks distributions into a three-level hierarchy:
-     * `<distsRoot>/gradle-<version>-<type>/<hash>/gradle-<version>/`
-     * where the innermost directory is the actual Gradle home (it contains `lib/`).
-     *
-     * Returns the unpacked distribution root (containing `lib/`) or null if not found.
-     */
-    private fun findGradleDistribution(distsRoot: Path, version: String): Path? {
-        if (!Files.isDirectory(distsRoot)) return null
-        return Files.list(distsRoot).use { stream ->
-            stream
-                .filter { Files.isDirectory(it) }
-                .filter { it.fileName.toString().startsWith("gradle-$version-") }
-                .flatMap { distDir ->
-                    // distDir/<hash>/gradle-<version>/ is the actual Gradle home.
-                    Files.list(distDir).use { hashStream ->
-                        hashStream
-                            .filter { Files.isDirectory(it) }
-                            .flatMap { hashDir ->
-                                Files.list(hashDir).use { subStream ->
-                                    subStream
-                                        .filter { Files.isDirectory(it.resolve("lib")) }
-                                        .toList()
-                                        .stream()
-                                }
-                            }
-                            .toList()
-                            .stream()
-                    }
-                }
-                .findFirst()
-                .orElse(null)
-        }
-    }
-
-    // ─── GradleProject marker construction ───────────────────────────────────
-
-    /**
-     * Attaches a [GradleProject] marker to [sf] when [resolutionResult] contains project data
-     * for the build file's Gradle project path. Returns [sf] unchanged when data is unavailable.
-     */
-    private fun addGradleProjectMarker(
-        sf: SourceFile,
-        projectDir: Path,
-        resolutionResult: ClasspathResolutionResult
-    ): SourceFile {
-        val gradleProjectData = resolutionResult.gradleProjectData ?: return sf
-        val buildFile = projectDir.resolve(sf.sourcePath)
-        val projectPath = resolveGradleProjectPath(buildFile, projectDir, gradleProjectData.keys)
-        val projectData = gradleProjectData[projectPath] ?: return sf
-        val marker = buildGradleProjectMarker(projectPath, projectDir, projectData)
-        return sf.withMarkers(sf.markers.addIfAbsent(marker))
-    }
-
-    /**
-     * Maps a build file path to a Gradle project path (e.g. `":"` for root,
-     * `":api"` for a subproject whose build file is at `api/build.gradle`).
-     */
-    private fun resolveGradleProjectPath(
-        buildFile: Path,
-        projectDir: Path,
-        availablePaths: Set<String>
-    ): String {
-        val parentDir = buildFile.parent?.let {
-            projectDir.relativize(it).toString().replace('\\', '/')
-        } ?: ""
-        // ":api" → "api", ":core:util" → "core/util"
-        return availablePaths.find { path ->
-            path.trimStart(':').replace(':', '/') == parentDir
-        } ?: ":"
-    }
-
-    /**
-     * Constructs a [GradleProject] marker from the given [projectPath] and [projectData].
-     */
-    private fun buildGradleProjectMarker(
-        projectPath: String,
-        projectDir: Path,
-        projectData: GradleProjectData
-    ): GradleProject {
-        val name = readSettingsProjectName(projectDir) ?: projectDir.fileName.toString()
-        val buildText = try {
-            findBuildFile(projectDir)?.toFile()?.readText()
-        } catch (e: Exception) {
-            null
-        }
-        val group = buildText?.let {
-            Regex("""(?:^|\n)\s*group\s*[=:]\s*["']([^"']+)["']""").find(it)?.groupValues?.get(1)
-        } ?: ""
-        val version = buildText?.let {
-            Regex("""(?:^|\n)\s*version\s*[=:]\s*["']([^"']+)["']""").find(it)?.groupValues?.get(1)
-        } ?: "unspecified"
-
-        val standardResolvable = setOf(
-            "compileClasspath",
-            "runtimeClasspath",
-            "testCompileClasspath",
-            "testRuntimeClasspath"
-        )
-
-        val nameToConfiguration = projectData.configurationsByName.mapValues { (configName, _) ->
-            GradleDependencyConfiguration.builder()
-                .name(configName)
-                .description(null)
-                .isTransitive(true)
-                .isCanBeResolved(configName in standardResolvable)
-                .isCanBeConsumed(false)
-                .isCanBeDeclared(true)
-                .extendsFrom(emptyList())
-                .requested(emptyList())
-                .directResolved(emptyList())
-                .exceptionType(null)
-                .message(null)
-                .constraints(emptyList())
-                .attributes(emptyMap())
-                .build()
-        }
-
-        val repos = depResolutionStage.parseRepositoryUrls(projectDir, buildText).map { url ->
-            MavenRepository.builder().uri(url).knownToExist(true).build()
-        }
-
-        return GradleProject.builder()
-            .group(group.ifEmpty { null })
-            .name(name)
-            .version(version.ifEmpty { null })
-            .path(projectPath)
-            .mavenRepositories(repos) // TODO: add repos from RewriteRunner config
-            .nameToConfiguration(nameToConfiguration)
-            .build()
-    }
-
-    /** Reads `rootProject.name` from `settings.gradle(.kts)`. */
-    private fun readSettingsProjectName(projectDir: Path): String? = try {
-        val settingsFile = findSettingsFile(projectDir) ?: return null
-        val text = settingsFile.toFile().readText()
-        Regex("""rootProject\.name\s*[=:]\s*["']([^"']+)["']""").find(text)?.groupValues?.get(1)
-    } catch (e: Exception) {
-        null
-    }
-
-    // ─── Build tool detection (for BuildTool provenance marker) ──────────────
-
-    /**
-     * Detects the build tool type and version for attaching a [BuildTool] marker.
-     * Returns null when no build tool is found at [projectDir].
-     */
-    private fun detectBuildToolMarker(projectDir: Path): BuildTool? = when {
-        projectDir.resolve("pom.xml").exists() -> {
-            val version = detectMavenVersion(projectDir)
-            BuildTool(UUID.randomUUID(), BuildTool.Type.Maven, version)
-        }
-
-        hasBuildGradle(projectDir) -> {
-            val version = detectGradleWrapperVersion(projectDir) ?: "unknown"
-            BuildTool(UUID.randomUUID(), BuildTool.Type.Gradle, version)
-        }
-
-        else -> null
-    }
-
-    /** Reads the Gradle version from `gradle/wrapper/gradle-wrapper.properties`. */
-    private fun detectGradleWrapperVersion(projectDir: Path): String? =
-        parseGradleVersionFromWrapper(
-            projectDir.resolve("gradle/wrapper/gradle-wrapper.properties")
-        )
-
-    /** Attempts to read the Maven version from `mvn --version` (5-second timeout). */
-    private fun detectMavenVersion(projectDir: Path): String = try {
-        val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
-        val output = StringBuilder()
-        val result =
-            runProcess(
-                projectDir,
-                listOf(mvnCmd, "--version"),
-                captureStdout = output,
-                timeoutSeconds = 5,
-                logger = logger
-            )
-        if (result == 0) {
-            Regex("""Apache Maven ([\d.]+)""").find(output.toString())?.groupValues?.get(1)
-                ?: "unknown"
-        } else {
-            "unknown"
-        }
-    } catch (e: Exception) {
-        "unknown"
-    }
-
     // ─── Source set inference ─────────────────────────────────────────────────
 
-    /**
-     * Returns true when [absPath] is under a `test` directory segment (e.g. `src/test/java/`).
-     */
     private fun isTestPath(absPath: Path): Boolean = absPath.toString().contains(
         "${java.io.File.separatorChar}test${java.io.File.separatorChar}"
     )
-
-    // ─── File collection ──────────────────────────────────────────────────────
-
-    private fun collectFiles(
-        projectDir: Path,
-        effectiveExtensions: Set<String>,
-        excludeGlobs: List<String>
-    ): Map<String, List<Path>> {
-        val matchers = excludeGlobs.map {
-            FileSystems.getDefault().getPathMatcher("glob:$it")
-        }
-        val matchDockerByName = ".dockerfile" in effectiveExtensions
-
-        val result = mutableMapOf<String, MutableList<Path>>()
-
-        Files.walk(projectDir).use { stream ->
-            stream.filter { path ->
-                val relative = projectDir.relativize(path)
-
-                // Skip excluded directories
-                val inExcludedDir = relative.any { part -> part.name in excludedDirNames }
-                if (inExcludedDir) return@filter false
-
-                // Skip glob-excluded paths
-                val matchedGlob = matchers.any { it.matches(relative) }
-                if (matchedGlob) return@filter false
-
-                if (!path.isRegularFile()) return@filter false
-
-                val ext = ".${path.extension}".lowercase()
-                ext in effectiveExtensions ||
-                    (matchDockerByName && isDockerfileName(path))
-            }.forEach { path ->
-                val ext = ".${path.extension}".lowercase()
-                val key = if (ext in effectiveExtensions) ext else ".dockerfile"
-                result.getOrPut(key) { mutableListOf() }.add(path)
-            }
-        }
-
-        return result
-    }
-
-    /**
-     * Returns true for files that the DockerParser accepts by name convention:
-     * filenames starting with `dockerfile` or `containerfile` (case-insensitive),
-     * e.g. `Dockerfile`, `Dockerfile.dev`, `Containerfile`.
-     */
-    private fun isDockerfileName(path: Path): Boolean {
-        val name = path.name.lowercase()
-        return name.startsWith("dockerfile") || name.startsWith("containerfile")
-    }
-
-    private fun resolveExtensions(
-        parseConfig: ParseConfig,
-        includeExtensionsCli: List<String>,
-        excludeExtensionsCli: List<String>
-    ): Set<String> {
-        // CLI flags take precedence over config file
-        val include = (
-            includeExtensionsCli.takeIf { it.isNotEmpty() }
-                ?: parseConfig.includeExtensions
-            )
-            .map { it.lowercase().let { e -> if (e.startsWith(".")) e else ".$e" } }
-
-        val exclude = (
-            excludeExtensionsCli.takeIf { it.isNotEmpty() }
-                ?: parseConfig.excludeExtensions
-            )
-            .map { it.lowercase().let { e -> if (e.startsWith(".")) e else ".$e" } }
-            .toSet()
-
-        val base = include.takeIf { it.isNotEmpty() }?.toSet() ?: defaultExtensions
-        return base - exclude
-    }
 }
