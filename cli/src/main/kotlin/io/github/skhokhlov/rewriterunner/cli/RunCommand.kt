@@ -149,7 +149,7 @@ class RunCommand : Callable<Int> {
             spec.commandLine().err.println("ERROR: ${e.message ?: e.javaClass.simpleName}")
             spec.commandLine().err.flush()
             1
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             spec.commandLine().err.println("ERROR: ${e.message ?: e.javaClass.simpleName}")
             spec.commandLine().err.flush()
             logger.error("Unhandled exception: ${e.stackTraceToString()}")
