@@ -23,8 +23,45 @@ import org.openrewrite.config.YamlResourceLoader
  * provided JARs (and, when no JARs are given, the tool's own classpath) for recipes,
  * styles, and categories. The [load] method returns the activated [org.openrewrite.Recipe]
  * ready for execution by [RecipeRunner].
+ *
+ * ## URLClassLoader lifecycle
+ *
+ * `RecipeLoader` implements [AutoCloseable]. When recipe JARs are supplied, [load] creates
+ * a [URLClassLoader] over those JARs but intentionally **does not close it** before
+ * returning — OpenRewrite visitor inner-classes are loaded lazily at
+ * [org.openrewrite.Recipe.run] time, and closing the loader beforehand causes
+ * `NoClassDefFoundError`.
+ *
+ * Callers must close this `RecipeLoader` **after** recipe execution completes. Use
+ * try-with-resources (Java) or `use {}` (Kotlin):
+ *
+ * ```kotlin
+ * RecipeLoader(logger).use { loader ->
+ *     val recipe = loader.load(recipeJars, recipeName, rewriteYaml)
+ *     recipe.run(sourceSet, ctx)   // visitor classes loaded here
+ * }  // URLClassLoader closed here
+ * ```
+ *
+ * When no recipe JARs are provided the thread context classloader is used and [close] is
+ * a no-op (the shared parent classloader must not be closed).
  */
-class RecipeLoader(val logger: RunnerLogger) {
+class RecipeLoader(val logger: RunnerLogger) : AutoCloseable {
+
+    private var recipeClassLoader: URLClassLoader? = null
+
+    /**
+     * Close the [URLClassLoader] created over recipe JARs, freeing file descriptors and
+     * allowing the JAR files to be garbage-collected.
+     *
+     * Safe to call after the recipe returned by [load] has finished executing. Idempotent:
+     * subsequent calls are a no-op. When [load] was called with an empty `recipeJars` list
+     * this method is always a no-op (no classloader was created).
+     */
+    override fun close() {
+        recipeClassLoader?.close()
+        recipeClassLoader = null
+    }
+
     /**
      * Build an OpenRewrite [Environment] from the given recipe JARs and optional rewrite.yaml.
      * Returns the activated [Recipe] ready for execution.
@@ -86,13 +123,15 @@ class RecipeLoader(val logger: RunnerLogger) {
         val props = Properties()
         val parentLoader = Thread.currentThread().contextClassLoader
 
-        // Build a class loader that includes all recipe JARs
-        val recipeClassLoader =
+        // When JARs are provided, create a URLClassLoader and store it so close() can
+        // release it after recipe execution.  When no JARs are provided, fall back to the
+        // thread context classloader — which must NOT be closed, so recipeClassLoader stays null.
+        val classLoader =
             if (recipeJars.isNotEmpty()) {
                 URLClassLoader(
                     recipeJars.map { it.toUri().toURL() }.toTypedArray(),
                     parentLoader
-                )
+                ).also { recipeClassLoader = it }
             } else {
                 parentLoader
             }
@@ -103,7 +142,7 @@ class RecipeLoader(val logger: RunnerLogger) {
         for (jar in recipeJars) {
             logger.debug("Scanning recipe JAR: $jar")
             try {
-                builder.load(ClasspathScanningLoader(jar, props, emptyList(), recipeClassLoader))
+                builder.load(ClasspathScanningLoader(jar, props, emptyList(), classLoader))
             } catch (e: Exception) {
                 logger.warn("Failed to scan recipe JAR $jar (skipping): ${e.message}")
             }
@@ -115,7 +154,7 @@ class RecipeLoader(val logger: RunnerLogger) {
         // duplicate-key errors in Environment.activateRecipes().
         if (recipeJars.isEmpty()) {
             try {
-                builder.load(ClasspathScanningLoader(props, recipeClassLoader))
+                builder.load(ClasspathScanningLoader(props, classLoader))
             } catch (e: Exception) {
                 logger.warn("Failed to scan tool classpath (skipping): ${e.message}")
             }
@@ -124,7 +163,7 @@ class RecipeLoader(val logger: RunnerLogger) {
         // Load rewrite.yaml if provided
         if (yamlSource != null) {
             yamlSource.stream().use { stream ->
-                builder.load(YamlResourceLoader(stream, yamlSource.uri, props, recipeClassLoader))
+                builder.load(YamlResourceLoader(stream, yamlSource.uri, props, classLoader))
             }
         }
 
@@ -142,11 +181,6 @@ class RecipeLoader(val logger: RunnerLogger) {
         require(recipe.recipeList.isNotEmpty() || recipe.name == activeRecipeName) {
             "Recipe '$activeRecipeName' not found. Verify the recipe name and that the correct recipe JAR is supplied via --recipe-artifact."
         }
-        // Do NOT close recipeClassLoader here.  OpenRewrite visitor classes are loaded
-        // lazily at recipe.run() time; closing the URLClassLoader before the caller runs
-        // the recipe causes NoClassDefFoundError when those classes are first needed.
-        // The loader is a short-lived object tied to a single CLI/library invocation and
-        // will be GC'd once the run completes, so explicit close() is unnecessary.
         return recipe
     }
 }

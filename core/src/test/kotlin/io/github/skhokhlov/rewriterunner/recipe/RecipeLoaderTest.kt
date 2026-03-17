@@ -23,6 +23,31 @@ class RecipeLoaderTest :
 
         val ctx: ExecutionContext = InMemoryExecutionContext {}
 
+        // ─── AutoCloseable contract ───────────────────────────────────────────────
+
+        test("close() is a no-op when no recipe JARs were loaded") {
+            // Safety invariant: when no JARs are given the thread context classloader is used
+            // and must NOT be closed.  close() must be harmless in this case.
+            val loader = RecipeLoader(NoOpRunnerLogger)
+            loader.load(
+                recipeJars = emptyList(),
+                activeRecipeName = "org.openrewrite.FindSourceFiles",
+                rewriteYaml = null
+            )
+            loader.close() // must not throw
+        }
+
+        test("close() is idempotent") {
+            val loader = RecipeLoader(NoOpRunnerLogger)
+            loader.load(
+                recipeJars = emptyList(),
+                activeRecipeName = "org.openrewrite.FindSourceFiles",
+                rewriteYaml = null
+            )
+            loader.close()
+            loader.close() // second call must not throw
+        }
+
         // ─── Built-in recipe loading (no JAR) ────────────────────────────────────
 
         test("load returns a usable recipe when no recipe JARs are provided") {
