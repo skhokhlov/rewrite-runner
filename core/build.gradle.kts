@@ -21,6 +21,11 @@ dependencies {
     implementation("org.openrewrite:rewrite-properties")
     implementation("org.openrewrite:rewrite-kotlin")
     implementation("org.openrewrite:rewrite-groovy")
+    implementation("org.openrewrite:rewrite-maven")
+    implementation("org.openrewrite:rewrite-toml")
+    implementation("org.openrewrite:rewrite-hcl")
+    implementation("org.openrewrite:rewrite-protobuf")
+    implementation("org.openrewrite:rewrite-docker")
 
     // Maven model (pom.xml parsing in Stage 2)
     implementation("org.apache.maven:maven-model:3.9.14")

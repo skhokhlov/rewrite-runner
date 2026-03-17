@@ -10,7 +10,9 @@ import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.openrewrite.maven.tree.MavenResolutionResult
 
 class LstBuilderTest :
     FunSpec({
@@ -235,6 +237,12 @@ class LstBuilderTest :
             projectDir.resolve("data.json").writeText("{}")
             projectDir.resolve("pom.xml").writeText("<project/>")
             projectDir.resolve("app.properties").writeText("key=value")
+            projectDir.resolve("config.toml").writeText("[package]\nname = \"example\"")
+            projectDir.resolve(
+                "main.tf"
+            ).writeText("provider \"aws\" {\n  region = \"us-east-1\"\n}")
+            projectDir.resolve("hello.proto").writeText("syntax = \"proto3\";\npackage example;")
+            projectDir.resolve("Dockerfile").writeText("FROM ubuntu:22.04")
 
             val sources = lstBuilder().build(projectDir = projectDir)
 
@@ -251,8 +259,20 @@ class LstBuilderTest :
             assertTrue(paths.any { it.endsWith(".groovy") }, "Groovy should be parsed")
             assertTrue(paths.any { it.endsWith(".yaml") }, "YAML should be parsed")
             assertTrue(paths.any { it.endsWith(".json") }, "JSON should be parsed")
-            assertTrue(paths.any { it.endsWith(".xml") }, "XML should be parsed")
+            assertTrue(
+                paths.any {
+                    it.endsWith(".xml")
+                },
+                "XML (pom.xml via MavenParser) should be parsed"
+            )
             assertTrue(paths.any { it.endsWith(".properties") }, "Properties should be parsed")
+            assertTrue(paths.any { it.endsWith(".toml") }, "TOML should be parsed")
+            assertTrue(
+                paths.any { it.endsWith(".tf") },
+                "Terraform (.tf) should be parsed"
+            )
+            assertTrue(paths.any { it.endsWith(".proto") }, "Protobuf should be parsed")
+            assertTrue(paths.any { it == "Dockerfile" }, "Dockerfile should be parsed by name")
         }
 
         test("gradle.kts files and plain kts files are both parsed under kts extension") {
@@ -294,6 +314,244 @@ class LstBuilderTest :
             val sources =
                 lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".yml"))
             assertEquals(1, sources.size)
+        }
+
+        // ─── TOML / HCL / Protobuf / Docker parsers ──────────────────────────────
+
+        test("toml files are parsed") {
+            projectDir.resolve("Cargo.toml").writeText(
+                "[package]\nname = \"example\"\nversion = \"0.1.0\"\n"
+            )
+
+            val sources =
+                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".toml"))
+            assertEquals(1, sources.size, "TOML file should be parsed")
+            assertTrue(sources.first().sourcePath.toString().endsWith(".toml"))
+        }
+
+        test("hcl files are parsed") {
+            projectDir.resolve("config.hcl").writeText(
+                "variable \"region\" {\n  default = \"us-east-1\"\n}\n"
+            )
+
+            val sources =
+                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".hcl"))
+            assertEquals(1, sources.size, "HCL file should be parsed")
+        }
+
+        test("tf files are parsed") {
+            projectDir.resolve("main.tf").writeText(
+                "provider \"aws\" {\n  region = \"us-east-1\"\n}\n"
+            )
+
+            val sources =
+                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".tf"))
+            assertEquals(1, sources.size, "Terraform (.tf) file should be parsed")
+        }
+
+        test("tfvars files are parsed") {
+            projectDir.resolve("terraform.tfvars").writeText("region = \"us-east-1\"\n")
+
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".tfvars")
+                )
+            assertEquals(1, sources.size, "Terraform variable (.tfvars) file should be parsed")
+        }
+
+        test("hcl tf and tfvars are all parsed together under hcl extension group") {
+            projectDir.resolve("config.hcl").writeText(
+                "variable \"env\" {\n  default = \"dev\"\n}\n"
+            )
+            projectDir.resolve("main.tf").writeText(
+                "provider \"aws\" {\n  region = \"us-east-1\"\n}\n"
+            )
+            projectDir.resolve("terraform.tfvars").writeText("env = \"prod\"\n")
+
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".hcl", ".tf", ".tfvars")
+                )
+            assertEquals(3, sources.size, "All three HCL-family extensions should be parsed")
+        }
+
+        test("proto files are parsed") {
+            projectDir.resolve("hello.proto").writeText(
+                "syntax = \"proto3\";\npackage example;\nmessage Hello {\n  string name = 1;\n}\n"
+            )
+
+            val sources =
+                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".proto"))
+            assertEquals(1, sources.size, "Protobuf file should be parsed")
+        }
+
+        test("dockerfile with dockerfile extension is parsed") {
+            projectDir.resolve("service.dockerfile").writeText(
+                "FROM ubuntu:22.04\nRUN apt-get update\n"
+            )
+
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".dockerfile")
+                )
+            assertEquals(1, sources.size, ".dockerfile extension should be parsed")
+        }
+
+        test("containerfile with containerfile extension is parsed") {
+            projectDir.resolve("service.containerfile").writeText(
+                "FROM ubuntu:22.04\nRUN dnf install -y bash\n"
+            )
+
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".containerfile")
+                )
+            assertEquals(1, sources.size, ".containerfile extension should be parsed")
+        }
+
+        test("Dockerfile without extension is parsed when dockerfile extension is included") {
+            projectDir.resolve("Dockerfile").writeText("FROM ubuntu:22.04\nRUN echo hello\n")
+
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".dockerfile")
+                )
+            assertEquals(1, sources.size, "Dockerfile (no extension) should be parsed by name")
+            assertEquals("Dockerfile", sources.first().sourcePath.toString())
+        }
+
+        test("Dockerfile.dev is parsed by name prefix when dockerfile extension is included") {
+            projectDir.resolve("Dockerfile.dev").writeText("FROM ubuntu:22.04\nENV ENV=dev\n")
+
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".dockerfile")
+                )
+            assertEquals(1, sources.size, "Dockerfile.dev should be parsed by name prefix")
+        }
+
+        test(
+            "Containerfile without extension is parsed by name when dockerfile extension included"
+        ) {
+            projectDir.resolve("Containerfile").writeText("FROM fedora:latest\nRUN dnf -y update\n")
+
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".dockerfile")
+                )
+            assertEquals(1, sources.size, "Containerfile (no extension) should be parsed by name")
+        }
+
+        test("Dockerfile is NOT parsed when dockerfile extension is not in effective set") {
+            projectDir.resolve("Dockerfile").writeText("FROM ubuntu:22.04\n")
+            projectDir.resolve("app.properties").writeText("key=value")
+
+            // Include only .properties, so .dockerfile is not in effective set
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".properties")
+                )
+            val paths = sources.map { it.sourcePath.toString() }
+            assertTrue(
+                paths.none { it == "Dockerfile" },
+                "Dockerfile should not be parsed when .dockerfile is excluded"
+            )
+        }
+
+        // ─── Maven POM parser ─────────────────────────────────────────────────────
+
+        test("pom.xml is parsed with MavenParser and has MavenResolutionResult marker") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>my-app</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+
+            val sources =
+                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".xml"))
+            assertEquals(1, sources.size, "pom.xml should be parsed")
+            val pom = sources.first()
+            assertEquals("pom.xml", pom.sourcePath.toString())
+            assertTrue(
+                pom.markers.findFirst(MavenResolutionResult::class.java).isPresent,
+                "pom.xml should have MavenResolutionResult marker from MavenParser"
+            )
+        }
+
+        test("non-pom xml files do NOT have MavenResolutionResult marker") {
+            projectDir.resolve(
+                "config.xml"
+            ).writeText("<configuration><key>value</key></configuration>")
+
+            val sources =
+                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".xml"))
+            assertEquals(1, sources.size, "config.xml should be parsed")
+            assertFalse(
+                sources.first().markers.findFirst(MavenResolutionResult::class.java).isPresent,
+                "Generic XML file should NOT have MavenResolutionResult marker"
+            )
+        }
+
+        test("pom.xml and other xml files are both parsed when xml extension is included") {
+            projectDir.resolve("pom.xml").writeText(
+                "<project><modelVersion>4.0.0</modelVersion>" +
+                    "<groupId>com.example</groupId>" +
+                    "<artifactId>app</artifactId>" +
+                    "<version>1.0</version></project>"
+            )
+            projectDir.resolve("config.xml").writeText("<config/>")
+            projectDir.resolve("logback.xml").writeText("<configuration/>")
+
+            val sources =
+                lstBuilder().build(projectDir = projectDir, includeExtensionsCli = listOf(".xml"))
+            assertEquals(3, sources.size, "All 3 xml files should be parsed")
+            val paths = sources.map { it.sourcePath.toString() }
+            assertTrue(paths.contains("pom.xml"))
+            assertTrue(paths.contains("config.xml"))
+            assertTrue(paths.contains("logback.xml"))
+            val pom = sources.first { it.sourcePath.toString() == "pom.xml" }
+            assertTrue(
+                pom.markers.findFirst(MavenResolutionResult::class.java).isPresent,
+                "pom.xml should have Maven marker"
+            )
+            val config = sources.first { it.sourcePath.toString() == "config.xml" }
+            assertFalse(
+                config.markers.findFirst(MavenResolutionResult::class.java).isPresent,
+                "config.xml should NOT have Maven marker"
+            )
+        }
+
+        test("pom.xml is NOT parsed when xml extension is excluded") {
+            projectDir.resolve("pom.xml").writeText(
+                "<project><modelVersion>4.0.0</modelVersion>" +
+                    "<groupId>com.example</groupId>" +
+                    "<artifactId>app</artifactId>" +
+                    "<version>1.0</version></project>"
+            )
+            projectDir.resolve("app.properties").writeText("key=value")
+
+            val sources =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    includeExtensionsCli = listOf(".properties")
+                )
+            assertTrue(
+                sources.none { it.sourcePath.toString() == "pom.xml" },
+                "pom.xml should not be parsed when .xml is not in effective set"
+            )
         }
 
         // ─── 3-stage pipeline fallthrough ────────────────────────────────────────

@@ -19,12 +19,17 @@ import org.codehaus.plexus.util.xml.Xpp3Dom
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.SourceFile
+import org.openrewrite.docker.DockerParser
 import org.openrewrite.groovy.GroovyParser
+import org.openrewrite.hcl.HclParser
 import org.openrewrite.java.JavaParser
 import org.openrewrite.java.marker.JavaVersion
 import org.openrewrite.json.JsonParser
 import org.openrewrite.kotlin.KotlinParser
+import org.openrewrite.maven.MavenParser
 import org.openrewrite.properties.PropertiesParser
+import org.openrewrite.protobuf.ProtoParser
+import org.openrewrite.toml.TomlParser
 import org.openrewrite.xml.XmlParser
 import org.openrewrite.yaml.YamlParser
 
@@ -32,7 +37,7 @@ import org.openrewrite.yaml.YamlParser
  * Orchestrates the 3-stage LST building pipeline and multi-language file parsing.
  *
  * **Classpath resolution (3 stages)** — runs once per [build] invocation and the result is
- * shared by all language parsers (Java, Kotlin, Groovy):
+ * shared by all JVM language parsers (Java, Kotlin, Groovy):
  * - Stage 1 — Run the project's own build tool (Maven/Gradle) to extract the compile classpath.
  * - Stage 2 — Parse the build descriptor and resolve deps via Maven Resolver.
  * - Stage 3 — Scan `~/.m2` / `~/.gradle/caches` for already-cached JARs matching declared deps.
@@ -71,6 +76,16 @@ import org.openrewrite.yaml.YamlParser
  * Legacy `"1.8"` format is normalised to `"8"`. Unresolvable placeholders (e.g.
  * `${java.version}`) are skipped, and the walk-up continues. If no explicit version is
  * found anywhere in the ancestor chain, the running JVM's major version is used as fallback.
+ *
+ * **Maven POM parsing** — `pom.xml` files are routed to [org.openrewrite.maven.MavenParser],
+ * producing `Xml.Document` nodes annotated with [org.openrewrite.maven.tree.MavenResolutionResult]
+ * and related Maven markers. This populates the fully resolved POM model (parent POM property
+ * interpolation, dependency management, BOM imports), enabling the full `rewrite-maven` recipe
+ * catalog (e.g. `AddDependency`, `UpgradeDependencyVersion`) to work correctly. Resolution uses
+ * Maven's own machinery (`~/.m2/settings.xml`, local repo at `~/.m2/repository`); artifacts
+ * already cached from prior builds require no network access. Parse errors during resolution are
+ * forwarded to the [ctx] error handler and do not abort the build.
+ * All other `*.xml` files continue to use [org.openrewrite.xml.XmlParser].
  */
 class LstBuilder(
     private val logger: RunnerLogger,
@@ -98,7 +113,14 @@ class LstBuilder(
             ".yml",
             ".json",
             ".xml",
-            ".properties"
+            ".properties",
+            ".toml",
+            ".hcl",
+            ".tf",
+            ".tfvars",
+            ".proto",
+            ".dockerfile",
+            ".containerfile"
         )
 
     /** Directories excluded from the recursive walk. */
@@ -276,15 +298,59 @@ class LstBuilder(
         }
 
         filesByExt[".xml"]?.let { files ->
-            logger.info("Parsing ${files.size} XML file(s)")
-            val parser = XmlParser()
-            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            val pomFiles = files.filter { it.name == "pom.xml" }
+            val otherXmlFiles = files.filter { it.name != "pom.xml" }
+
+            if (pomFiles.isNotEmpty()) {
+                logger.info("Parsing ${pomFiles.size} Maven POM file(s) with MavenParser")
+                val parser = MavenParser.builder().build()
+                parser.parse(pomFiles, projectDir, ctx).forEach { allSources.add(it) }
+            }
+
+            if (otherXmlFiles.isNotEmpty()) {
+                logger.info("Parsing ${otherXmlFiles.size} XML file(s)")
+                val parser = XmlParser()
+                parser.parse(otherXmlFiles, projectDir, ctx).forEach { allSources.add(it) }
+            }
         }
 
         filesByExt[".properties"]?.let { files ->
             logger.info("Parsing ${files.size} properties file(s)")
             val parser = PropertiesParser()
             parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+        }
+
+        filesByExt[".toml"]?.let { files ->
+            logger.info("Parsing ${files.size} TOML file(s)")
+            val parser = TomlParser.builder().build()
+            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+        }
+
+        val hclFiles = listOfNotNull(
+            filesByExt[".hcl"],
+            filesByExt[".tf"],
+            filesByExt[".tfvars"]
+        ).flatten()
+        if (hclFiles.isNotEmpty()) {
+            logger.info("Parsing ${hclFiles.size} HCL file(s)")
+            val parser = HclParser.builder().build()
+            parser.parse(hclFiles, projectDir, ctx).forEach { allSources.add(it) }
+        }
+
+        filesByExt[".proto"]?.let { files ->
+            logger.info("Parsing ${files.size} Protobuf file(s)")
+            val parser = ProtoParser.builder().build()
+            parser.parse(files, projectDir, ctx).forEach { allSources.add(it) }
+        }
+
+        val dockerFiles = listOfNotNull(
+            filesByExt[".dockerfile"],
+            filesByExt[".containerfile"]
+        ).flatten()
+        if (dockerFiles.isNotEmpty()) {
+            logger.info("Parsing ${dockerFiles.size} Dockerfile(s)")
+            val parser = DockerParser.builder().build()
+            parser.parse(dockerFiles, projectDir, ctx).forEach { allSources.add(it) }
         }
 
         logger.info("LST build complete: ${allSources.size} SourceFile(s)")
@@ -888,6 +954,7 @@ class LstBuilder(
         val matchers = excludeGlobs.map {
             FileSystems.getDefault().getPathMatcher("glob:$it")
         }
+        val matchDockerByName = ".dockerfile" in effectiveExtensions
 
         val result = mutableMapOf<String, MutableList<Path>>()
 
@@ -906,14 +973,26 @@ class LstBuilder(
                 if (!path.isRegularFile()) return@filter false
 
                 val ext = ".${path.extension}".lowercase()
-                ext in effectiveExtensions
+                ext in effectiveExtensions ||
+                    (matchDockerByName && isDockerfileName(path))
             }.forEach { path ->
                 val ext = ".${path.extension}".lowercase()
-                result.getOrPut(ext) { mutableListOf() }.add(path)
+                val key = if (ext in effectiveExtensions) ext else ".dockerfile"
+                result.getOrPut(key) { mutableListOf() }.add(path)
             }
         }
 
         return result
+    }
+
+    /**
+     * Returns true for files that the DockerParser accepts by name convention:
+     * filenames starting with `dockerfile` or `containerfile` (case-insensitive),
+     * e.g. `Dockerfile`, `Dockerfile.dev`, `Containerfile`.
+     */
+    private fun isDockerfileName(path: Path): Boolean {
+        val name = path.name.lowercase()
+        return name.startsWith("dockerfile") || name.startsWith("containerfile")
     }
 
     private fun resolveExtensions(

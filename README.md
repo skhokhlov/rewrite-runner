@@ -12,7 +12,7 @@ A self-hosted CLI tool for running [OpenRewrite](https://docs.openrewrite.org/) 
 - Run any OpenRewrite recipe against a local project directory
 - Works even when the project's build is broken, credentials are missing, or private registries are unavailable
 - Automatically downloads recipe JARs from Maven coordinates — no manual dependency management
-- Supports Java, Kotlin, Groovy, YAML, JSON, XML, and Properties files
+- Supports Java, Kotlin, Groovy, YAML, JSON, XML, Properties, TOML, HCL/Terraform, Protobuf, and Dockerfile files (`pom.xml` uses `MavenParser` for full Maven recipe support)
 - Three output modes: unified diffs, changed file paths, or a structured JSON report
 - Composable recipes via `rewrite.yaml`
 - Configurable Maven repositories for enterprise environments with private Nexus/Artifactory
@@ -477,8 +477,13 @@ Unresolved types appear as `JavaType.Unknown` in the LST, but all structural, te
 | `.groovy`, `.gradle` | `GroovyParser` (`.gradle` augmented with Gradle DSL classpath) |
 | `.yaml`, `.yml` | `YamlParser` |
 | `.json` | `JsonParser` |
-| `.xml` | `XmlParser` |
+| `pom.xml` | `MavenParser` (fully resolved — parent POMs, property interpolation, BOM imports; enables full `rewrite-maven` recipe catalog) |
+| `*.xml` (other) | `XmlParser` |
 | `.properties` | `PropertiesParser` |
+| `.toml` | `TomlParser` |
+| `.hcl`, `.tf`, `.tfvars` | `HclParser` |
+| `.proto` | `ProtoParser` |
+| `.dockerfile`, `.containerfile`, `Dockerfile*`, `Containerfile*` | `DockerParser` (matched both by extension and by filename prefix) |
 
 The parsed file set is configurable via `--include-extensions`, `--exclude-extensions`, and the `parse` section of `rewriterunner.yml`.
 
