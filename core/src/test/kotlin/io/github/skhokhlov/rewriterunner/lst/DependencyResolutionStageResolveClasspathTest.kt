@@ -40,13 +40,13 @@ class DependencyResolutionStageResolveClasspathTest :
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> =
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
                         super.resolveClasspath(projectDir)
                 }
             // Empty directory: no pom.xml, no build.gradle
             val result = stage.resolveClasspath(projectDir)
             assertTrue(
-                result.isEmpty(),
+                result.classpath.isEmpty(),
                 "Should return empty list when no build descriptor exists"
             )
         }
@@ -69,11 +69,11 @@ class DependencyResolutionStageResolveClasspathTest :
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
                         parsedMaven =
                             parseMavenDependencies(projectDir).isNotEmpty() ||
                             projectDir.resolve("pom.xml").toFile().exists()
-                        return emptyList()
+                        return ClasspathResolutionResult(emptyList())
                     }
                 }
             stage.resolveClasspath(projectDir)
@@ -93,11 +93,11 @@ class DependencyResolutionStageResolveClasspathTest :
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
                         parsedGradle =
                             parseGradleDependenciesStatically(projectDir).isEmpty() ||
                             projectDir.resolve("build.gradle.kts").toFile().exists()
-                        return emptyList()
+                        return ClasspathResolutionResult(emptyList())
                     }
                 }
             stage.resolveClasspath(projectDir)
@@ -225,8 +225,8 @@ class DependencyResolutionStageResolveClasspathTest :
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
-                    override fun runGradleDependenciesTask(projectDir: Path) =
-                        listOf("org.apache.commons:commons-lang3:3.12.0")
+                    override fun runGradleDependenciesRawOutput(projectDir: Path) =
+                        "compileClasspath\n+--- org.apache.commons:commons-lang3:3.12.0\n"
 
                     override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
                         directCalled = true
@@ -264,7 +264,7 @@ class DependencyResolutionStageResolveClasspathTest :
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
-                    override fun runGradleDependenciesTask(projectDir: Path): List<String>? = null
+                    override fun runGradleDependenciesRawOutput(projectDir: Path): String? = null
 
                     override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
                         directCalled = true
@@ -356,7 +356,7 @@ class DependencyResolutionStageResolveClasspathTest :
             // Accessing the stage without an actual resolve call; we can call resolveClasspath
             // on an empty dir to exercise the lazy initializers (repos are built on first use)
             val result = stage.resolveClasspath(projectDir)
-            assertTrue(result.isEmpty(), "Empty project → empty classpath")
+            assertTrue(result.classpath.isEmpty(), "Empty project → empty classpath")
         }
 
         test("stage accepts extra repositories without credentials") {
@@ -378,6 +378,6 @@ class DependencyResolutionStageResolveClasspathTest :
                     NoOpRunnerLogger
                 )
             val result = stage.resolveClasspath(projectDir)
-            assertTrue(result.isEmpty())
+            assertTrue(result.classpath.isEmpty())
         }
     })

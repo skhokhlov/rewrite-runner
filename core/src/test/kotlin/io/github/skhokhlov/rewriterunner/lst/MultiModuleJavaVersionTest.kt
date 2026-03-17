@@ -49,7 +49,8 @@ class MultiModuleJavaVersionTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
                 }
             return LstBuilder(
                 logger = NoOpRunnerLogger,

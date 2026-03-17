@@ -93,37 +93,51 @@ open class DependencyResolutionStage(
      * [org.eclipse.aether.util.filter.ScopeDependencyFilter] to keep the classpath
      * focused on compile/runtime artifacts.
      *
-     * @return Paths to all resolved JAR files in the local Maven repository.
-     *   Returns an empty list (never throws) when no coordinates can be found or when
-     *   resolution fails completely. A partially resolved list is returned (with a
-     *   warning logged) when only some dependencies are available.
+     * @return [ClasspathResolutionResult] containing the resolved JAR paths and, for Gradle
+     *   projects where the `gradle dependencies` task succeeded, per-project configuration data
+     *   for constructing [GradleProject] markers. Returns an empty classpath (never throws) when
+     *   no coordinates can be found or when resolution fails completely.
      */
-    open fun resolveClasspath(projectDir: Path): List<Path> {
-        val resolved: ResolvedCoords = when {
+    open fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
+        val resolved: ResolvedCoords
+        var gradleProjectData: Map<String, GradleProjectData>? = null
+
+        when {
             projectDir.resolve("pom.xml").exists() -> {
                 logger.debug("Stage 2: Maven project detected — parsing pom.xml")
-                ResolvedCoords.Declared(parseMavenDependencies(projectDir))
+                resolved = ResolvedCoords.Declared(parseMavenDependencies(projectDir))
             }
 
             hasBuildGradle(projectDir) -> {
                 logger.debug("Stage 2: Gradle project detected — running dependencies task")
-                val fromTask = runGradleDependenciesTask(projectDir)
-                if (fromTask != null) {
-                    ResolvedCoords.Full(fromTask)
+                val rawOutput = runGradleDependenciesRawOutput(projectDir)
+                if (rawOutput != null) {
+                    val coords = parseGradleDependencyTaskOutput(rawOutput)
+                    if (coords.isNotEmpty()) {
+                        resolved = ResolvedCoords.Full(coords)
+                        gradleProjectData = parseGradleDependencyTaskOutputByProject(rawOutput)
+                    } else {
+                        logger.info(
+                            "Gradle dependencies task returned no coordinates — falling back to static parsing"
+                        )
+                        resolved =
+                            ResolvedCoords.Declared(parseGradleDependenciesStatically(projectDir))
+                    }
                 } else {
                     logger.debug(
                         "Stage 2: falling back to static Gradle build-file parsing"
                     )
-                    ResolvedCoords.Declared(parseGradleDependenciesStatically(projectDir))
+                    resolved =
+                        ResolvedCoords.Declared(parseGradleDependenciesStatically(projectDir))
                 }
             }
 
-            else -> ResolvedCoords.Declared(emptyList())
+            else -> resolved = ResolvedCoords.Declared(emptyList())
         }
 
         if (resolved.coords.isEmpty()) {
             logger.info("No dependencies found in build descriptor")
-            return emptyList()
+            return ClasspathResolutionResult(emptyList(), gradleProjectData)
         }
 
         // Both Full (Gradle task output) and Declared (Maven POM / static Gradle parsing)
@@ -131,7 +145,8 @@ open class DependencyResolutionStage(
         // transitive graph returned by Gradle; Declared coords are only direct deps
         // (transitive deps are skipped — OpenRewrite tolerates JavaType.Unknown for
         // missing transitives, and Stage 3 supplements local-cache JARs).
-        return resolveArtifactsDirectly(resolved.coords)
+        val classpath = resolveArtifactsDirectly(resolved.coords)
+        return ClasspathResolutionResult(classpath, gradleProjectData)
     }
 
     /**
@@ -221,6 +236,25 @@ open class DependencyResolutionStage(
      * (no Gradle wrapper, non-zero exit, or no coordinates found in the output).
      */
     protected open fun runGradleDependenciesTask(projectDir: Path): List<String>? {
+        val rawOutput = runGradleDependenciesRawOutput(projectDir) ?: return null
+        val coords = parseGradleDependencyTaskOutput(rawOutput)
+        if (coords.isEmpty()) {
+            logger.info(
+                "Gradle dependencies task returned no coordinates — falling back to static parsing"
+            )
+            return null
+        }
+        return coords
+    }
+
+    /**
+     * Runs the `gradle dependencies` task and returns the raw stdout output, or null on failure.
+     *
+     * Separated from [runGradleDependenciesTask] so that [resolveClasspath] can parse the output
+     * both for the flat coordinates list (via [parseGradleDependencyTaskOutput]) and for
+     * per-project data (via [parseGradleDependencyTaskOutputByProject]).
+     */
+    protected open fun runGradleDependenciesRawOutput(projectDir: Path): String? {
         val gradleCmd = resolveGradleCommand(projectDir)
         val subprojects = discoverSubprojects(projectDir)
         logger.debug(
@@ -228,8 +262,6 @@ open class DependencyResolutionStage(
                 subprojects.joinToString(", ").ifEmpty { "(none)" }
         )
         // Build task list: root 'dependencies' + ':sub:dependencies' for each subproject.
-        // The `gradle dependencies` task only covers the project it is applied to, so
-        // subprojects must be queried explicitly.
         val tasks = mutableListOf("dependencies")
         subprojects.mapTo(tasks) { "$it:dependencies" }
 
@@ -255,19 +287,153 @@ open class DependencyResolutionStage(
             return null
         }
 
-        val coords = parseGradleDependencyTaskOutput(output.toString())
-        if (coords.isEmpty()) {
-            logger.info(
-                "Gradle dependencies task returned no coordinates — falling back to static parsing"
-            )
-            return null
+        val rawOutput = output.toString()
+        val subprojectCount = subprojects.size
+        logger.info(
+            "Gradle dependencies task succeeded (root + $subprojectCount subproject(s))"
+        )
+        return rawOutput
+    }
+
+    /**
+     * Parses the text output of `gradle dependencies` into a map of Gradle project path
+     * → [GradleProjectData] containing per-configuration dependency info.
+     *
+     * Splits the output at `> Task :<path>:dependencies` boundaries to extract per-project
+     * configuration data. The root project maps to `":"`.
+     *
+     * Example input:
+     * ```
+     * > Task :dependencies
+     * compileClasspath - ...
+     *   +--- com.example:foo:1.0
+     *   \--- com.example:bar:2.0 -> 3.0
+     *
+     * > Task :api:dependencies
+     * compileClasspath - ...
+     *   \--- org.slf4j:slf4j-api:2.0.0
+     * ```
+     *
+     * Example output:
+     * ```
+     * ":" -> GradleProjectData(configsByName={"compileClasspath": GradleConfigData(...)}, ...)
+     * ":api" -> GradleProjectData(...)
+     * ```
+     */
+    internal fun parseGradleDependencyTaskOutputByProject(
+        output: String
+    ): Map<String, GradleProjectData> {
+        // Match task headers like "> Task :dependencies" or "> Task :api:dependencies"
+        // Captures the prefix portion (everything before ":dependencies"), e.g. ":" or ":api:"
+        val taskHeaderPattern =
+            Regex("""^> Task (:[a-zA-Z\d:._\-]*)dependencies""", RegexOption.MULTILINE)
+        val matches = taskHeaderPattern.findAll(output).toList()
+
+        if (matches.isEmpty()) {
+            // No task headers present — treat the whole output as the root project
+            return mapOf(":" to parseProjectDependencySegment(output))
         }
 
-        logger.info(
-            "Discovered ${coords.size} coordinates via Gradle dependencies task" +
-                " (root + ${subprojects.size} subproject(s))"
+        val result = mutableMapOf<String, GradleProjectData>()
+        for ((index, match) in matches.withIndex()) {
+            // prefix = ":" for root ("> Task :dependencies"), ":api:" for "> Task :api:dependencies"
+            val prefix = match.groupValues[1]
+            val projectPath = prefix.trimEnd(':').ifEmpty { ":" }
+            val segmentStart = match.range.last + 1
+            val segmentEnd = if (index + 1 <
+                matches.size
+            ) {
+                matches[index + 1].range.first
+            } else {
+                output.length
+            }
+            val segment = output.substring(segmentStart, segmentEnd)
+            result[projectPath] = parseProjectDependencySegment(segment)
+        }
+        return result
+    }
+
+    /**
+     * Parses a single project's dependency task output segment into [GradleProjectData].
+     * Each configuration block (header line + dependency tree) becomes a [GradleConfigData].
+     */
+    private fun parseProjectDependencySegment(segment: String): GradleProjectData {
+        val configurationsByName = mutableMapOf<String, GradleConfigData>()
+        var currentConfig: String? = null
+        val requestedDeps = mutableListOf<String>()
+        val resolvedDeps = mutableListOf<String>()
+
+        fun flushConfig() {
+            val config = currentConfig ?: return
+            configurationsByName[config] =
+                GradleConfigData(requestedDeps.toList(), resolvedDeps.toList())
+        }
+
+        // Config header: e.g. "compileClasspath - Compile classpath for source set 'main'."
+        // Must not start with tree chars (+, \, |, space) — those are dependency lines.
+        val configHeaderPattern = Regex("""^([a-zA-Z][\w\-]*)\s+-\s+.+$""")
+        val depPattern = Regex(
+            """^[\s|+\\-]+([a-zA-Z][\w.\-]*:[a-zA-Z][\w.\-]+):([\w.\-]+)(?:\s*->\s*([\w.\-]+))?"""
         )
-        return coords
+
+        for (line in segment.lines()) {
+            val trimmed = line.trimStart()
+            // Config headers don't start with tree characters
+            if (!trimmed.startsWith("+") && !trimmed.startsWith("\\") &&
+                !trimmed.startsWith("|") && !trimmed.startsWith(" ")
+            ) {
+                val configMatch = configHeaderPattern.find(line)
+                if (configMatch != null) {
+                    flushConfig()
+                    currentConfig = configMatch.groupValues[1]
+                    requestedDeps.clear()
+                    resolvedDeps.clear()
+                    continue
+                }
+            }
+
+            val depMatch = depPattern.find(line) ?: continue
+            val groupArtifact = depMatch.groupValues[1]
+            val declaredVersion = depMatch.groupValues[2]
+            val resolvedVersion = depMatch.groupValues[3].takeIf { it.isNotBlank() }
+            if (declaredVersion.isNotBlank() && declaredVersion != "FAILED") {
+                requestedDeps.add("$groupArtifact:$declaredVersion")
+                resolvedDeps.add("$groupArtifact:${resolvedVersion ?: declaredVersion}")
+            }
+        }
+        flushConfig()
+
+        return GradleProjectData(configurationsByName, emptyList())
+    }
+
+    /**
+     * Parses repository URLs from a Gradle build file using regex.
+     * Recognises `mavenCentral()`, `google()`, and explicit `maven { url = "..." }` blocks.
+     *
+     * @param buildFileContent pre-read build file text; when non-null, skips the disk read.
+     */
+    internal fun parseRepositoryUrls(
+        projectDir: Path,
+        buildFileContent: String? = null
+    ): List<String> {
+        return try {
+            val text = buildFileContent
+                ?: findBuildFile(projectDir)?.toFile()?.readText()
+                ?: return emptyList()
+            val urls = mutableListOf<String>()
+            if (text.contains("mavenCentral()")) {
+                urls.add("https://repo.maven.apache.org/maven2")
+            }
+            if (text.contains("google()")) {
+                urls.add("https://dl.google.com/dl/android/maven2")
+            }
+            Regex("""maven\s*\{[^}]*url\s*[=:]\s*["']([^"']+)["']""").findAll(text)
+                .mapTo(urls) { it.groupValues[1] }
+            urls.distinct()
+        } catch (e: Exception) {
+            logger.warn("Failed to parse repository URLs from build file: ${e.message}")
+            emptyList()
+        }
     }
 
     /**
@@ -278,10 +444,7 @@ open class DependencyResolutionStage(
      * Subprojects must be queried explicitly using `:sub:dependencies` tasks.
      */
     internal fun discoverSubprojects(projectDir: Path): List<String> {
-        val settingsFile =
-            projectDir.resolve("settings.gradle.kts").takeIf { it.exists() }
-                ?: projectDir.resolve("settings.gradle").takeIf { it.exists() }
-                ?: return emptyList()
+        val settingsFile = findSettingsFile(projectDir) ?: return emptyList()
 
         return try {
             val text = settingsFile.toFile().readText()
@@ -360,9 +523,7 @@ open class DependencyResolutionStage(
 
         val coordinates = mutableListOf<String>()
         for (dir in buildDirs) {
-            val buildFile = dir.resolve("build.gradle.kts").takeIf { it.exists() }
-                ?: dir.resolve("build.gradle").takeIf { it.exists() }
-                ?: continue
+            val buildFile = findBuildFile(dir) ?: continue
             logger.debug("Stage 2: statically parsing ${buildFile.toAbsolutePath()}")
             try {
                 val text = buildFile.toFile().readText()

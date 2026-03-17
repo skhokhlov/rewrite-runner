@@ -60,6 +60,16 @@ internal fun runProcess(
     return process.exitValue()
 }
 
+/** Returns the `build.gradle.kts` or `build.gradle` file in [dir], or null if neither exists. */
+internal fun findBuildFile(dir: Path): Path? =
+    dir.resolve("build.gradle.kts").takeIf { it.exists() }
+        ?: dir.resolve("build.gradle").takeIf { it.exists() }
+
+/** Returns the `settings.gradle.kts` or `settings.gradle` file in [dir], or null if neither exists. */
+internal fun findSettingsFile(dir: Path): Path? =
+    dir.resolve("settings.gradle.kts").takeIf { it.exists() }
+        ?: dir.resolve("settings.gradle").takeIf { it.exists() }
+
 /** Returns `true` when [dir] contains a `build.gradle` or `build.gradle.kts` or `settings.gradle` or `settings.gradle.kts` file. */
 internal fun hasBuildGradle(dir: Path): Boolean =
     dir.resolve("build.gradle").exists() || dir.resolve("build.gradle.kts").exists() ||

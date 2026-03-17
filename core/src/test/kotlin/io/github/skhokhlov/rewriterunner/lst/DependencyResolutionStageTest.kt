@@ -718,8 +718,8 @@ class DependencyResolutionStageTest :
 
             val resolved = stage().resolveClasspath(projectDir)
             assertTrue(
-                resolved.any { it.fileName.toString() == "$artifact-$version.jar" },
-                "Should resolve the local artifact; resolved: $resolved"
+                resolved.classpath.any { it.fileName.toString() == "$artifact-$version.jar" },
+                "Should resolve the local artifact; resolved: ${resolved.classpath}"
             )
         }
 
@@ -828,9 +828,13 @@ class DependencyResolutionStageTest :
             ).resolveClasspath(projectDir)
 
             // Only the two direct deps should be resolved — no transitive shared-util
-            val depAlphaJars = resolved.filter { it.fileName.toString().startsWith("dep-alpha") }
-            val depBetaJars = resolved.filter { it.fileName.toString().startsWith("dep-beta") }
-            val sharedUtilJars = resolved.filter {
+            val depAlphaJars = resolved.classpath.filter {
+                it.fileName.toString().startsWith("dep-alpha")
+            }
+            val depBetaJars = resolved.classpath.filter {
+                it.fileName.toString().startsWith("dep-beta")
+            }
+            val sharedUtilJars = resolved.classpath.filter {
                 it.fileName.toString().startsWith("shared-util")
             }
             assertEquals(1, depAlphaJars.size, "dep-alpha should be resolved as a direct dep")
@@ -854,5 +858,173 @@ class DependencyResolutionStageTest :
             val subs = stage().discoverSubprojects(projectDir)
             assertEquals(subs.distinct(), subs, "Subprojects should be deduplicated")
             assertEquals(2, subs.size)
+        }
+
+        // ─── parseGradleDependencyTaskOutputByProject ────────────────────────────
+
+        test("parseGradleDependencyTaskOutputByProject splits single-project output") {
+            val output =
+                """
+                > Task :dependencies
+
+                compileClasspath - Compile classpath for source set 'main'.
+                +--- org.apache.commons:commons-lang3:3.12.0
+                \--- com.google.guava:guava:32.1.2-jre
+
+                runtimeClasspath - Runtime classpath.
+                \--- org.apache.commons:commons-lang3:3.12.0
+                """.trimIndent()
+
+            val result = stage().parseGradleDependencyTaskOutputByProject(output)
+
+            assertEquals(1, result.size, "Should have one project entry for root")
+            assertTrue(result.containsKey(":"), "Root project should be keyed as ':'")
+            val rootData = result[":"]!!
+            assertTrue(
+                rootData.configurationsByName.containsKey("compileClasspath"),
+                "Should have compileClasspath configuration"
+            )
+            assertTrue(
+                rootData.configurationsByName.containsKey("runtimeClasspath"),
+                "Should have runtimeClasspath configuration"
+            )
+        }
+
+        test("parseGradleDependencyTaskOutputByProject splits multi-project output") {
+            val output =
+                """
+                > Task :dependencies
+
+                compileClasspath - Compile classpath for source set 'main'.
+                \--- org.apache.commons:commons-lang3:3.12.0
+
+                > Task :api:dependencies
+
+                compileClasspath - Compile classpath for source set 'main'.
+                \--- com.google.guava:guava:32.1.2-jre
+
+                > Task :core:util:dependencies
+
+                compileClasspath - Compile classpath for source set 'main'.
+                \--- org.slf4j:slf4j-api:2.0.0
+                """.trimIndent()
+
+            val result = stage().parseGradleDependencyTaskOutputByProject(output)
+
+            assertEquals(3, result.size, "Should have three project entries")
+            assertTrue(result.containsKey(":"), "Root should be keyed as ':'")
+            assertTrue(result.containsKey(":api"), "Subproject should be keyed as ':api'")
+            assertTrue(
+                result.containsKey(":core:util"),
+                "Nested subproject should be keyed as ':core:util'"
+            )
+
+            val rootConfig = result[":"]!!.configurationsByName["compileClasspath"]
+            assertFalse(rootConfig == null, "Root should have compileClasspath")
+            assertTrue(
+                rootConfig!!.requested.contains("org.apache.commons:commons-lang3:3.12.0"),
+                "Root requested should contain commons-lang3"
+            )
+
+            val apiConfig = result[":api"]!!.configurationsByName["compileClasspath"]
+            assertFalse(apiConfig == null, ":api should have compileClasspath")
+            assertTrue(
+                apiConfig!!.requested.contains("com.google.guava:guava:32.1.2-jre"),
+                ":api requested should contain guava"
+            )
+        }
+
+        test("parseGradleDependencyTaskOutputByProject captures resolved versions") {
+            val output =
+                """
+                > Task :dependencies
+
+                compileClasspath - Compile classpath for source set 'main'.
+                +--- com.google.guava:guava:30.0-jre -> 32.1.2-jre
+                \--- org.springframework:spring-core:5.3.0 -> 6.1.0
+                """.trimIndent()
+
+            val result = stage().parseGradleDependencyTaskOutputByProject(output)
+            val config = result[":"]!!.configurationsByName["compileClasspath"]!!
+
+            assertTrue(
+                config.requested.contains("com.google.guava:guava:30.0-jre"),
+                "Requested should use declared version"
+            )
+            assertTrue(
+                config.resolved.contains("com.google.guava:guava:32.1.2-jre"),
+                "Resolved should use final version after ->"
+            )
+            assertTrue(
+                config.requested.contains("org.springframework:spring-core:5.3.0"),
+                "Requested should use declared version for spring"
+            )
+            assertTrue(
+                config.resolved.contains("org.springframework:spring-core:6.1.0"),
+                "Resolved should use final version after -> for spring"
+            )
+        }
+
+        test(
+            "parseGradleDependencyTaskOutputByProject returns root for output without task headers"
+        ) {
+            val output =
+                """
+                compileClasspath - Compile classpath for source set 'main'.
+                \--- com.google.guava:guava:32.1.2-jre
+                """.trimIndent()
+
+            val result = stage().parseGradleDependencyTaskOutputByProject(output)
+
+            assertEquals(1, result.size, "Should produce one entry even without task headers")
+            assertTrue(result.containsKey(":"), "Should be keyed as root ':'")
+        }
+
+        // ─── resolveClasspath returns ClasspathResolutionResult ──────────────────
+
+        test("resolveClasspath returns ClasspathResolutionResult for Maven project") {
+            val group = "com.example.test"
+            val artifact = "fake-maven-lib"
+            val version = "1.0"
+            val groupPath = group.replace('.', '/')
+            val artifactDir = cacheDir.resolve("repository/$groupPath/$artifact/$version").toFile()
+            artifactDir.mkdirs()
+            val jarFile = java.io.File(artifactDir, "$artifact-$version.jar")
+            java.util.zip.ZipOutputStream(jarFile.outputStream()).use { zip ->
+                zip.putNextEntry(java.util.zip.ZipEntry("META-INF/MANIFEST.MF"))
+                zip.write("Manifest-Version: 1.0\n".toByteArray())
+                zip.closeEntry()
+            }
+            val pomFile = java.io.File(artifactDir, "$artifact-$version.pom")
+            pomFile.writeText(
+                """<project><modelVersion>4.0.0</modelVersion>
+                   <groupId>$group</groupId><artifactId>$artifact</artifactId><version>$version</version></project>"""
+            )
+
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId><artifactId>my-app</artifactId><version>1.0</version>
+                  <dependencies>
+                    <dependency><groupId>$group</groupId><artifactId>$artifact</artifactId><version>$version</version></dependency>
+                  </dependencies>
+                </project>
+                """.trimIndent()
+            )
+
+            val result = stage().resolveClasspath(projectDir)
+            assertFalse(
+                result is List<*>,
+                "resolveClasspath should return ClasspathResolutionResult"
+            )
+            assertTrue(
+                result.classpath.any { it.fileName.toString() == "$artifact-$version.jar" },
+                "Classpath should contain the resolved JAR"
+            )
+            assertEquals(
+                null,
+                result.gradleProjectData,
+                "Maven project should have null gradleProjectData"
+            )
         }
     })
