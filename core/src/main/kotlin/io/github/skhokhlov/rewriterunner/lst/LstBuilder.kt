@@ -141,6 +141,16 @@ class LstBuilder(
             "Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)"
         )
 
+        // ── Warn unconditionally when all stages produced empty classpath ─────
+        val jvmExtensions = setOf(".java", ".kt", ".kts", ".groovy")
+        val hasJvmFiles = jvmExtensions.any { filesByExt[it]?.isNotEmpty() == true }
+        if (classpath.isEmpty() && hasJvmFiles) {
+            logger.warn(
+                "Classpath resolution failed across all 3 stages — " +
+                    "type information will be missing. Recipe results may be incomplete."
+            )
+        }
+
         // ── Gradle DSL classpath (resolved at most once per build() call) ─────
         val gradleDslClasspath: List<Path> by lazy {
             gradleDslClasspathResolver.resolveGradleDslClasspath(projectDir)
@@ -436,7 +446,9 @@ class LstBuilder(
             return ClasspathResolutionResult(stage1 + classDirs)
         }
 
-        logger.info("Stage 1 failed, falling through to Stage 2")
+        logger.warn(
+            "Stage 1 (build tool) failed: no classpath extracted, falling through to Stage 2"
+        )
 
         logger.info("Stage 2: resolving dependencies via Maven Resolver")
         val stage2Result = try {
@@ -458,7 +470,9 @@ class LstBuilder(
             )
         }
 
-        logger.info("Stage 2 failed or produced no JARs, falling through to Stage 3")
+        logger.warn(
+            "Stage 2 (dependency resolution) failed: no JARs resolved, falling through to Stage 3"
+        )
 
         logger.info("Stage 3: scanning local Maven/Gradle caches")
         val directParseStage = DirectParseStage(projectDir, logger)
@@ -468,9 +482,11 @@ class LstBuilder(
         if (classDirs.isNotEmpty()) {
             logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
         }
-        logger.info(
-            "Stage 3: using ${stage3.size} locally cached JAR(s) — unresolved types will be JavaType.Unknown"
-        )
+        if (stage3.isEmpty()) {
+            logger.warn("Stage 3 (local cache): no cached JARs found")
+        } else {
+            logger.info("Stage 3: using ${stage3.size} locally cached JAR(s)")
+        }
         return ClasspathResolutionResult(stage3 + classDirs)
     }
 

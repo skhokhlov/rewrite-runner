@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.kotest.core.spec.style.FunSpec
@@ -36,7 +37,10 @@ class LstBuilderTest :
                 override fun extractClasspath(projectDir: Path): List<Path>? = null
             }
 
-        fun lstBuilder(buildTool: BuildToolStage = failingBuildTool): LstBuilder {
+        fun lstBuilder(
+            buildTool: BuildToolStage = failingBuildTool,
+            logger: RunnerLogger = NoOpRunnerLogger
+        ): LstBuilder {
             val noOpDepStage =
                 object : DependencyResolutionStage(
                     AetherContext.build(
@@ -49,7 +53,7 @@ class LstBuilderTest :
                         ClasspathResolutionResult(emptyList())
                 }
             return LstBuilder(
-                logger = NoOpRunnerLogger,
+                logger = logger,
                 cacheDir = projectDir.resolve("cache"),
                 toolConfig = toolConfig,
                 buildToolStage = buildTool,
@@ -781,6 +785,79 @@ class LstBuilderTest :
             assertTrue(
                 jars.none { it.toString().contains("/lib/agents/") },
                 "lib/agents/ JARs should not be included"
+            )
+        }
+
+        // ─── Classpath empty warning ──────────────────────────────────────────────
+
+        test("warn is emitted when classpath is empty and JVM source files are present") {
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+
+            val warnings = mutableListOf<String>()
+            val capturingLogger =
+                object : RunnerLogger by NoOpRunnerLogger {
+                    override fun warn(message: String) {
+                        warnings.add(message)
+                    }
+                }
+
+            lstBuilder(logger = capturingLogger).build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".java")
+            )
+
+            assertTrue(
+                warnings.any { it.contains("Classpath resolution failed across all 3 stages") },
+                "Expected classpath-failure warning but got: $warnings"
+            )
+        }
+
+        test("warn is NOT emitted when classpath is empty but no JVM source files are present") {
+            projectDir.resolve("config.yaml").writeText("key: value")
+
+            val warnings = mutableListOf<String>()
+            val capturingLogger =
+                object : RunnerLogger by NoOpRunnerLogger {
+                    override fun warn(message: String) {
+                        warnings.add(message)
+                    }
+                }
+
+            lstBuilder(logger = capturingLogger).build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".yaml")
+            )
+
+            assertFalse(
+                warnings.any { it.contains("Classpath resolution failed across all 3 stages") },
+                "Classpath-failure warning should not be emitted for non-JVM projects"
+            )
+        }
+
+        test("warn is NOT emitted when stage 1 resolves a non-empty classpath") {
+            val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
+            val successfulBuildTool =
+                object : BuildToolStage(NoOpRunnerLogger) {
+                    override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
+                }
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+
+            val warnings = mutableListOf<String>()
+            val capturingLogger =
+                object : RunnerLogger by NoOpRunnerLogger {
+                    override fun warn(message: String) {
+                        warnings.add(message)
+                    }
+                }
+
+            lstBuilder(buildTool = successfulBuildTool, logger = capturingLogger).build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".java")
+            )
+
+            assertFalse(
+                warnings.any { it.contains("Classpath resolution failed across all 3 stages") },
+                "Classpath-failure warning should not be emitted when stage 1 succeeds"
             )
         }
     })
