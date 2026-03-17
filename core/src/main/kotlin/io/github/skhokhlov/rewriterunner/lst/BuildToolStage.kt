@@ -77,7 +77,6 @@ open class BuildToolStage(protected val logger: RunnerLogger) {
             val mvnCommand = listOf(
                 mvnCmd,
                 "dependency:build-classpath",
-                "-q",
                 "-DincludeScope=test",
                 "-Dmdep.outputFile=${outputFile.toAbsolutePath()}"
             )
@@ -123,7 +122,11 @@ open class BuildToolStage(protected val logger: RunnerLogger) {
             val gradleCmd = resolveGradleCommand(projectDir)
             val gradleCommand = listOf(
                 gradleCmd,
-                "-q",
+                "-i",
+                "-S",
+                "--no-parallel",
+                "--no-daemon",
+                "--no-configuration-cache",
                 "printClasspathForOpenRewrite",
                 "--init-script",
                 initScript.toAbsolutePath().toString()

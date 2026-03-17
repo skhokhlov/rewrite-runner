@@ -236,7 +236,14 @@ open class DependencyResolutionStage(
         val output = StringBuilder()
         val result = runProcess(
             projectDir,
-            listOf(gradleCmd, "-q") + tasks,
+            listOf(
+                gradleCmd,
+                "-i",
+                "-S",
+                "--no-parallel",
+                "--no-daemon",
+                "--no-configuration-cache"
+            ) + tasks,
             captureStdout = output,
             logger = logger
         ) ?: return null
