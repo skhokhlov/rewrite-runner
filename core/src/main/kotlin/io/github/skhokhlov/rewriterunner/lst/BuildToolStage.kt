@@ -235,11 +235,11 @@ open class BuildToolStage(protected val logger: RunnerLogger) {
             allprojects {
                 tasks.register('printClasspathForOpenRewrite') {
                     doLast {
-                        def cp = configurations.findByName('testRuntimeClasspath')
-                            ?: configurations.findByName('runtimeClasspath')
-                            ?: configurations.findByName('testCompileClasspath')
-                            ?: configurations.findByName('compileClasspath')
-                            ?: configurations.findByName('default')
+                        def cp = project.configurations.findByName('testRuntimeClasspath')
+                            ?: project.configurations.findByName('runtimeClasspath')
+                            ?: project.configurations.findByName('testCompileClasspath')
+                            ?: project.configurations.findByName('compileClasspath')
+                            ?: project.configurations.findByName('default')
                         cp?.incoming?.files?.each { file ->
                             if (file.name.endsWith('.jar')) {
                                 println file.absolutePath
