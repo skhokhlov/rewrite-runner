@@ -30,13 +30,14 @@ import org.openrewrite.xml.XmlParser
 import org.openrewrite.yaml.YamlParser
 
 /**
- * Orchestrates the 3-stage LST building pipeline and multi-language file parsing.
+ * Orchestrates the 4-stage LST building pipeline and multi-language file parsing.
  *
- * **Classpath resolution (3 stages)** — runs once per [build] invocation and the result is
+ * **Classpath resolution (4 stages)** — runs once per [build] invocation and the result is
  * shared by all JVM language parsers (Java, Kotlin, Groovy):
  * - Stage 1 — Run the project's own build tool (Maven/Gradle) to extract the compile classpath.
- * - Stage 2 — Parse the build descriptor and resolve deps via Maven Resolver.
- * - Stage 3 — Scan `~/.m2` / `~/.gradle/caches` for already-cached JARs matching declared deps.
+ * - Stage 2 — Run `mvn dependency:tree` / `gradle dependencies` subprocesses and resolve via Maven Resolver.
+ * - Stage 3 — Parse build files statically and resolve via Maven Resolver POM traversal.
+ * - Stage 4 — Scan `~/.m2` / `~/.gradle/caches` for already-cached JARs matching declared deps.
  *
  * **Gradle DSL classpath** — an additional classpath resolved from the Gradle installation
  * (via `GRADLE_HOME`, the project's Gradle wrapper, or `~/.gradle/wrapper/dists/`) is added
@@ -67,7 +68,9 @@ class LstBuilder(
             logger = logger
         ),
         logger
-    )
+    ),
+    private val buildFileResolveStage: BuildFileResolveStage =
+        BuildFileResolveStage(depResolutionStage, logger)
 ) {
     private val fileCollector = FileCollector()
     private val versionDetector = VersionDetector(logger)
@@ -113,7 +116,7 @@ class LstBuilder(
             fileCollector.resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
         logger.info("Parsing extensions: $effectiveExtensions")
 
-        // ── 3-stage classpath resolution ──────────────────────────────────────
+        // ── 4-stage classpath resolution ──────────────────────────────────────
         val resolutionResult = resolveClasspath(projectDir)
         val classpath = resolutionResult.classpath
 
@@ -146,7 +149,7 @@ class LstBuilder(
         val hasJvmFiles = jvmExtensions.any { filesByExt[it]?.isNotEmpty() == true }
         if (classpath.isEmpty() && hasJvmFiles) {
             logger.warn(
-                "Classpath resolution failed across all 3 stages — " +
+                "Classpath resolution failed across all 4 stages — " +
                     "type information will be missing. Recipe results may be incomplete."
             )
         }
@@ -414,7 +417,7 @@ class LstBuilder(
         }
     }
 
-    // ─── Classpath resolution (3 stages) ─────────────────────────────────────
+    // ─── Classpath resolution (4 stages) ─────────────────────────────────────
 
     /**
      * Directories where the project's own compiled classes might live.
@@ -474,20 +477,39 @@ class LstBuilder(
             "Stage 2 (dependency resolution) failed: no JARs resolved, falling through to Stage 3"
         )
 
-        logger.info("Stage 3: scanning local Maven/Gradle caches")
+        logger.info("Stage 3: resolving via static build file parse + POM traversal")
+        val stage3 = try {
+            buildFileResolveStage.resolveClasspath(projectDir)
+        } catch (e: Exception) {
+            logger.warn("Stage 3 threw: ${e.message}")
+            emptyList()
+        }
+
+        if (stage3.isNotEmpty()) {
+            val classDirs = projectClassDirs(projectDir)
+            if (classDirs.isNotEmpty()) {
+                logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
+            }
+            logger.info("Stage 3 succeeded: ${stage3.size} JAR(s)")
+            return ClasspathResolutionResult(stage3 + classDirs)
+        }
+
+        logger.warn("Stage 3 failed — falling through to Stage 4")
+
+        logger.info("Stage 4: scanning local Maven/Gradle caches")
         val directParseStage = DirectParseStage(projectDir, logger)
         val declaredCoords = gatherDeclaredCoordinates(projectDir)
-        val stage3 = directParseStage.findAvailableJars(declaredCoords)
+        val stage4 = directParseStage.findAvailableJars(declaredCoords)
         val classDirs = projectClassDirs(projectDir)
         if (classDirs.isNotEmpty()) {
             logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
         }
-        if (stage3.isEmpty()) {
-            logger.warn("Stage 3 (local cache): no cached JARs found")
+        if (stage4.isEmpty()) {
+            logger.warn("Stage 4 (local cache): no cached JARs found")
         } else {
-            logger.info("Stage 3: using ${stage3.size} locally cached JAR(s)")
+            logger.info("Stage 4: using ${stage4.size} locally cached JAR(s)")
         }
-        return ClasspathResolutionResult(stage3 + classDirs)
+        return ClasspathResolutionResult(stage4 + classDirs)
     }
 
     /**

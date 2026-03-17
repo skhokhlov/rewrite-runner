@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 **Deep-dive docs** (read these before working on the relevant area):
-- [`docs/architecture.md`](docs/architecture.md) — execution pipeline, 3-stage LST, file routing, version detection, module layout
+- [`docs/architecture.md`](docs/architecture.md) — execution pipeline, 4-stage LST, file routing, version detection, module layout
 - [`docs/dependency-resolution.md`](docs/dependency-resolution.md) — how/why recipe vs project deps are resolved, Aether session settings, scope pruning, local repo strategy
 - [`docs/library-api.md`](docs/library-api.md) — `RewriteRunner` builder, `RunResult`, `ToolConfig` YAML schema, exit codes
 - [`docs/testing.md`](docs/testing.md) — TDD requirement, test patterns, gotchas, test file map
@@ -59,14 +59,15 @@ core/src/
 │   ├── RunResult.kt
 │   ├── config/ToolConfig.kt        # YAML config + env var interpolation
 │   ├── lst/
-│   │   ├── LstBuilder.kt           # Orchestrates 3-stage pipeline + multi-language parsing
+│   │   ├── LstBuilder.kt           # Orchestrates 4-stage pipeline + multi-language parsing
 │   │   ├── FileCollector.kt        # NIO walk, excluded-dir filtering, glob exclusions, extension resolution
 │   │   ├── VersionDetector.kt      # Java/Kotlin JVM-version walk-up + parseGradleVersionFromWrapper
 │   │   ├── GradleDslClasspathResolver.kt  # Locate Gradle installation for DSL classpath
 │   │   ├── MarkerFactory.kt        # BuildTool, GitProvenance, OperatingSystem, GradleProject markers
-│   │   ├── BuildToolStage.kt       # Stage 1: Maven/Gradle subprocess
-│   │   ├── DependencyResolutionStage.kt  # Stage 2: Maven Resolver download
-│   │   └── DirectParseStage.kt     # Stage 3: Local cache scan
+│   │   ├── BuildToolStage.kt       # Stage 1: Maven/Gradle subprocess (build-classpath/init-script)
+│   │   ├── DependencyResolutionStage.kt  # Stage 2: mvn dependency:tree / gradle dependencies subprocess
+│   │   ├── BuildFileResolveStage.kt      # Stage 3: Static build file parse + POM traversal
+│   │   └── DirectParseStage.kt     # Stage 4: Local cache scan
 │   ├── output/ResultFormatter.kt   # diff/files/report output modes
 │   └── recipe/
 │       ├── RecipeArtifactResolver.kt

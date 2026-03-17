@@ -52,12 +52,17 @@ class LstBuilderTest :
                     override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
                         ClasspathResolutionResult(emptyList())
                 }
+            val noOpBuildFileStage =
+                object : BuildFileResolveStage(noOpDepStage, NoOpRunnerLogger) {
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+                }
             return LstBuilder(
                 logger = logger,
                 cacheDir = projectDir.resolve("cache"),
                 toolConfig = toolConfig,
                 buildToolStage = buildTool,
-                depResolutionStage = noOpDepStage
+                depResolutionStage = noOpDepStage,
+                buildFileResolveStage = noOpBuildFileStage
             )
         }
 
@@ -490,7 +495,7 @@ class LstBuilderTest :
             )
         }
 
-        // ─── 3-stage pipeline fallthrough ────────────────────────────────────────
+        // ─── 4-stage pipeline fallthrough ────────────────────────────────────────
 
         test("stage 1 is attempted first") {
             var stage1Called = false
@@ -571,6 +576,40 @@ class LstBuilderTest :
             assertTrue(stage2Called, "Stage 2 should be attempted when Stage 1 fails")
         }
 
+        test("stage 3 is attempted when stage 1 and stage 2 fail") {
+            var stage3Called = false
+            val noOpDepStage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
+                }
+            val trackingBuildFileStage =
+                object : BuildFileResolveStage(noOpDepStage, NoOpRunnerLogger) {
+                    override fun resolveClasspath(projectDir: Path): List<Path> {
+                        stage3Called = true
+                        return emptyList()
+                    }
+                }
+
+            LstBuilder(
+                cacheDir = projectDir.resolve("cache"),
+                toolConfig = toolConfig,
+                buildToolStage = failingBuildTool,
+                depResolutionStage = noOpDepStage,
+                buildFileResolveStage = trackingBuildFileStage,
+                logger = NoOpRunnerLogger
+            )
+                .build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+
+            assertTrue(stage3Called, "Stage 3 should be attempted when Stages 1 and 2 fail")
+        }
+
         test("parsing succeeds even when all classpath stages fail") {
             projectDir.resolve("Hello.java").writeText("class Hello {}")
 
@@ -580,7 +619,7 @@ class LstBuilderTest :
             assertEquals(
                 1,
                 sources.size,
-                "Java file should be parsed even without classpath (Stage 3 fallback)"
+                "Java file should be parsed even without classpath (Stage 4 fallback)"
             )
         }
 
@@ -807,7 +846,7 @@ class LstBuilderTest :
             )
 
             assertTrue(
-                warnings.any { it.contains("Classpath resolution failed across all 3 stages") },
+                warnings.any { it.contains("Classpath resolution failed across all 4 stages") },
                 "Expected classpath-failure warning but got: $warnings"
             )
         }
@@ -829,7 +868,7 @@ class LstBuilderTest :
             )
 
             assertFalse(
-                warnings.any { it.contains("Classpath resolution failed across all 3 stages") },
+                warnings.any { it.contains("Classpath resolution failed across all 4 stages") },
                 "Classpath-failure warning should not be emitted for non-JVM projects"
             )
         }
@@ -856,7 +895,7 @@ class LstBuilderTest :
             )
 
             assertFalse(
-                warnings.any { it.contains("Classpath resolution failed across all 3 stages") },
+                warnings.any { it.contains("Classpath resolution failed across all 4 stages") },
                 "Classpath-failure warning should not be emitted when stage 1 succeeds"
             )
         }

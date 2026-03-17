@@ -85,7 +85,7 @@ internal class MarkerFactory(
         )
 
     private fun detectMavenVersion(projectDir: Path): String = try {
-        val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
+        val mvnCmd = resolveMavenCommand(projectDir)
         val output = StringBuilder()
         val result = runProcess(
             projectDir,

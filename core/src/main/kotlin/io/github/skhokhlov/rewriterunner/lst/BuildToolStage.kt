@@ -73,7 +73,7 @@ open class BuildToolStage(protected val logger: RunnerLogger) {
     private fun extractMavenClasspath(projectDir: Path): List<Path>? {
         val outputFile = Files.createTempFile("openrewrite-cp-", ".txt")
         try {
-            val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
+            val mvnCmd = resolveMavenCommand(projectDir)
             val mvnCommand = listOf(
                 mvnCmd,
                 "dependency:build-classpath",
@@ -202,7 +202,7 @@ open class BuildToolStage(protected val logger: RunnerLogger) {
     }
 
     private fun tryMavenCompile(projectDir: Path): Boolean {
-        val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
+        val mvnCmd = resolveMavenCommand(projectDir)
         return runCompileTask(projectDir, listOf(mvnCmd, "compile", "-q"), "Maven")
     }
 

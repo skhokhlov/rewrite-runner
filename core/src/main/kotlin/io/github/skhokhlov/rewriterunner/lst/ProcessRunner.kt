@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
@@ -75,6 +76,44 @@ internal fun hasBuildGradle(dir: Path): Boolean =
     dir.resolve("build.gradle").exists() || dir.resolve("build.gradle.kts").exists() ||
         dir.resolve("settings.gradle").exists() ||
         dir.resolve("settings.gradle.kts").exists()
+
+/** Returns `true` when any subdirectory of [dir] (up to depth 3) contains a `pom.xml`. */
+internal fun hasMavenPomInSubdir(dir: Path): Boolean = try {
+    Files.walk(dir, 3).use { stream ->
+        stream.anyMatch { path ->
+            path.parent != dir && path.fileName?.toString() == "pom.xml"
+        }
+    }
+} catch (_: Exception) {
+    false
+}
+
+/**
+ * Returns `true` when any subdirectory of [dir] (up to depth 3) contains a
+ * `build.gradle` or `build.gradle.kts` file.
+ */
+internal fun hasGradleBuildInSubdir(dir: Path): Boolean = try {
+    Files.walk(dir, 3).use { stream ->
+        stream.anyMatch { path ->
+            val name = path.fileName?.toString() ?: return@anyMatch false
+            path.parent != dir && (name == "build.gradle" || name == "build.gradle.kts")
+        }
+    }
+} catch (_: Exception) {
+    false
+}
+
+/**
+ * Returns the Maven executable to use for [projectDir]:
+ * - `./mvnw` if a Unix wrapper is present
+ * - `mvnw.cmd` if a Windows wrapper is present
+ * - `mvn` as a fallback (must be on PATH)
+ */
+internal fun resolveMavenCommand(projectDir: Path): String = when {
+    projectDir.resolve("mvnw").exists() -> "./mvnw"
+    projectDir.resolve("mvnw.cmd").exists() -> "mvnw.cmd"
+    else -> "mvn"
+}
 
 /**
  * Returns the Gradle executable to use for [projectDir]:

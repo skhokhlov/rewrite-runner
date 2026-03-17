@@ -17,37 +17,28 @@ import org.eclipse.aether.resolution.DependencyResolutionException
 import org.eclipse.aether.util.filter.ScopeDependencyFilter
 
 /**
- * Stage 2 of the LST classpath-resolution pipeline: parse the project's build
- * descriptor and resolve declared dependencies via Maven Resolver (Eclipse Aether),
- * **without** invoking the project's build tool as a subprocess.
+ * Stage 2 of the LST classpath-resolution pipeline: invoke the project's build tool
+ * as a subprocess to obtain a fully-resolved dependency list, then download any missing
+ * JARs via Maven Resolver (Eclipse Aether).
  *
  * **Why Stage 2?**
- * Stage 1 ([BuildToolStage]) requires the build tool to be installed and the project
- * to be in a runnable state. Stage 2 is the fallback when Stage 1 fails — for example,
- * when running in CI with no Maven/Gradle installation, when the project has an
- * incomplete build setup, or when Stage 1 times out.
+ * Stage 1 ([BuildToolStage]) extracts the exact on-disk classpath but requires the
+ * project to be fully buildable. Stage 2 runs lighter subprocess commands
+ * (`mvn dependency:tree` / `gradle dependencies`) that work even when the project
+ * cannot be compiled — for example when compiler plugins are missing or the source
+ * contains errors.
  *
- * **How it works:**
- * 1. The build descriptor is parsed statically to extract `groupId:artifactId:version`
- *    coordinates of declared dependencies.
- * 2. All coordinates are submitted as a single dependency graph to Maven Resolver
- *    (Eclipse Aether), which downloads missing JARs and applies Maven conflict resolution
- *    (nearest-wins) across the full transitive graph. This mirrors what `mvn dependency:resolve`
- *    does without actually running Maven.
- * 3. Resolved JAR paths from the local repository are returned.
+ * **Maven projects:** Runs `mvnw dependency:tree` (or `mvn` when no wrapper is
+ * present). The tree output is parsed to extract `group:artifact:version` coordinates.
+ * Resolved artifacts are fetched directly (no POM traversal needed because Maven
+ * has already computed the transitive closure).
  *
- * **Maven projects:** `pom.xml` is parsed using the Maven Model reader. Dependencies
- * with `provided` or `system` scope, and those whose version contains an unresolved
- * Maven property placeholder (e.g. `${spring.version}`), are skipped.
+ * **Gradle projects:** Runs `gradle dependencies` for the root project and all
+ * declared subprojects. Parsed coordinates are resolved directly via Aether.
+ * Unlike Stage 1, this does not require the project to compile successfully.
  *
- * **Gradle projects:** Two strategies are attempted in order:
- * 1. Run `gradle dependencies` (with `gradlew` if present) for the root project and
- *    all subprojects discovered in `settings.gradle(.kts)`. The resolved dependency
- *    tree output is parsed to extract coordinates, correctly handling version overrides
- *    (e.g. `1.0 -> 2.0` conflict resolution lines).
- * 2. If the Gradle task cannot be run (no wrapper, non-zero exit, empty output),
- *    fall back to best-effort static regex parsing of `build.gradle` /
- *    `build.gradle.kts` to extract quoted `group:artifact:version` strings.
+ * **Mixed Maven+Gradle projects:** Both subprocess paths are attempted and their
+ * coordinates are combined before resolution.
  *
  * **Partial resolution:** When some dependencies cannot be downloaded (e.g. private
  * repositories, network issues), a [org.eclipse.aether.resolution.DependencyResolutionException]
@@ -55,9 +46,9 @@ import org.eclipse.aether.util.filter.ScopeDependencyFilter
  * were resolved. Missing types appear as `JavaType.Unknown` in the LST rather than
  * causing a hard failure.
  *
- * **Failure behaviour:** When no coordinates are found, or when Maven Resolver
+ * **Failure behaviour:** When no subprocess succeeds, or when Maven Resolver
  * produces an empty result, [resolveClasspath] returns an empty list, causing
- * [LstBuilder] to fall through to [DirectParseStage] (Stage 3).
+ * [LstBuilder] to fall through to [BuildFileResolveStage] (Stage 3).
  *
  * **Extensibility:** The class is `open` with `open` / `protected open` methods so
  * tests can subclass it to inject a fake classpath without triggering network access.
@@ -69,83 +60,54 @@ open class DependencyResolutionStage(
     private val context: AetherContext,
     protected val logger: RunnerLogger
 ) {
-    private sealed class ResolvedCoords {
-        abstract val coords: List<String>
-
-        /** Fully-resolved transitive coordinates from `gradle dependencies` — skip POM traversal. */
-        class Full(override val coords: List<String>) : ResolvedCoords()
-
-        /** Declared (direct) coordinates only — POM traversal required for transitive graph. */
-        class Declared(override val coords: List<String>) : ResolvedCoords()
-    }
-
     /**
-     * Resolves the project's compile classpath by parsing its build descriptor and
-     * downloading dependencies via Maven Resolver.
+     * Resolves the project's compile classpath by running subprocesses
+     * (`mvn dependency:tree` and/or `gradle dependencies`) and downloading
+     * the resulting coordinates via Maven Resolver.
      *
-     * For Maven projects, reads `pom.xml`; for Gradle projects, first attempts
-     * `gradle dependencies` and falls back to static build-file parsing.
-     * All collected coordinates are resolved together in a single Aether request
-     * so that Maven conflict resolution (nearest-wins) is applied across the full
-     * transitive graph — the same behaviour as `mvn dependency:resolve`.
-     *
-     * Test-scoped and provided-scoped transitive dependencies are excluded via
-     * [org.eclipse.aether.util.filter.ScopeDependencyFilter] to keep the classpath
-     * focused on compile/runtime artifacts.
+     * Supports Maven-only, Gradle-only, and mixed Maven+Gradle projects, as well
+     * as projects where build files live in subdirectories. Both subprocess paths
+     * are attempted and their coordinates are combined before resolution.
      *
      * @return [ClasspathResolutionResult] containing the resolved JAR paths and, for Gradle
      *   projects where the `gradle dependencies` task succeeded, per-project configuration data
      *   for constructing [GradleProject] markers. Returns an empty classpath (never throws) when
-     *   no coordinates can be found or when resolution fails completely.
+     *   no subprocess succeeds or resolution fails completely.
      */
     open fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
-        val resolved: ResolvedCoords
+        val coords = mutableListOf<String>()
         var gradleProjectData: Map<String, GradleProjectData>? = null
 
-        when {
-            projectDir.resolve("pom.xml").exists() -> {
-                logger.debug("Stage 2: Maven project detected — parsing pom.xml")
-                resolved = ResolvedCoords.Declared(parseMavenDependencies(projectDir))
+        // Maven subprocess: run mvn dependency:tree
+        if (projectDir.resolve("pom.xml").exists() || hasMavenPomInSubdir(projectDir)) {
+            logger.debug("Stage 2: Maven project detected — running dependency:tree")
+            val rawOutput = runMavenDependencyTreeOutput(projectDir)
+            if (rawOutput != null) {
+                coords += parseMavenDependencyTreeOutput(rawOutput)
             }
-
-            hasBuildGradle(projectDir) -> {
-                logger.debug("Stage 2: Gradle project detected — running dependencies task")
-                val rawOutput = runGradleDependenciesRawOutput(projectDir)
-                if (rawOutput != null) {
-                    val coords = parseGradleDependencyTaskOutput(rawOutput)
-                    if (coords.isNotEmpty()) {
-                        resolved = ResolvedCoords.Full(coords)
-                        gradleProjectData = parseGradleDependencyTaskOutputByProject(rawOutput)
-                    } else {
-                        logger.info(
-                            "Gradle dependencies task returned no coordinates — falling back to static parsing"
-                        )
-                        resolved =
-                            ResolvedCoords.Declared(parseGradleDependenciesStatically(projectDir))
-                    }
-                } else {
-                    logger.debug(
-                        "Stage 2: falling back to static Gradle build-file parsing"
-                    )
-                    resolved =
-                        ResolvedCoords.Declared(parseGradleDependenciesStatically(projectDir))
-                }
-            }
-
-            else -> resolved = ResolvedCoords.Declared(emptyList())
         }
 
-        if (resolved.coords.isEmpty()) {
-            logger.info("No dependencies found in build descriptor")
+        // Gradle subprocess: run gradle dependencies
+        if (hasBuildGradle(projectDir) || hasGradleBuildInSubdir(projectDir)) {
+            logger.debug("Stage 2: Gradle project detected — running dependencies task")
+            val rawOutput = runGradleDependenciesRawOutput(projectDir)
+            if (rawOutput != null) {
+                val gradleCoords = parseGradleDependencyTaskOutput(rawOutput)
+                if (gradleCoords.isNotEmpty()) {
+                    coords += gradleCoords
+                    gradleProjectData = parseGradleDependencyTaskOutputByProject(rawOutput)
+                } else {
+                    logger.info("Gradle dependencies task returned no coordinates")
+                }
+            }
+        }
+
+        if (coords.isEmpty()) {
+            logger.info("No dependencies found via subprocess")
             return ClasspathResolutionResult(emptyList(), gradleProjectData)
         }
 
-        // Both Full (Gradle task output) and Declared (Maven POM / static Gradle parsing)
-        // routes use direct artifact resolution. Full coords are already the complete
-        // transitive graph returned by Gradle; Declared coords are only direct deps
-        // (transitive deps are skipped — OpenRewrite tolerates JavaType.Unknown for
-        // missing transitives, and Stage 3 supplements local-cache JARs).
-        val classpath = resolveArtifactsDirectly(resolved.coords)
+        val classpath = resolveArtifactsDirectly(coords.distinct())
         return ClasspathResolutionResult(classpath, gradleProjectData)
     }
 
@@ -172,9 +134,10 @@ open class DependencyResolutionStage(
     /**
      * Resolves declared (direct) coordinates via POM traversal using Maven Resolver's
      * dependency graph, applying nearest-wins conflict resolution across the full
-     * transitive graph. Used for Maven projects and static Gradle parsing fallback.
+     * transitive graph. Used by [BuildFileResolveStage] (Stage 3) for static build-file
+     * parsing where only direct coordinates are known.
      */
-    protected open fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
+    internal open fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
         logger.info("Resolving ${coordinates.size} declared dependencies via Maven Resolver")
         val deps = coordinates.map { Dependency(DefaultArtifact(it), "runtime") }
         val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
@@ -205,6 +168,57 @@ open class DependencyResolutionStage(
             logger.warn("Could not resolve project classpath: $firstError")
             emptyList()
         }
+    }
+
+    // ─── Maven subprocess ─────────────────────────────────────────────────────
+
+    /**
+     * Runs `mvn dependency:tree` (using `mvnw` wrapper when present) and returns the raw
+     * stdout output, or `null` on failure (non-zero exit, process error, or timeout).
+     */
+    protected open fun runMavenDependencyTreeOutput(projectDir: Path): String? {
+        val mvnCmd = resolveMavenCommand(projectDir)
+        val output = StringBuilder()
+        val result = runProcess(
+            projectDir,
+            listOf(mvnCmd, "dependency:tree"),
+            captureStdout = output,
+            logger = logger
+        ) ?: return null
+        if (result != 0) {
+            logger.warn("Maven dependency:tree failed with exit code $result")
+            return null
+        }
+        return output.toString()
+    }
+
+    /**
+     * Parses the text output of `mvn dependency:tree` and extracts
+     * `group:artifact:version` coordinates.
+     *
+     * Handles standard tree output lines such as:
+     * ```
+     * [INFO] +- org.springframework:spring-core:jar:6.1.0:compile
+     * [INFO] \- com.fasterxml.jackson.core:jackson-databind:jar:2.16.0:compile
+     * ```
+     *
+     * @return Deduplicated list of `groupId:artifactId:version` coordinates.
+     */
+    internal fun parseMavenDependencyTreeOutput(output: String): List<String> {
+        val coordinates = mutableSetOf<String>()
+        // Lines like: [INFO] +- org.springframework:spring-core:jar:6.1.0:compile
+        val pattern = Regex(
+            """^\[INFO\]\s+[\s|+\\-]+([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+):(?:jar|war|pom|ear|zip|aar|bundle):([^:]+):\w+\s*$"""
+        )
+        for (line in output.lines()) {
+            val match = pattern.find(line) ?: continue
+            val groupArtifact = match.groupValues[1]
+            val version = match.groupValues[2]
+            if (version.isNotBlank() && version != "FAILED") {
+                coordinates.add("$groupArtifact:$version")
+            }
+        }
+        return coordinates.toList()
     }
 
     // ─── Maven pom.xml parsing ────────────────────────────────────────────────
@@ -524,7 +538,7 @@ open class DependencyResolutionStage(
         val coordinates = mutableListOf<String>()
         for (dir in buildDirs) {
             val buildFile = findBuildFile(dir) ?: continue
-            logger.debug("Stage 2: statically parsing ${buildFile.toAbsolutePath()}")
+            logger.debug("Stage 3: statically parsing ${buildFile.toAbsolutePath()}")
             try {
                 val text = buildFile.toFile().readText()
                 coordPattern.findAll(text).forEach { match ->
@@ -547,7 +561,7 @@ open class DependencyResolutionStage(
 
         return coordinates.distinct().also {
             logger.debug(
-                "Stage 2: static parsing found ${it.size} unique coordinate(s) across " +
+                "Stage 3: static parsing found ${it.size} unique coordinate(s) across " +
                     "${buildDirs.size} build file(s) + version catalog(s)"
             )
         }
@@ -585,7 +599,7 @@ open class DependencyResolutionStage(
 
         val coordinates = mutableListOf<String>()
         for (catalogFile in catalogFiles) {
-            logger.debug("Stage 2: parsing version catalog ${catalogFile.absolutePath}")
+            logger.debug("Stage 3: parsing version catalog ${catalogFile.absolutePath}")
             try {
                 coordinates += parseCatalogFile(catalogFile.toPath())
             } catch (e: Exception) {

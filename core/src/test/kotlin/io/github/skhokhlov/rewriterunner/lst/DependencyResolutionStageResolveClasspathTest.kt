@@ -8,6 +8,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -63,21 +64,22 @@ class DependencyResolutionStageResolveClasspathTest :
                 """.trimIndent()
             )
 
-            var parsedMaven = false
+            var mavenSubprocessCalled = false
             val stage =
                 object : DependencyResolutionStage(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
-                        parsedMaven =
-                            parseMavenDependencies(projectDir).isNotEmpty() ||
-                            projectDir.resolve("pom.xml").toFile().exists()
-                        return ClasspathResolutionResult(emptyList())
+                    override fun runMavenDependencyTreeOutput(projectDir: Path): String? {
+                        mavenSubprocessCalled = true
+                        return null
                     }
                 }
             stage.resolveClasspath(projectDir)
-            assertTrue(parsedMaven, "pom.xml should be detected")
+            assertTrue(
+                mavenSubprocessCalled,
+                "Maven subprocess should be invoked for pom.xml project"
+            )
         }
 
         test("resolveClasspath routes to Gradle when build_gradle_kts present") {
@@ -247,7 +249,7 @@ class DependencyResolutionStageResolveClasspathTest :
         }
 
         test(
-            "resolveClasspath calls resolveArtifactsDirectly when gradle task returns null (static fallback)"
+            "gradle task returns null → returns empty (no static fallback)"
         ) {
             projectDir.resolve("build.gradle.kts").writeText(
                 """
@@ -258,7 +260,6 @@ class DependencyResolutionStageResolveClasspathTest :
             )
 
             var directCalled = false
-            var pomCalled = false
             val stage =
                 object : DependencyResolutionStage(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
@@ -270,22 +271,20 @@ class DependencyResolutionStageResolveClasspathTest :
                         directCalled = true
                         return emptyList()
                     }
-
-                    override fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
-                        pomCalled = true
-                        return emptyList()
-                    }
                 }
-            stage.resolveClasspath(projectDir)
-            assertTrue(
+            val result = stage.resolveClasspath(projectDir)
+            assertFalse(
                 directCalled,
-                "resolveArtifactsDirectly should be called even for static gradle fallback — no POM traversal"
+                "resolveArtifactsDirectly should NOT be called — no static fallback in Stage 2"
             )
-            assertTrue(!pomCalled, "resolveWithPomTraversal should NOT be called")
+            assertTrue(
+                result.classpath.isEmpty(),
+                "Stage 2 should return empty when subprocess fails"
+            )
         }
 
         test(
-            "resolveClasspath calls resolveArtifactsDirectly for maven project (no POM traversal)"
+            "Maven falls through to empty when dependency:tree fails"
         ) {
             projectDir.resolve("pom.xml").writeText(
                 """
@@ -305,32 +304,88 @@ class DependencyResolutionStageResolveClasspathTest :
                 """.trimIndent()
             )
 
-            var directCalled = false
-            var pomCalled = false
             val stage =
                 object : DependencyResolutionStage(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
+                    override fun runMavenDependencyTreeOutput(projectDir: Path): String? = null
+                }
+            val result = stage.resolveClasspath(projectDir)
+            assertTrue(
+                result.classpath.isEmpty(),
+                "Stage 2 should return empty when dependency:tree subprocess fails"
+            )
+        }
+
+        test("resolveClasspath runs Maven dependency:tree when pom.xml present") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>test</artifactId>
+                    <version>1.0</version>
+                </project>
+                """.trimIndent()
+            )
+
+            var directCalled = false
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                ) {
+                    override fun runMavenDependencyTreeOutput(projectDir: Path): String =
+                        "[INFO] +- org.apache.commons:commons-lang3:jar:3.12.0:compile\n"
+
                     override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
                         directCalled = true
-                        return emptyList()
-                    }
-
-                    override fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
-                        pomCalled = true
                         return emptyList()
                     }
                 }
             stage.resolveClasspath(projectDir)
             assertTrue(
                 directCalled,
-                "resolveArtifactsDirectly should be called for Maven projects — no POM traversal"
+                "resolveArtifactsDirectly should be called with parsed Maven coords"
             )
-            assertTrue(
-                !pomCalled,
-                "resolveWithPomTraversal should NOT be called for Maven projects"
+        }
+
+        test(
+            "resolveClasspath runs both Maven and Gradle subprocess when both build files present"
+        ) {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>test</artifactId>
+                    <version>1.0</version>
+                </project>
+                """.trimIndent()
             )
+            projectDir.resolve("build.gradle").writeText("// mixed project")
+
+            var mavenCalled = false
+            var gradleCalled = false
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                ) {
+                    override fun runMavenDependencyTreeOutput(projectDir: Path): String? {
+                        mavenCalled = true
+                        return null
+                    }
+
+                    override fun runGradleDependenciesRawOutput(projectDir: Path): String? {
+                        gradleCalled = true
+                        return null
+                    }
+                }
+            stage.resolveClasspath(projectDir)
+            assertTrue(mavenCalled, "Maven subprocess should be attempted for mixed project")
+            assertTrue(gradleCalled, "Gradle subprocess should be attempted for mixed project")
         }
 
         // ─── Extra repositories (buildRemoteRepos coverage) ───────────────────────
