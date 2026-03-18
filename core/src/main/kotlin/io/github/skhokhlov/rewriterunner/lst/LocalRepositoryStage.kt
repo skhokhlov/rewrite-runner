@@ -1,19 +1,16 @@
 package io.github.skhokhlov.rewriterunner.lst
 
-import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.io.path.exists
-import kotlin.io.path.isDirectory
-import kotlin.io.path.name
 
 /**
- * Stage 3 of the LST classpath-resolution pipeline: assemble the best available
+ * Stage 4 of the LST classpath-resolution pipeline: assemble the best available
  * classpath from local caches, **without downloading anything**.
  *
- * **Why Stage 3?**
- * Stage 1 ([BuildToolStage]) and Stage 2 ([DependencyResolutionStage]) can both fail —
+ * **Why Stage 4?**
+ * Stage 1 ([ProjectBuildStage]) and Stage 2 ([DependencyResolutionStage]) can both fail —
  * for example, in completely offline environments, in repositories with no network
  * access, or when the build tool is not installed and the declared dependencies cannot
  * be downloaded by Maven Resolver. Stage 3 is the last-resort fallback: it reuses
@@ -41,14 +38,14 @@ import kotlin.io.path.name
  * Missing types are reported as warnings in the log so users can identify which
  * dependencies were unresolvable.
  *
- * **Note:** Stage 3 never downloads JARs. If dependencies are missing from all
+ * **Note:** Stage 4 never downloads JARs. If dependencies are missing from all
  * local caches, run the project's normal build (`mvn package`, `gradle build`)
  * first to populate the caches, then re-run the tool.
  *
  * @param projectDir Root directory of the project, used to locate project-local
  *   cache roots (`.m2/repository`, `.gradle/caches`).
  */
-class DirectParseStage(private val projectDir: Path, val logger: RunnerLogger) {
+class LocalRepositoryStage(private val projectDir: Path, val logger: RunnerLogger) {
     private val m2Roots: List<Path> = listOf(
         Paths.get(System.getProperty("user.home"), ".m2", "repository"),
         projectDir.resolve(".m2").resolve("repository")

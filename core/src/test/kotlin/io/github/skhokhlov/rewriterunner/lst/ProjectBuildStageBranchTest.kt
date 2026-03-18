@@ -12,17 +12,17 @@ import kotlin.test.assertTrue
 private val isWindows = System.getProperty("os.name", "").lowercase().contains("windows")
 
 /**
- * Covers branches in [BuildToolStage] that are missed by the main test suite:
+ * Covers branches in [ProjectBuildStage] that are missed by the main test suite:
  * - `gradlew.bat` wrapper detection
  * - Gradle extraction with fake wrapper that exits non-zero (covers the captureStdout path)
  * - Gradle extraction with fake wrapper that exits 0 (covers the success parse path)
  * - Maven/Gradle tryCompile success path via a fake exit-0 wrapper
  * - Maven classpath extraction when the output file is empty (exit 0 but no classpath written)
  */
-class BuildToolStageBranchTest :
+class ProjectBuildStageBranchTest :
     FunSpec({
         var projectDir: Path = Path.of("")
-        val stage = BuildToolStage(NoOpRunnerLogger)
+        val stage = ProjectBuildStage(NoOpRunnerLogger)
 
         beforeEach { projectDir = Files.createTempDirectory("btsb-") }
 

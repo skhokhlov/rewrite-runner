@@ -1,7 +1,7 @@
-package io.github.skhokhlov.rewriterunner.lst
+package io.github.skhokhlov.rewriterunner.lst.utils
 
-import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
@@ -37,7 +37,7 @@ internal fun runProcess(
     // Always drain both streams on background threads to prevent pipe-buffer deadlock.
     // Log each line at DEBUG so Maven/Gradle output is visible with --debug.
     val prefix = command.first().substringAfterLast('/')
-    fun drainStream(stream: java.io.InputStream, tag: String) = Thread(null, {
+    fun drainStream(stream: InputStream, tag: String) = Thread(null, {
         stream.bufferedReader().forEachLine {
             logger.debug("[$prefix $tag] $it")
             if (tag == "stdout") captureStdout?.append(it)?.append('\n')

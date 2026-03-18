@@ -1,4 +1,4 @@
-package io.github.skhokhlov.rewriterunner.lst
+package io.github.skhokhlov.rewriterunner.lst.utils
 
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import java.nio.file.FileSystems

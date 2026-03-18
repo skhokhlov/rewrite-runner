@@ -38,7 +38,7 @@ Recipe JARs are stored in the tool's own cache directory so they never appear in
 
 OpenRewrite parsers (`JavaParser`, `KotlinParser`, `GroovyParser`) need the project's compile classpath to resolve type references. Without it, every external type appears as `JavaType.Unknown` and recipes that inspect or rewrite typed code produce incorrect results or miss matches entirely. Test-scoped sources (files under `src/test/`) also need their test-scoped dependencies (e.g. JUnit, Mockito) to be type-resolved correctly.
 
-Stage 2 is a fallback: it runs only when Stage 1 (`BuildToolStage`, which invokes `mvn`/`gradle` as a subprocess) fails or is unavailable.
+Stage 2 is a fallback: it runs only when Stage 1 (`ProjectBuildStage`, which invokes `mvn`/`gradle` as a subprocess) fails or is unavailable.
 
 ### How
 
@@ -60,7 +60,7 @@ All coordinate sources — including Maven POM parsing and static Gradle fallbac
 
 - **Speed.** POM traversal requires one HTTP request per reachable node in the transitive graph. A project with 50 direct deps may have 300+ transitive nodes, each needing a POM download on a cold run. Direct resolution only fetches the JARs for the coordinates explicitly listed.
 - **Sufficiency.** In practice, most type references in source code come from direct or first-level-indirect dependencies that are already declared in the build file. Missing transitives show up as `JavaType.Unknown`, which OpenRewrite tolerates — recipes still run and produce correct results for the types they can resolve.
-- **Stage 3 as supplement.** `DirectParseStage` (Stage 3) scans `~/.m2/repository` and `~/.gradle/caches` for any JARs already present locally, including transitives previously downloaded by the project's own Gradle/Maven build. Together, Stages 2 and 3 cover the common case without any extra POM downloads.
+- **Stage 3 as supplement.** `LocalRepositoryStage` (Stage 3) scans `~/.m2/repository` and `~/.gradle/caches` for any JARs already present locally, including transitives previously downloaded by the project's own Gradle/Maven build. Together, Stages 2 and 3 cover the common case without any extra POM downloads.
 
 When the Gradle task (`gradle dependencies`) is used, it already returns the **full resolved transitive graph** (Gradle has already done conflict resolution). Those coordinates are resolved directly with `ArtifactRequest` — no re-traversal needed. This is why both paths (Gradle task output and static/Maven parsing) use the same `resolveArtifactsDirectly` method.
 

@@ -4,6 +4,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -46,6 +47,8 @@ class DependencyResolutionStageTest :
             NoOpRunnerLogger
         )
 
+        fun staticParser() = StaticBuildFileParser(NoOpRunnerLogger)
+
         // ─── Maven pom.xml parsing ────────────────────────────────────────────────
 
         test("parseMavenDependencies extracts compile-scoped dependencies") {
@@ -72,7 +75,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseMavenDependencies(projectDir)
+            val coords = staticParser().parseMavenDependencies(projectDir)
 
             assertEquals(2, coords.size)
             assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
@@ -104,7 +107,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseMavenDependencies(projectDir)
+            val coords = staticParser().parseMavenDependencies(projectDir)
 
             assertEquals(2, coords.size, "Test dependency should not be excluded")
             assertEquals("org.apache.commons:commons-lang3:3.12.0", coords.first())
@@ -130,7 +133,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseMavenDependencies(projectDir)
+            val coords = staticParser().parseMavenDependencies(projectDir)
             assertEquals(0, coords.size, "Provided dependency should be excluded")
         }
 
@@ -158,19 +161,19 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseMavenDependencies(projectDir)
+            val coords = staticParser().parseMavenDependencies(projectDir)
             assertEquals(1, coords.size, "Dependency with property version should be skipped")
             assertEquals("com.google.guava:guava:32.1.2-jre", coords.first())
         }
 
         test("parseMavenDependencies returns empty list when pom_xml absent") {
-            val coords = stage().parseMavenDependencies(projectDir)
+            val coords = staticParser().parseMavenDependencies(projectDir)
             assertEquals(0, coords.size)
         }
 
         test("parseMavenDependencies returns empty list for malformed pom_xml") {
             projectDir.resolve("pom.xml").writeText("this is not xml")
-            val coords = stage().parseMavenDependencies(projectDir)
+            val coords = staticParser().parseMavenDependencies(projectDir)
             assertEquals(
                 0,
                 coords.size,
@@ -191,7 +194,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseGradleDependenciesStatically(projectDir)
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
 
             assertTrue(
                 coords.contains("org.apache.commons:commons-lang3:3.12.0"),
@@ -214,7 +217,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseGradleDependenciesStatically(projectDir)
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
 
             assertTrue(coords.contains("org.springframework:spring-core:6.1.0"))
             assertTrue(coords.contains("ch.qos.logback:logback-classic:1.4.11"))
@@ -236,7 +239,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseGradleDependenciesStatically(projectDir)
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
 
             assertTrue(
                 coords.contains("com.google.guava:guava:32.1.2-jre"),
@@ -249,7 +252,7 @@ class DependencyResolutionStageTest :
         }
 
         test("parseGradleDependenciesStatically returns empty list when no build file") {
-            val coords = stage().parseGradleDependenciesStatically(projectDir)
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
             assertEquals(0, coords.size)
         }
 
@@ -284,7 +287,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseGradleDependenciesStatically(projectDir)
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
 
             assertTrue(
                 coords.contains("com.google.guava:guava:32.1.2-jre"),
@@ -310,7 +313,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseGradleDependenciesStatically(projectDir)
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
             assertEquals(coords.distinct(), coords, "Coordinates should be deduplicated")
         }
 
@@ -324,7 +327,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseGradleDependenciesStatically(projectDir)
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
             assertTrue(
                 coords.none { it.contains("platform") || it.contains("bom") },
                 "BOM entries should be ignored"
@@ -467,7 +470,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val subs = stage().discoverSubprojects(projectDir)
+            val subs = staticParser().discoverSubprojects(projectDir)
 
             assertTrue(subs.contains(":api"))
             assertTrue(subs.contains(":core"))
@@ -483,7 +486,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val subs = stage().discoverSubprojects(projectDir)
+            val subs = staticParser().discoverSubprojects(projectDir)
 
             assertTrue(subs.contains(":service"))
             assertTrue(subs.contains(":common"))
@@ -501,14 +504,14 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val subs = stage().discoverSubprojects(projectDir)
+            val subs = staticParser().discoverSubprojects(projectDir)
 
             assertTrue(subs.contains(":from-kts"), "KTS settings should take precedence")
             assertFalse(subs.contains(":from-groovy"), "Groovy settings should not be read")
         }
 
         test("discoverSubprojects returns empty list when no settings file") {
-            val subs = stage().discoverSubprojects(projectDir)
+            val subs = staticParser().discoverSubprojects(projectDir)
             assertEquals(0, subs.size)
         }
 
@@ -519,7 +522,7 @@ class DependencyResolutionStageTest :
             val line = """guava = { module = "com.google.guava:guava", version.ref = "guava" }"""
             assertEquals(
                 "com.google.guava:guava:32.1.2-jre",
-                stage().parseCatalogLibraryEntry(line, versions)
+                staticParser().parseCatalogLibraryEntry(line, versions)
             )
         }
 
@@ -529,7 +532,7 @@ class DependencyResolutionStageTest :
             """.trimIndent()
             assertEquals(
                 "ch.qos.logback:logback-classic:1.4.11",
-                stage().parseCatalogLibraryEntry(line, emptyMap())
+                staticParser().parseCatalogLibraryEntry(line, emptyMap())
             )
         }
 
@@ -540,7 +543,7 @@ class DependencyResolutionStageTest :
             """.trimIndent()
             assertEquals(
                 "org.springframework:spring-core:6.1.0",
-                stage().parseCatalogLibraryEntry(line, versions)
+                staticParser().parseCatalogLibraryEntry(line, versions)
             )
         }
 
@@ -550,7 +553,7 @@ class DependencyResolutionStageTest :
             """.trimIndent()
             assertEquals(
                 "org.springframework:spring-web:6.1.0",
-                stage().parseCatalogLibraryEntry(line, emptyMap())
+                staticParser().parseCatalogLibraryEntry(line, emptyMap())
             )
         }
 
@@ -558,21 +561,21 @@ class DependencyResolutionStageTest :
             val line = """utils = "com.example:utils:1.0.0""""
             assertEquals(
                 "com.example:utils:1.0.0",
-                stage().parseCatalogLibraryEntry(line, emptyMap())
+                staticParser().parseCatalogLibraryEntry(line, emptyMap())
             )
         }
 
         test("parseCatalogLibraryEntry returns null when version.ref has no mapping") {
             val line = """lib = { module = "com.example:lib", version.ref = "missing" }"""
             assertFalse(
-                stage().parseCatalogLibraryEntry(line, emptyMap()) != null,
+                staticParser().parseCatalogLibraryEntry(line, emptyMap()) != null,
                 "Unknown version.ref should yield null"
             )
         }
 
         test("parseCatalogLibraryEntry returns null when no version present") {
             val line = """lib = { module = "com.example:lib" }"""
-            assertEquals(null, stage().parseCatalogLibraryEntry(line, emptyMap()))
+            assertEquals(null, staticParser().parseCatalogLibraryEntry(line, emptyMap()))
         }
 
         test("parseVersionCatalogs reads libs.versions.toml and resolves all library forms") {
@@ -598,7 +601,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseVersionCatalogs(projectDir)
+            val coords = staticParser().parseVersionCatalogs(projectDir)
 
             assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"))
             assertTrue(coords.contains("ch.qos.logback:logback-classic:1.4.11"))
@@ -607,7 +610,7 @@ class DependencyResolutionStageTest :
         }
 
         test("parseVersionCatalogs returns empty when no gradle/ directory") {
-            assertEquals(emptyList(), stage().parseVersionCatalogs(projectDir))
+            assertEquals(emptyList(), staticParser().parseVersionCatalogs(projectDir))
         }
 
         test("parseVersionCatalogs ignores comments and blank lines") {
@@ -625,7 +628,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseVersionCatalogs(projectDir)
+            val coords = staticParser().parseVersionCatalogs(projectDir)
             assertEquals(listOf("com.google.guava:guava:32.1.2-jre"), coords)
         }
 
@@ -649,7 +652,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val coords = stage().parseGradleDependenciesStatically(projectDir)
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
 
             assertTrue(
                 coords.contains("com.google.guava:guava:32.1.2-jre"),
@@ -855,7 +858,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val subs = stage().discoverSubprojects(projectDir)
+            val subs = staticParser().discoverSubprojects(projectDir)
             assertEquals(subs.distinct(), subs, "Subprojects should be deduplicated")
             assertEquals(2, subs.size)
         }
@@ -922,14 +925,14 @@ class DependencyResolutionStageTest :
             val rootConfig = result[":"]!!.configurationsByName["compileClasspath"]
             assertFalse(rootConfig == null, "Root should have compileClasspath")
             assertTrue(
-                rootConfig!!.requested.contains("org.apache.commons:commons-lang3:3.12.0"),
+                rootConfig.requested.contains("org.apache.commons:commons-lang3:3.12.0"),
                 "Root requested should contain commons-lang3"
             )
 
             val apiConfig = result[":api"]!!.configurationsByName["compileClasspath"]
             assertFalse(apiConfig == null, ":api should have compileClasspath")
             assertTrue(
-                apiConfig!!.requested.contains("com.google.guava:guava:32.1.2-jre"),
+                apiConfig.requested.contains("com.google.guava:guava:32.1.2-jre"),
                 ":api requested should contain guava"
             )
         }
@@ -1013,10 +1016,6 @@ class DependencyResolutionStageTest :
             )
 
             val result = stage().resolveClasspath(projectDir)
-            assertFalse(
-                result is List<*>,
-                "resolveClasspath should return ClasspathResolutionResult"
-            )
             assertTrue(
                 result.classpath.any { it.fileName.toString() == "$artifact-$version.jar" },
                 "Classpath should contain the resolved JAR"

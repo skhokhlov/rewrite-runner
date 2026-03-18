@@ -1,9 +1,9 @@
-package io.github.skhokhlov.rewriterunner.lst
+package io.github.skhokhlov.rewriterunner.lst.utils
 
 import java.nio.file.Path
 
 /**
- * Result of classpath resolution from [DependencyResolutionStage.resolveClasspath].
+ * Result of classpath resolution from [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage.resolveClasspath].
  *
  * @param classpath The resolved JAR paths for JVM parsers.
  * @param gradleProjectData Per-Gradle-project configuration data keyed by Gradle project path

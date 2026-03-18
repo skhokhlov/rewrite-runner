@@ -1,6 +1,7 @@
-package io.github.skhokhlov.rewriterunner.lst
+package io.github.skhokhlov.rewriterunner.lst.utils
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import java.nio.file.Path
 import java.util.UUID
 import kotlin.io.path.exists
@@ -14,18 +15,18 @@ import org.openrewrite.marker.ci.BuildEnvironment
 import org.openrewrite.maven.tree.MavenRepository
 
 /**
- * Builds provenance and build-tool markers that are attached to every parsed [SourceFile].
+ * Builds provenance and build-tool markers that are attached to every parsed [org.openrewrite.SourceFile].
  *
  * Covers:
- * - [BuildEnvironment] — CI/CD environment info (GitHub Actions, Jenkins, etc.)
- * - [GitProvenance] — git remote/branch/commit metadata
- * - [OperatingSystemProvenance] — current OS info
- * - [BuildTool] — Maven or Gradle version
- * - [GradleProject] — per-build-file Gradle project descriptor (group, name, version, configs)
+ * - [org.openrewrite.marker.ci.BuildEnvironment] — CI/CD environment info (GitHub Actions, Jenkins, etc.)
+ * - [org.openrewrite.marker.GitProvenance] — git remote/branch/commit metadata
+ * - [org.openrewrite.marker.OperatingSystemProvenance] — current OS info
+ * - [org.openrewrite.marker.BuildTool] — Maven or Gradle version
+ * - [org.openrewrite.gradle.marker.GradleProject] — per-build-file Gradle project descriptor (group, name, version, configs)
  */
 internal class MarkerFactory(
     private val logger: RunnerLogger,
-    private val depResolutionStage: DependencyResolutionStage,
+    private val staticParser: StaticBuildFileParser,
     private val versionDetector: VersionDetector
 ) {
     fun buildEnvironment(): BuildEnvironment? = try {
@@ -45,7 +46,7 @@ internal class MarkerFactory(
     fun operatingSystem(): OperatingSystemProvenance = OperatingSystemProvenance.current()
 
     /**
-     * Detects the build tool type and version for attaching a [BuildTool] marker.
+     * Detects the build tool type and version for attaching a [org.openrewrite.marker.BuildTool] marker.
      * Returns null when no build tool is found at [projectDir].
      */
     fun detectBuildToolMarker(projectDir: Path): BuildTool? = when {
@@ -63,7 +64,7 @@ internal class MarkerFactory(
     }
 
     /**
-     * Attaches a [GradleProject] marker to [sf] when [resolutionResult] contains project data
+     * Attaches a [org.openrewrite.gradle.marker.GradleProject] marker to [sf] when [resolutionResult] contains project data
      * for the build file's Gradle project path. Returns [sf] unchanged when data is unavailable.
      */
     fun addGradleProjectMarker(
@@ -122,7 +123,7 @@ internal class MarkerFactory(
     }
 
     /**
-     * Constructs a [GradleProject] marker from the given [projectPath] and [projectData].
+     * Constructs a [org.openrewrite.gradle.marker.GradleProject] marker from the given [projectPath] and [projectData].
      */
     private fun buildGradleProjectMarker(
         projectPath: String,
@@ -167,7 +168,7 @@ internal class MarkerFactory(
                 .build()
         }
 
-        val repos = depResolutionStage.parseRepositoryUrls(projectDir, buildText).map { url ->
+        val repos = staticParser.parseRepositoryUrls(projectDir, buildText).map { url ->
             MavenRepository.builder().uri(url).knownToExist(true).build()
         }
 

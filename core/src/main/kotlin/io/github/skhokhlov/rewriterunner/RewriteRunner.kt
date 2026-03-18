@@ -2,7 +2,6 @@ package io.github.skhokhlov.rewriterunner
 
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
-import io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage
 import io.github.skhokhlov.rewriterunner.lst.LstBuilder
 import io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver
 import io.github.skhokhlov.rewriterunner.recipe.RecipeLoader
@@ -84,7 +83,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         // the project's build artifacts in the user's Maven local repository.
         val recipeLocalRepoDir = effectiveCacheDir.resolve("repository")
         Files.createDirectories(recipeLocalRepoDir)
-        val recipeContext = AetherContext.build(
+        val recipeAetherContext = AetherContext.build(
             localRepoDir = recipeLocalRepoDir,
             extraRepositories = effectiveRepositories,
             downloadThreads = effectiveDownloadThreads,
@@ -97,7 +96,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         // Project dependencies use the Maven default local repository so already-cached
         // artifacts from the project's own build are reused without re-downloading.
         val mavenLocalRepoDir = Paths.get(System.getProperty("user.home"), ".m2", "repository")
-        val projectContext = AetherContext.build(
+        val projectAetherContext = AetherContext.build(
             localRepoDir = mavenLocalRepoDir,
             extraRepositories = effectiveRepositories,
             downloadThreads = effectiveDownloadThreads,
@@ -108,7 +107,7 @@ class RewriteRunner private constructor(private val config: Builder) {
         // 2. Resolve recipe JARs
         val recipeJars = if (config.recipeArtifacts.isNotEmpty()) {
             logger.lifecycle("[2/6] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
-            RecipeArtifactResolver(recipeContext, logger).resolveAll(config.recipeArtifacts)
+            RecipeArtifactResolver(recipeAetherContext, logger).resolveAll(config.recipeArtifacts)
         } else {
             logger.lifecycle("[2/6] No recipe artifacts specified — using classpath recipes only")
             emptyList()
@@ -154,7 +153,7 @@ class RewriteRunner private constructor(private val config: Builder) {
                     logger = logger,
                     cacheDir = effectiveCacheDir,
                     toolConfig = toolConfig,
-                    depResolutionStage = DependencyResolutionStage(projectContext, logger)
+                    aetherContext = projectAetherContext
                 )
             val effectiveParseConfig =
                 if (config.excludePaths.isNotEmpty()) {

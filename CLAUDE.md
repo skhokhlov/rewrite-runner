@@ -60,14 +60,16 @@ core/src/
 │   ├── config/ToolConfig.kt        # YAML config + env var interpolation
 │   ├── lst/
 │   │   ├── LstBuilder.kt           # Orchestrates 4-stage pipeline + multi-language parsing
-│   │   ├── FileCollector.kt        # NIO walk, excluded-dir filtering, glob exclusions, extension resolution
-│   │   ├── VersionDetector.kt      # Java/Kotlin JVM-version walk-up + parseGradleVersionFromWrapper
-│   │   ├── GradleDslClasspathResolver.kt  # Locate Gradle installation for DSL classpath
-│   │   ├── MarkerFactory.kt        # BuildTool, GitProvenance, OperatingSystem, GradleProject markers
-│   │   ├── BuildToolStage.kt       # Stage 1: Maven/Gradle subprocess (build-classpath/init-script)
+│   │   ├── ProjectBuildStage.kt       # Stage 1: Maven/Gradle subprocess (build-classpath/init-script)
 │   │   ├── DependencyResolutionStage.kt  # Stage 2: mvn dependency:tree / gradle dependencies subprocess
-│   │   ├── BuildFileResolveStage.kt      # Stage 3: Static build file parse + POM traversal
-│   │   └── DirectParseStage.kt     # Stage 4: Local cache scan
+│   │   ├── BuildFileParseStage.kt      # Stage 3: Static build file parse + POM traversal
+│   │   ├── LocalRepositoryStage.kt     # Stage 4: Local cache scan
+│   │   └── utils/
+│   │       ├── FileCollector.kt        # NIO walk, excluded-dir filtering, glob exclusions, extension resolution
+│   │       ├── VersionDetector.kt      # Java/Kotlin JVM-version walk-up + parseGradleVersionFromWrapper
+│   │       ├── GradleDslClasspathResolver.kt  # Locate Gradle installation for DSL classpath
+│   │       ├── MarkerFactory.kt        # BuildTool, GitProvenance, OperatingSystem, GradleProject markers
+│   │       └── StaticBuildFileParser.kt      # Shared static parser for pom.xml, build.gradle, version catalogs
 │   ├── output/ResultFormatter.kt   # diff/files/report output modes
 │   └── recipe/
 │       ├── RecipeArtifactResolver.kt
@@ -94,7 +96,7 @@ cli/src/
 ## Important Implementation Notes
 
 - `InMemoryLargeSourceSet` is in `org.openrewrite.internal` (not the top-level package)
-- `BuildToolStage` and `DependencyResolutionStage` are `open` with `open` methods — subclass in tests instead of mocking
+- `ProjectBuildStage` and `DependencyResolutionStage` are `open` with `open` methods — subclass in tests instead of mocking
 - `ResultFormatter` has a secondary constructor accepting `PrintWriter`; `RunCommand` passes picocli's `@Spec` output writer
 - Extension filtering: CLI flags take precedence over config file settings
 - OpenRewrite requires all source files in memory simultaneously — for large projects use `-Xmx6g`

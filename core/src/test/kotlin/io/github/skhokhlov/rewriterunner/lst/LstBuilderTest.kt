@@ -5,6 +5,7 @@ import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -19,7 +20,7 @@ import org.openrewrite.maven.tree.MavenResolutionResult
  * Integration tests for [LstBuilder.build]: parser routing, 3-stage classpath pipeline,
  * compile-on-demand, and Gradle DSL classpath resolution.
  *
- * Extension filtering and file collection logic is covered by [FileCollectorTest].
+ * Extension filtering and file collection logic is covered by [io.github.skhokhlov.rewriterunner.lst.utils.FileCollectorTest].
  */
 class LstBuilderTest :
     FunSpec({
@@ -31,14 +32,14 @@ class LstBuilderTest :
 
         val toolConfig = ToolConfig(logger = NoOpRunnerLogger)
 
-        /** A BuildToolStage that always returns null (simulates broken build tool). */
+        /** A ProjectBuildStage that always returns null (simulates broken build tool). */
         val failingBuildTool =
-            object : BuildToolStage(NoOpRunnerLogger) {
+            object : ProjectBuildStage(NoOpRunnerLogger) {
                 override fun extractClasspath(projectDir: Path): List<Path>? = null
             }
 
         fun lstBuilder(
-            buildTool: BuildToolStage = failingBuildTool,
+            buildTool: ProjectBuildStage = failingBuildTool,
             logger: RunnerLogger = NoOpRunnerLogger
         ): LstBuilder {
             val noOpDepStage =
@@ -53,16 +54,22 @@ class LstBuilderTest :
                         ClasspathResolutionResult(emptyList())
                 }
             val noOpBuildFileStage =
-                object : BuildFileResolveStage(noOpDepStage, NoOpRunnerLogger) {
+                object : BuildFileParseStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             return LstBuilder(
                 logger = logger,
                 cacheDir = projectDir.resolve("cache"),
                 toolConfig = toolConfig,
-                buildToolStage = buildTool,
+                projectBuildStage = buildTool,
                 depResolutionStage = noOpDepStage,
-                buildFileResolveStage = noOpBuildFileStage
+                buildFileParseStage = noOpBuildFileStage
             )
         }
 
@@ -128,7 +135,7 @@ class LstBuilderTest :
                     logger = NoOpRunnerLogger,
                     cacheDir = projectDir.resolve("cache"),
                     toolConfig = config,
-                    buildToolStage = failingBuildTool,
+                    projectBuildStage = failingBuildTool,
                     depResolutionStage = noOpDepStage
                 )
 
@@ -162,7 +169,7 @@ class LstBuilderTest :
                     logger = NoOpRunnerLogger,
                     cacheDir = projectDir.resolve("cache"),
                     toolConfig = config,
-                    buildToolStage = failingBuildTool,
+                    projectBuildStage = failingBuildTool,
                     depResolutionStage = noOpDepStage
                 )
 
@@ -500,7 +507,7 @@ class LstBuilderTest :
         test("stage 1 is attempted first") {
             var stage1Called = false
             val trackingBuildTool =
-                object : BuildToolStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path>? {
                         stage1Called = true
                         return null
@@ -518,7 +525,7 @@ class LstBuilderTest :
             val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
 
             val successfulBuildTool =
-                object : BuildToolStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
                 }
             val trackingDepStage =
@@ -539,7 +546,7 @@ class LstBuilderTest :
             LstBuilder(
                 cacheDir = projectDir.resolve("cache"),
                 toolConfig = toolConfig,
-                buildToolStage = successfulBuildTool,
+                projectBuildStage = successfulBuildTool,
                 depResolutionStage = trackingDepStage,
                 logger = NoOpRunnerLogger
             )
@@ -567,7 +574,7 @@ class LstBuilderTest :
             LstBuilder(
                 cacheDir = projectDir.resolve("cache"),
                 toolConfig = toolConfig,
-                buildToolStage = failingBuildTool,
+                projectBuildStage = failingBuildTool,
                 depResolutionStage = trackingDepStage,
                 logger = NoOpRunnerLogger
             )
@@ -590,7 +597,13 @@ class LstBuilderTest :
                         ClasspathResolutionResult(emptyList())
                 }
             val trackingBuildFileStage =
-                object : BuildFileResolveStage(noOpDepStage, NoOpRunnerLogger) {
+                object : BuildFileParseStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
                     override fun resolveClasspath(projectDir: Path): List<Path> {
                         stage3Called = true
                         return emptyList()
@@ -600,9 +613,9 @@ class LstBuilderTest :
             LstBuilder(
                 cacheDir = projectDir.resolve("cache"),
                 toolConfig = toolConfig,
-                buildToolStage = failingBuildTool,
+                projectBuildStage = failingBuildTool,
                 depResolutionStage = noOpDepStage,
-                buildFileResolveStage = trackingBuildFileStage,
+                buildFileParseStage = trackingBuildFileStage,
                 logger = NoOpRunnerLogger
             )
                 .build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
@@ -630,7 +643,7 @@ class LstBuilderTest :
             val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
 
             val trackingBuildTool2 =
-                object : BuildToolStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
 
                     override fun tryCompile(projectDir: Path): Boolean {
@@ -658,7 +671,7 @@ class LstBuilderTest :
             projectDir.resolve("target/classes").createDirectories()
 
             val trackingBuildTool2 =
-                object : BuildToolStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
 
                     override fun tryCompile(projectDir: Path): Boolean {
@@ -683,7 +696,7 @@ class LstBuilderTest :
             val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
 
             val failingCompileTool =
-                object : BuildToolStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
 
                     override fun tryCompile(projectDir: Path): Boolean = false
@@ -707,7 +720,7 @@ class LstBuilderTest :
             val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
 
             val compilingBuildTool =
-                object : BuildToolStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
 
                     override fun tryCompile(projectDir: Path): Boolean {
@@ -734,7 +747,7 @@ class LstBuilderTest :
             var tryCompileCalled = false
 
             val nullReturningBuildTool =
-                object : BuildToolStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path>? = null
 
                     override fun tryCompile(projectDir: Path): Boolean {
@@ -876,7 +889,7 @@ class LstBuilderTest :
         test("warn is NOT emitted when stage 1 resolves a non-empty classpath") {
             val fakeJar = projectDir.resolve("fake.jar").also { it.writeText("") }
             val successfulBuildTool =
-                object : BuildToolStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = listOf(fakeJar)
                 }
             projectDir.resolve("Hello.java").writeText("class Hello {}")

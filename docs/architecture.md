@@ -40,15 +40,15 @@ Recipe JARs are cached under the tool's own `cacheDir` so they never pollute the
 
 | Stage | Class | Maven | Gradle |
 |---|---|---|---|
-| 1 | `BuildToolStage` | `mvnw dependency:build-classpath` | Gradle init script |
+| 1 | `ProjectBuildStage` | `mvnw dependency:build-classpath` | Gradle init script |
 | 2 | `DependencyResolutionStage` | `mvn dependency:tree` subprocess | `gradle dependencies` subprocess |
-| 3 | `BuildFileResolveStage` | Static `pom.xml` parse + POM traversal | Static `build.gradle(.kts)` + version catalog parse + POM traversal |
-| 4 | `DirectParseStage` | Local `~/.m2` cache scan | Local `~/.gradle/caches` scan |
+| 3 | `BuildFileParseStage` | Static `pom.xml` parse + POM traversal | Static `build.gradle(.kts)` + version catalog parse + POM traversal |
+| 4 | `LocalRepositoryStage` | Local `~/.m2` cache scan | Local `~/.gradle/caches` scan |
 
-- **Stage 1** (`BuildToolStage`): Runs the project's own build tool to extract the exact compile classpath. Falls through on failure.
+- **Stage 1** (`ProjectBuildStage`): Runs the project's own build tool to extract the exact compile classpath. Falls through on failure.
 - **Stage 2** (`DependencyResolutionStage`): Runs `mvn dependency:tree` / `gradle dependencies` subprocesses and resolves downloaded JARs directly via Aether. Supports Maven-only, Gradle-only, and mixed projects. Falls through when subprocesses fail.
-- **Stage 3** (`BuildFileResolveStage`): Parses `pom.xml` and `build.gradle(.kts)` statically (no subprocess) for all discovered modules, then resolves via full Maven Resolver POM traversal to obtain transitive dependencies. Falls through when no build files exist or resolution fails.
-- **Stage 4** (`DirectParseStage`): Scans `~/.m2` and `~/.gradle/caches` for already-cached JARs. Always succeeds (possibly empty).
+- **Stage 3** (`BuildFileParseStage`): Parses `pom.xml` and `build.gradle(.kts)` statically (no subprocess) for all discovered modules, then resolves via full Maven Resolver POM traversal to obtain transitive dependencies. Falls through when no build files exist or resolution fails.
+- **Stage 4** (`LocalRepositoryStage`): Scans `~/.m2` and `~/.gradle/caches` for already-cached JARs. Always succeeds (possibly empty).
 
 The resolved classpath is **shared across all language parsers** — `JavaParser`, `KotlinParser`, and `GroovyParser` all receive the same project classpath so cross-language type references resolve correctly.
 
@@ -66,7 +66,7 @@ The resolved classpath is **shared across all language parsers** — `JavaParser
 | `GradleDslClasspathResolver` | Locate Gradle installation (`GRADLE_HOME`, wrapper, `~/.gradle/wrapper/dists/`) |
 | `MarkerFactory` | `BuildTool`, `GitProvenance`, `OperatingSystemProvenance`, `BuildEnvironment`, `GradleProject` markers |
 
-`BuildToolStage` and `DependencyResolutionStage` remain injected into `LstBuilder` as `open` classes; the helper classes above are internal and are instantiated by `LstBuilder`.
+`ProjectBuildStage` and `DependencyResolutionStage` remain injected into `LstBuilder` as `open` classes; the helper classes above are internal and are instantiated by `LstBuilder`.
 
 ## File Routing by Extension
 

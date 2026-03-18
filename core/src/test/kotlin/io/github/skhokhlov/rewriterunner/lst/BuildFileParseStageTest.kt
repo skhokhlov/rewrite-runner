@@ -12,13 +12,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Tests for [BuildFileResolveStage]: static build-file coordinate discovery and
+ * Tests for [BuildFileParseStage]: static build-file coordinate discovery and
  * POM-traversal delegation.
  *
- * Resolution calls are intercepted via subclassing of [DependencyResolutionStage] so
+ * Resolution calls are intercepted via subclassing of [BuildFileParseStage] so
  * no network access is required.
  */
-class BuildFileResolveStageTest :
+class BuildFileParseStageTest :
     FunSpec({
         var projectDir: Path = Path.of("")
         var cacheDir: Path = Path.of("")
@@ -33,7 +33,7 @@ class BuildFileResolveStageTest :
             cacheDir.toFile().deleteRecursively()
         }
 
-        // ─── Helper: fake DependencyResolutionStage ───────────────────────────────
+        // ─── Helper: fake BuildFileParseStage ───────────────────────────────────
 
         var capturedCoords: List<String> = emptyList()
         var traversalCalled = false
@@ -43,8 +43,8 @@ class BuildFileResolveStageTest :
             traversalCalled = false
         }
 
-        fun fakeDepStage(traversalResult: List<Path> = emptyList()): DependencyResolutionStage =
-            object : DependencyResolutionStage(
+        fun fakeStage(traversalResult: List<Path> = emptyList()): BuildFileParseStage =
+            object : BuildFileParseStage(
                 AetherContext.build(cacheDir.resolve("repo"), logger = NoOpRunnerLogger),
                 NoOpRunnerLogger
             ) {
@@ -82,7 +82,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled, "resolveWithPomTraversal should be called")
             assertTrue(
@@ -152,7 +152,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -182,7 +182,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -211,10 +211,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            val result = BuildFileResolveStage(
-                fakeDepStage(listOf(fakeJar)),
-                NoOpRunnerLogger
-            ).resolveClasspath(projectDir)
+            val result = fakeStage(listOf(fakeJar)).resolveClasspath(projectDir)
 
             assertEquals(listOf(fakeJar), result)
         }
@@ -241,8 +238,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            val result =
-                BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            val result = fakeStage().resolveClasspath(projectDir)
 
             assertTrue(result.isEmpty())
         }
@@ -259,7 +255,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -286,7 +282,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -309,7 +305,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it == "org.slf4j:slf4j-api:2.0.7" })
@@ -327,7 +323,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -346,7 +342,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -381,7 +377,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             assertTrue(
@@ -399,8 +395,7 @@ class BuildFileResolveStageTest :
             resetTracking()
             // Empty project dir — no pom.xml, no build.gradle
 
-            val result =
-                BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            val result = fakeStage().resolveClasspath(projectDir)
 
             assertTrue(result.isEmpty())
             assertFalse(traversalCalled, "resolveWithPomTraversal should NOT be called")
@@ -449,7 +444,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            fakeStage().resolveClasspath(projectDir)
 
             assertTrue(traversalCalled)
             val commonsCount = capturedCoords.count { it.contains("commons-lang3") }
@@ -466,8 +461,7 @@ class BuildFileResolveStageTest :
                 """.trimIndent()
             )
 
-            val result =
-                BuildFileResolveStage(fakeDepStage(), NoOpRunnerLogger).resolveClasspath(projectDir)
+            val result = fakeStage().resolveClasspath(projectDir)
 
             assertTrue(result.isEmpty())
         }

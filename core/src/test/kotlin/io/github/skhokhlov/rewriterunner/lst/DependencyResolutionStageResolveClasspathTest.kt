@@ -3,6 +3,8 @@ package io.github.skhokhlov.rewriterunner.lst
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
+import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
+import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -89,24 +91,22 @@ class DependencyResolutionStageResolveClasspathTest :
                 """.trimIndent()
             )
 
-            var parsedGradle = false
+            var gradleCalled = false
             val stage =
                 object : DependencyResolutionStage(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
-                        parsedGradle =
-                            parseGradleDependenciesStatically(projectDir).isEmpty() ||
-                            projectDir.resolve("build.gradle.kts").toFile().exists()
-                        return ClasspathResolutionResult(emptyList())
+                    override fun runGradleDependenciesRawOutput(projectDir: Path): String? {
+                        gradleCalled = true
+                        return null
                     }
                 }
             stage.resolveClasspath(projectDir)
-            assertTrue(parsedGradle, "build.gradle.kts should be detected")
+            assertTrue(gradleCalled, "build.gradle.kts should trigger the Gradle subprocess")
         }
 
-        // ─── parseMavenDependencies edge cases ───────────────────────────────────
+        // ─── StaticBuildFileParser: parseMavenDependencies edge cases ────────────
 
         test("parseMavenDependencies skips provided-scoped dependencies") {
             projectDir.resolve("pom.xml").writeText(
@@ -132,12 +132,7 @@ class DependencyResolutionStageResolveClasspathTest :
                 </project>
                 """.trimIndent()
             )
-            val stage =
-                DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
-                    NoOpRunnerLogger
-                )
-            val coords = stage.parseMavenDependencies(projectDir)
+            val coords = StaticBuildFileParser(NoOpRunnerLogger).parseMavenDependencies(projectDir)
             assertTrue(
                 coords.none { it.contains("servlet-api") },
                 "provided scope should be excluded"
@@ -168,16 +163,11 @@ class DependencyResolutionStageResolveClasspathTest :
                 </project>
                 """.trimIndent()
             )
-            val stage =
-                DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
-                    NoOpRunnerLogger
-                )
-            val coords = stage.parseMavenDependencies(projectDir)
+            val coords = StaticBuildFileParser(NoOpRunnerLogger).parseMavenDependencies(projectDir)
             assertTrue(coords.isEmpty(), "system scope should be excluded")
         }
 
-        // ─── parseGradleDependencies edge cases ──────────────────────────────────
+        // ─── StaticBuildFileParser: parseGradleDependenciesStatically edge cases ─
 
         test("parseGradleDependenciesStatically handles three-arg Kotlin DSL form") {
             projectDir.resolve("build.gradle.kts").writeText(
@@ -188,12 +178,10 @@ class DependencyResolutionStageResolveClasspathTest :
                 }
                 """.trimIndent()
             )
-            val stage =
-                DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
-                    NoOpRunnerLogger
+            val coords =
+                StaticBuildFileParser(NoOpRunnerLogger).parseGradleDependenciesStatically(
+                    projectDir
                 )
-            val coords = stage.parseGradleDependenciesStatically(projectDir)
             assertTrue(coords.contains("org.springframework:spring-core:6.1.0"))
             assertTrue(coords.contains("com.fasterxml.jackson.core:jackson-databind:2.16.0"))
         }
@@ -206,12 +194,10 @@ class DependencyResolutionStageResolveClasspathTest :
                 }
                 """.trimIndent()
             )
-            val stage =
-                DependencyResolutionStage(
-                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
-                    NoOpRunnerLogger
+            val coords =
+                StaticBuildFileParser(NoOpRunnerLogger).parseGradleDependenciesStatically(
+                    projectDir
                 )
-            val coords = stage.parseGradleDependenciesStatically(projectDir)
             assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
         }
 
@@ -221,7 +207,6 @@ class DependencyResolutionStageResolveClasspathTest :
             projectDir.resolve("build.gradle.kts").writeText("plugins { kotlin(\"jvm\") }")
 
             var directCalled = false
-            var pomCalled = false
             val stage =
                 object : DependencyResolutionStage(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
@@ -234,18 +219,12 @@ class DependencyResolutionStageResolveClasspathTest :
                         directCalled = true
                         return emptyList()
                     }
-
-                    override fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
-                        pomCalled = true
-                        return emptyList()
-                    }
                 }
             stage.resolveClasspath(projectDir)
             assertTrue(
                 directCalled,
                 "resolveArtifactsDirectly should be called for gradle task output"
             )
-            assertTrue(!pomCalled, "resolveWithPomTraversal should NOT be called")
         }
 
         test(

@@ -1,0 +1,237 @@
+package io.github.skhokhlov.rewriterunner.lst.utils
+
+import io.github.skhokhlov.rewriterunner.RunnerLogger
+import java.nio.file.Path
+import kotlin.io.path.exists
+import org.apache.maven.model.io.xpp3.MavenXpp3Reader
+
+/**
+ * Best-effort static parsing of Maven and Gradle build descriptors — no subprocess invocations,
+ * no network access.
+ *
+ * Shared by [io.github.skhokhlov.rewriterunner.lst.BuildFileParseStage] (Stage 3) for coordinate collection and by [io.github.skhokhlov.rewriterunner.lst.LstBuilder] for
+ * the [io.github.skhokhlov.rewriterunner.lst.LocalRepositoryStage] (Stage 4) coordinate hint and [MarkerFactory] for repository URLs.
+ *
+ * **Maven:** Reads `pom.xml` via [org.apache.maven.model.io.xpp3.MavenXpp3Reader]. Property-interpolated and BOM-managed
+ * versions (e.g. `${spring.version}`) are silently skipped — they cannot be resolved statically.
+ *
+ * **Gradle:** Regex-scans `build.gradle`/`build.gradle.kts` for quoted `"g:a:v"` strings and
+ * three-argument `implementation("g", "a", "v")` forms. Also parses `gradle/\*.versions.toml`
+ * version catalogs, resolving `version.ref` aliases against the `[versions]` section.
+ */
+internal class StaticBuildFileParser(private val logger: RunnerLogger) {
+
+    // ─── Maven ────────────────────────────────────────────────────────────────
+
+    /**
+     * Parses the `pom.xml` in [projectDir] and returns compile/runtime dependency coordinates.
+     * Skips `provided`- and `system`-scoped dependencies and any dependency whose version is
+     * absent or uses property interpolation (`${...}`).
+     */
+    fun parseMavenDependencies(projectDir: Path): List<String> {
+        val pomFile = projectDir.resolve("pom.xml")
+        return try {
+            val model = MavenXpp3Reader().read(pomFile.toFile().inputStream())
+            model.dependencies
+                .filter { !listOf("provided", "system").contains(it.scope) }
+                .mapNotNull { dep ->
+                    val version = dep.version?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
+                        ?: return@mapNotNull null
+                    "${dep.groupId}:${dep.artifactId}:$version"
+                }
+        } catch (e: Exception) {
+            logger.warn("Failed to parse pom.xml: ${e.message}")
+            emptyList()
+        }
+    }
+
+    // ─── Gradle subproject discovery ──────────────────────────────────────────
+
+    /**
+     * Discovers subproject paths declared via `include()` in `settings.gradle` or
+     * `settings.gradle.kts`. Returns paths such as `[":module1", ":module2"]`.
+     */
+    fun discoverSubprojects(projectDir: Path): List<String> {
+        val settingsFile = findSettingsFile(projectDir) ?: return emptyList()
+        return try {
+            val text = settingsFile.toFile().readText()
+            val pattern = Regex("""["'](:[^"']+)["']""")
+            pattern.findAll(text)
+                .map { it.groupValues[1] }
+                .filter { it.matches(Regex(""":[a-zA-Z][\w.\-/]*""")) }
+                .distinct()
+                .toList()
+        } catch (e: Exception) {
+            logger.warn("Failed to parse settings file for subprojects: ${e.message}")
+            emptyList()
+        }
+    }
+
+    // ─── Gradle static parsing ─────────────────────────────────────────────────
+
+    /**
+     * Best-effort static regex parse of `build.gradle` / `build.gradle.kts` files for the root
+     * project and all declared subprojects, combined with coordinates from any Gradle version
+     * catalog files found under `gradle/\*.versions.toml`.
+     *
+     * **Limitations:** Dynamic expressions (computed version strings, BOM-managed versions not
+     * declared in a catalog) will be absent.
+     */
+    fun parseGradleDependenciesStatically(projectDir: Path): List<String> {
+        val subprojectDirs = discoverSubprojects(projectDir).map { subprojectPath ->
+            projectDir.resolve(subprojectPath.trimStart(':').replace(':', '/'))
+        }
+        val buildDirs = listOf(projectDir) + subprojectDirs
+
+        val coordPattern = Regex("""["']([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+:[\w.\-]+)["']""")
+        val threeArgPattern = Regex(
+            """(?:implementation|api|compileOnly|runtimeOnly|testImplementation|testCompileOnly)\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)"""
+        )
+
+        val coordinates = mutableListOf<String>()
+        for (dir in buildDirs) {
+            val buildFile = findBuildFile(dir) ?: continue
+            logger.debug("Stage 3: statically parsing ${buildFile.toAbsolutePath()}")
+            try {
+                val text = buildFile.toFile().readText()
+                coordPattern.findAll(text).forEach { match ->
+                    val coord = match.groupValues[1]
+                    if (!coord.contains("bom") && !coord.contains("platform")) {
+                        coordinates.add(coord)
+                    }
+                }
+                threeArgPattern.findAll(text).forEach { match ->
+                    coordinates.add(
+                        "${match.groupValues[1]}:${match.groupValues[2]}:${match.groupValues[3]}"
+                    )
+                }
+            } catch (e: Exception) {
+                logger.warn("Failed to parse Gradle build file ${buildFile.fileName}: ${e.message}")
+            }
+        }
+
+        coordinates += parseVersionCatalogs(projectDir)
+
+        return coordinates.distinct().also {
+            logger.debug(
+                "Stage 3: static parsing found ${it.size} unique coordinate(s) across " +
+                    "${buildDirs.size} build file(s) + version catalog(s)"
+            )
+        }
+    }
+
+    // ─── Version catalog parsing ───────────────────────────────────────────────
+
+    /**
+     * Parses all `*.versions.toml` files under `<projectDir>/gradle/` and returns
+     * fully-resolved `groupId:artifactId:version` coordinates from the `[libraries]` section.
+     */
+    fun parseVersionCatalogs(projectDir: Path): List<String> {
+        val gradleDir = projectDir.resolve("gradle")
+        if (!gradleDir.exists()) return emptyList()
+
+        val catalogFiles = gradleDir.toFile()
+            .listFiles { f -> f.isFile && f.name.endsWith(".versions.toml") }
+            ?.toList()
+            ?: return emptyList()
+
+        val coordinates = mutableListOf<String>()
+        for (catalogFile in catalogFiles) {
+            logger.debug("Stage 3: parsing version catalog ${catalogFile.absolutePath}")
+            try {
+                coordinates += parseCatalogFile(catalogFile.toPath())
+            } catch (e: Exception) {
+                logger.warn("Failed to parse version catalog ${catalogFile.name}: ${e.message}")
+            }
+        }
+        return coordinates.distinct()
+    }
+
+    private fun parseCatalogFile(file: Path): List<String> {
+        val versions = mutableMapOf<String, String>()
+        val coordinates = mutableListOf<String>()
+        var section = ""
+
+        for (rawLine in file.toFile().readLines()) {
+            val line = rawLine.trim()
+            if (line.isEmpty() || line.startsWith("#")) continue
+
+            if (line.startsWith("[")) {
+                section = Regex("""\[(\w+)]""").find(line)?.groupValues?.get(1) ?: ""
+                continue
+            }
+
+            when (section) {
+                "versions" -> {
+                    val m = Regex("""^([\w.\-]+)\s*=\s*"([^"]+)""").find(line) ?: continue
+                    versions[m.groupValues[1]] = m.groupValues[2]
+                }
+
+                "libraries" -> {
+                    parseCatalogLibraryEntry(line, versions)?.let { coordinates += it }
+                }
+            }
+        }
+        return coordinates
+    }
+
+    /**
+     * Parses a single `[libraries]` entry from a version catalog TOML file. Returns `null` when
+     * the version cannot be determined (BOM-managed or rich constraint).
+     */
+    internal fun parseCatalogLibraryEntry(line: String, versions: Map<String, String>): String? {
+        // Form: string literal with all three parts
+        val literal = Regex(
+            """^[\w.\-]+\s*=\s*"([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+:[\w.\-]+)"""
+        ).find(line)
+        if (literal != null) return literal.groupValues[1]
+
+        val groupArtifact =
+            Regex("""module\s*=\s*"([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+)""").find(line)
+                ?.groupValues?.get(1)
+                ?: run {
+                    val g = Regex("""group\s*=\s*"([^"]+)""").find(line)?.groupValues?.get(1)
+                    val n = Regex("""name\s*=\s*"([^"]+)""").find(line)?.groupValues?.get(1)
+                    if (g != null && n != null) "$g:$n" else null
+                }
+                ?: return null
+
+        // Prefer version.ref (resolves via [versions] map), fall back to inline version = "..."
+        val version =
+            Regex("""version\.ref\s*=\s*"([^"]+)""").find(line)?.groupValues?.get(1)
+                ?.let { versions[it] }
+                ?: Regex("""version\s*=\s*"([^"]+)""").find(line)?.groupValues?.get(1)
+                ?: return null
+
+        return "$groupArtifact:$version"
+    }
+
+    // ─── Repository URL parsing ───────────────────────────────────────────────
+
+    /**
+     * Parses repository URLs from a Gradle build file using regex.
+     * Recognises `mavenCentral()`, `google()`, and explicit `maven { url = "..." }` blocks.
+     *
+     * @param buildFileContent Pre-read build file text; when non-null, skips the disk read.
+     */
+    fun parseRepositoryUrls(projectDir: Path, buildFileContent: String? = null): List<String> {
+        return try {
+            val text = buildFileContent
+                ?: findBuildFile(projectDir)?.toFile()?.readText()
+                ?: return emptyList()
+            val urls = mutableListOf<String>()
+            if (text.contains("mavenCentral()")) {
+                urls.add("https://repo.maven.apache.org/maven2")
+            }
+            if (text.contains("google()")) {
+                urls.add("https://dl.google.com/dl/android/maven2")
+            }
+            Regex("""maven\s*\{[^}]*url\s*[=:]\s*["']([^"']+)["']""").findAll(text)
+                .mapTo(urls) { it.groupValues[1] }
+            urls.distinct()
+        } catch (e: Exception) {
+            logger.warn("Failed to parse repository URLs from build file: ${e.message}")
+            emptyList()
+        }
+    }
+}

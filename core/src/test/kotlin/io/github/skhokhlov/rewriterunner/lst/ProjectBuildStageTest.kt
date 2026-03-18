@@ -9,10 +9,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class BuildToolStageTest :
+class ProjectBuildStageTest :
     FunSpec({
         var projectDir: Path = Path.of("")
-        val stage = BuildToolStage(NoOpRunnerLogger)
+        val stage = ProjectBuildStage(NoOpRunnerLogger)
 
         beforeEach { projectDir = Files.createTempDirectory("bts-") }
 
