@@ -1,6 +1,7 @@
-package io.github.skhokhlov.rewriterunner.lst
+package io.github.skhokhlov.rewriterunner.lst.utils
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.lst.utils.VersionDetector
 import java.nio.file.Files
 import java.nio.file.Path
 

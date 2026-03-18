@@ -1,10 +1,15 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
-import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
+import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
+import io.github.skhokhlov.rewriterunner.lst.utils.GradleDslClasspathResolver
+import io.github.skhokhlov.rewriterunner.lst.utils.MarkerFactory
+import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
+import io.github.skhokhlov.rewriterunner.lst.utils.VersionDetector
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -30,13 +35,14 @@ import org.openrewrite.xml.XmlParser
 import org.openrewrite.yaml.YamlParser
 
 /**
- * Orchestrates the 3-stage LST building pipeline and multi-language file parsing.
+ * Orchestrates the 4-stage LST building pipeline and multi-language file parsing.
  *
- * **Classpath resolution (3 stages)** — runs once per [build] invocation and the result is
+ * **Classpath resolution (4 stages)** — runs once per [build] invocation and the result is
  * shared by all JVM language parsers (Java, Kotlin, Groovy):
- * - Stage 1 — Run the project's own build tool (Maven/Gradle) to extract the compile classpath.
- * - Stage 2 — Parse the build descriptor and resolve deps via Maven Resolver.
- * - Stage 3 — Scan `~/.m2` / `~/.gradle/caches` for already-cached JARs matching declared deps.
+ * - Stage 1 — [ProjectBuildStage] Run the project's own build tool (Maven/Gradle) to extract the compile classpath.
+ * - Stage 2 — [DependencyResolutionStage] Run `mvn dependency:tree` / `gradle dependencies` subprocesses and resolve via Maven Resolver.
+ * - Stage 3 — [BuildFileParseStage] Parse build files statically and resolve via Maven Resolver POM traversal.
+ * - Stage 4 — [LocalRepositoryStage] Scan `~/.m2` / `~/.gradle/caches` for already-cached JARs matching declared deps.
  *
  * **Gradle DSL classpath** — an additional classpath resolved from the Gradle installation
  * (via `GRADLE_HOME`, the project's Gradle wrapper, or `~/.gradle/wrapper/dists/`) is added
@@ -49,7 +55,7 @@ import org.openrewrite.yaml.YamlParser
  * **Java/Kotlin version detection** — each `.java`, `.kt`, and `.kts` source file receives a
  * [org.openrewrite.java.marker.JavaVersion] marker whose `sourceCompatibility`/`targetCompatibility`
  * values reflect the **nearest** build descriptor found by walking up from the file's own directory
- * toward [build]'s `projectDir`. See [VersionDetector] for the full algorithm.
+ * toward [build]'s `projectDir`. See [io.github.skhokhlov.rewriterunner.lst.utils.VersionDetector] for the full algorithm.
  *
  * **Maven POM parsing** — `pom.xml` files are routed to [org.openrewrite.maven.MavenParser],
  * producing `Xml.Document` nodes annotated with [org.openrewrite.maven.tree.MavenResolutionResult]
@@ -59,20 +65,26 @@ class LstBuilder(
     private val logger: RunnerLogger,
     private val cacheDir: Path,
     private val toolConfig: ToolConfig,
-    private val buildToolStage: BuildToolStage = BuildToolStage(logger),
+    private val aetherContext: AetherContext = AetherContext.build(
+        localRepoDir = Paths.get(System.getProperty("user.home"), ".m2", "repository"),
+        extraRepositories = toolConfig.resolvedRepositories(),
+        logger = logger
+    ),
+    private val projectBuildStage: ProjectBuildStage = ProjectBuildStage(logger),
     private val depResolutionStage: DependencyResolutionStage = DependencyResolutionStage(
-        AetherContext.build(
-            localRepoDir = Paths.get(System.getProperty("user.home"), ".m2", "repository"),
-            extraRepositories = toolConfig.resolvedRepositories(),
-            logger = logger
-        ),
+        aetherContext,
+        logger
+    ),
+    private val buildFileParseStage: BuildFileParseStage = BuildFileParseStage(
+        aetherContext,
         logger
     )
 ) {
     private val fileCollector = FileCollector()
     private val versionDetector = VersionDetector(logger)
+    private val staticParser = StaticBuildFileParser(logger)
     private val gradleDslClasspathResolver = GradleDslClasspathResolver(logger, versionDetector)
-    private val markerFactory = MarkerFactory(logger, depResolutionStage, versionDetector)
+    private val markerFactory = MarkerFactory(logger, staticParser, versionDetector)
 
     // ─── Thin delegation methods for backward-compatible test access ──────────
 
@@ -113,7 +125,7 @@ class LstBuilder(
             fileCollector.resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
         logger.info("Parsing extensions: $effectiveExtensions")
 
-        // ── 3-stage classpath resolution ──────────────────────────────────────
+        // ── 4-stage classpath resolution ──────────────────────────────────────
         val resolutionResult = resolveClasspath(projectDir)
         val classpath = resolutionResult.classpath
 
@@ -146,7 +158,7 @@ class LstBuilder(
         val hasJvmFiles = jvmExtensions.any { filesByExt[it]?.isNotEmpty() == true }
         if (classpath.isEmpty() && hasJvmFiles) {
             logger.warn(
-                "Classpath resolution failed across all 3 stages — " +
+                "Classpath resolution failed across all 4 stages — " +
                     "type information will be missing. Recipe results may be incomplete."
             )
         }
@@ -414,7 +426,7 @@ class LstBuilder(
         }
     }
 
-    // ─── Classpath resolution (3 stages) ─────────────────────────────────────
+    // ─── Classpath resolution (4 stages) ─────────────────────────────────────
 
     /**
      * Directories where the project's own compiled classes might live.
@@ -431,12 +443,12 @@ class LstBuilder(
 
     private fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
         logger.info("Stage 1: attempting build-tool classpath extraction")
-        val stage1 = buildToolStage.extractClasspath(projectDir)
+        val stage1 = projectBuildStage.extractClasspath(projectDir)
         if (stage1 != null) {
             var classDirs = projectClassDirs(projectDir)
             if (classDirs.isEmpty()) {
                 logger.info("No compiled class directories found — attempting compilation")
-                buildToolStage.tryCompile(projectDir)
+                projectBuildStage.tryCompile(projectDir)
                 classDirs = projectClassDirs(projectDir)
             }
             if (classDirs.isNotEmpty()) {
@@ -474,34 +486,53 @@ class LstBuilder(
             "Stage 2 (dependency resolution) failed: no JARs resolved, falling through to Stage 3"
         )
 
-        logger.info("Stage 3: scanning local Maven/Gradle caches")
-        val directParseStage = DirectParseStage(projectDir, logger)
+        logger.info("Stage 3: resolving via static build file parse + POM traversal")
+        val stage3 = try {
+            buildFileParseStage.resolveClasspath(projectDir)
+        } catch (e: Exception) {
+            logger.warn("Stage 3 threw: ${e.message}")
+            emptyList()
+        }
+
+        if (stage3.isNotEmpty()) {
+            val classDirs = projectClassDirs(projectDir)
+            if (classDirs.isNotEmpty()) {
+                logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
+            }
+            logger.info("Stage 3 succeeded: ${stage3.size} JAR(s)")
+            return ClasspathResolutionResult(stage3 + classDirs)
+        }
+
+        logger.warn("Stage 3 failed — falling through to Stage 4")
+
+        logger.info("Stage 4: scanning local Maven/Gradle caches")
+        val localRepositoryStage = LocalRepositoryStage(projectDir, logger)
         val declaredCoords = gatherDeclaredCoordinates(projectDir)
-        val stage3 = directParseStage.findAvailableJars(declaredCoords)
+        val stage4 = localRepositoryStage.findAvailableJars(declaredCoords)
         val classDirs = projectClassDirs(projectDir)
         if (classDirs.isNotEmpty()) {
             logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
         }
-        if (stage3.isEmpty()) {
-            logger.warn("Stage 3 (local cache): no cached JARs found")
+        if (stage4.isEmpty()) {
+            logger.warn("Stage 4 (local cache): no cached JARs found")
         } else {
-            logger.info("Stage 3: using ${stage3.size} locally cached JAR(s)")
+            logger.info("Stage 4: using ${stage4.size} locally cached JAR(s)")
         }
-        return ClasspathResolutionResult(stage3 + classDirs)
+        return ClasspathResolutionResult(stage4 + classDirs)
     }
 
     /**
      * Extract declared dependency coordinates from the project's build descriptor without
      * triggering any network downloads. Returns `groupId:artifactId:version` strings
-     * suitable for [DirectParseStage.findAvailableJars].
+     * suitable for [LocalRepositoryStage.findAvailableJars].
      */
     internal fun gatherDeclaredCoordinates(projectDir: Path): List<String> = try {
         when {
             projectDir.resolve("pom.xml").exists() ->
-                depResolutionStage.parseMavenDependencies(projectDir)
+                staticParser.parseMavenDependencies(projectDir)
 
             else ->
-                depResolutionStage.parseGradleDependenciesStatically(projectDir)
+                staticParser.parseGradleDependenciesStatically(projectDir)
         }
     } catch (_: Exception) {
         emptyList()

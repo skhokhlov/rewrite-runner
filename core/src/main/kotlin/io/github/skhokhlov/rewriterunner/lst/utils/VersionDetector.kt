@@ -1,7 +1,8 @@
-package io.github.skhokhlov.rewriterunner.lst
+package io.github.skhokhlov.rewriterunner.lst.utils
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
+import java.util.Properties
 import java.util.UUID
 import kotlin.io.path.exists
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
@@ -24,7 +25,7 @@ import org.openrewrite.java.marker.JavaVersion
  * Results are cached per directory so each build file is read at most once per invocation.
  */
 internal class VersionDetector(private val logger: RunnerLogger) {
-    /** Creates a [JavaVersion] marker with the given source/target version strings. */
+    /** Creates a [org.openrewrite.java.marker.JavaVersion] marker with the given source/target version strings. */
     fun buildJavaVersionMarker(source: String, target: String): JavaVersion {
         val createdBy =
             System.getProperty("java.runtime.version") ?: System.getProperty("java.version") ?: ""
@@ -261,7 +262,7 @@ internal class VersionDetector(private val logger: RunnerLogger) {
      * `https://services.gradle.org/distributions/gradle-8.7-bin.zip` → `"8.7"`.
      */
     internal fun parseGradleVersionFromWrapper(wrapperProps: Path): String? = try {
-        val props = java.util.Properties()
+        val props = Properties()
         wrapperProps.toFile().inputStream().use { props.load(it) }
         val url = props.getProperty("distributionUrl") ?: return null
         Regex("""gradle-(\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z]+-\d+)?)-(?:bin|all)""")

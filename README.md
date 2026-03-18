@@ -441,7 +441,7 @@ Environment variable placeholders (`${VAR_NAME}`) are expanded at runtime.
 
 ## Resilient Parsing Pipeline
 
-The tool uses a three-stage fallback pipeline to build the LST, ensuring recipes run even on projects with broken builds.
+The tool uses a four-stage fallback pipeline to build the LST, ensuring recipes run even on projects with broken builds.
 
 ### Stage 1 — Build tool classpath extraction
 Invokes the project's own build tool as a subprocess to extract the full compile classpath:
@@ -457,12 +457,19 @@ If Stage 1 fails (broken build, no wrapper, timeout), the tool resolves dependen
 
 > **Note:** The `gradle dependencies` task only reports dependencies for the project it is applied to. Subprojects are queried explicitly (`:sub:dependencies`) so that multi-module builds are fully covered.
 
-**Direct deps only, no POM traversal.** Stage 2 downloads JARs only for the dependencies explicitly declared in the build file — it does not traverse transitive dependency graphs or fetch transitive POM files. This avoids hundreds of extra HTTP requests on a cold run. Missing transitive types appear as `JavaType.Unknown`, which OpenRewrite handles gracefully. Stage 3 supplements the classpath with any transitives already present in local caches from previous builds.
+**Direct deps only, no POM traversal.** Stage 2 downloads JARs only for the dependencies explicitly declared in the build file — it does not traverse transitive dependency graphs or fetch transitive POM files. This avoids hundreds of extra HTTP requests on a cold run. Missing transitive types appear as `JavaType.Unknown`, which OpenRewrite handles gracefully.
 
 Resolved JARs are cached in `~/.m2/repository` (Maven default), so artifacts already downloaded by the project's own build are reused without re-downloading. Extra repositories from the tool config are also consulted.
 
-### Stage 3 — Local cache scan
-If dependency resolution also fails, the tool scans local Maven and Gradle caches:
+### Stage 3 — Static build file parse + POM traversal
+If Stage 2 fails, the tool statically parses build files without invoking any subprocess, then resolves transitive dependencies via Maven Resolver POM traversal:
+- **Maven**: discovers all modules via `pom.xml` module declarations and directory walk, then resolves the full transitive dependency graph.
+- **Gradle**: statically parses `build.gradle(.kts)` files and version catalogs (`gradle/*.versions.toml`) using regex extraction, then resolves transitives via Maven Resolver POM traversal.
+
+This stage provides full transitive dependency resolution without requiring a working build tool installation.
+
+### Stage 4 — Local cache scan
+If all previous stages fail, the tool scans local Maven and Gradle caches:
 - `~/.m2/repository` for Maven-cached JARs
 - `~/.gradle/caches/modules-*/files-*/` for Gradle-cached JARs
 

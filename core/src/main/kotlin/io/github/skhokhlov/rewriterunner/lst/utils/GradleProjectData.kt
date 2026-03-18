@@ -1,4 +1,4 @@
-package io.github.skhokhlov.rewriterunner.lst
+package io.github.skhokhlov.rewriterunner.lst.utils
 
 /**
  * Per-Gradle-project configuration data extracted from `gradle dependencies` output.

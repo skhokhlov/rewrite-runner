@@ -16,7 +16,7 @@ Orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`:
 | 1 | `ToolConfig` | Load YAML config (env var interpolation, tilde expansion) |
 | 2 | `RecipeArtifactResolver` | Resolve recipe JARs from Maven coordinates |
 | 3 | `RecipeLoader` | Load recipe from JARs + optional `rewrite.yaml` |
-| 4 | `LstBuilder` | Build LST via 3-stage classpath pipeline + multi-language parsing |
+| 4 | `LstBuilder` | Build LST via 4-stage classpath pipeline + multi-language parsing |
 | 5 | `RecipeRunner` | Execute recipe, collect `List<Result>` |
 | 6 | — | Write changed files to disk (skipped when `dryRun = true`) |
 | 7 | `ResultFormatter` | Format output (diff / files / report) |
@@ -34,13 +34,21 @@ Recipe JARs are cached under the tool's own `cacheDir` so they never pollute the
 
 `AetherContext.build(localRepoDir)` accepts the local repository path directly — callers are responsible for choosing between the tool cache and the Maven default.
 
-## 3-Stage LST Classpath Resolution
+## 4-Stage LST Classpath Resolution
 
 `LstBuilder` runs these stages in order, falling through on failure:
 
-- **Stage 1** (`BuildToolStage`): Subprocess Maven/Gradle to extract compile classpath. Falls through on failure.
-- **Stage 2** (`DependencyResolutionStage`): Parse `pom.xml`/`build.gradle` + Maven Resolver to download JARs. Uses `~/.m2/repository` as the local repo. Falls through on failure.
-- **Stage 3** (`DirectParseStage`): Scan `~/.m2` and `~/.gradle/caches` for already-cached JARs. Always succeeds (possibly empty).
+| Stage | Class | Maven | Gradle |
+|---|---|---|---|
+| 1 | `ProjectBuildStage` | `mvnw dependency:build-classpath` | Gradle init script |
+| 2 | `DependencyResolutionStage` | `mvn dependency:tree` subprocess | `gradle dependencies` subprocess |
+| 3 | `BuildFileParseStage` | Static `pom.xml` parse + POM traversal | Static `build.gradle(.kts)` + version catalog parse + POM traversal |
+| 4 | `LocalRepositoryStage` | Local `~/.m2` cache scan | Local `~/.gradle/caches` scan |
+
+- **Stage 1** (`ProjectBuildStage`): Runs the project's own build tool to extract the exact compile classpath. Falls through on failure.
+- **Stage 2** (`DependencyResolutionStage`): Runs `mvn dependency:tree` / `gradle dependencies` subprocesses and resolves downloaded JARs directly via Aether. Supports Maven-only, Gradle-only, and mixed projects. Falls through when subprocesses fail.
+- **Stage 3** (`BuildFileParseStage`): Parses `pom.xml` and `build.gradle(.kts)` statically (no subprocess) for all discovered modules, then resolves via full Maven Resolver POM traversal to obtain transitive dependencies. Falls through when no build files exist or resolution fails.
+- **Stage 4** (`LocalRepositoryStage`): Scans `~/.m2` and `~/.gradle/caches` for already-cached JARs. Always succeeds (possibly empty).
 
 The resolved classpath is **shared across all language parsers** — `JavaParser`, `KotlinParser`, and `GroovyParser` all receive the same project classpath so cross-language type references resolve correctly.
 
@@ -52,13 +60,13 @@ The resolved classpath is **shared across all language parsers** — `JavaParser
 
 | Class | Responsibility |
 |-------|---------------|
-| `LstBuilder` | Orchestration, 3-stage classpath pipeline, parser dispatch |
+| `LstBuilder` | Orchestration, 4-stage classpath pipeline, parser dispatch |
 | `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions, extension resolution |
 | `VersionDetector` | Java/Kotlin JVM-version walk-up, `normalizeJvmVersion`, `parseGradleVersionFromWrapper` |
 | `GradleDslClasspathResolver` | Locate Gradle installation (`GRADLE_HOME`, wrapper, `~/.gradle/wrapper/dists/`) |
 | `MarkerFactory` | `BuildTool`, `GitProvenance`, `OperatingSystemProvenance`, `BuildEnvironment`, `GradleProject` markers |
 
-`BuildToolStage` and `DependencyResolutionStage` remain injected into `LstBuilder` as `open` classes; the helper classes above are internal and are instantiated by `LstBuilder`.
+`ProjectBuildStage` and `DependencyResolutionStage` remain injected into `LstBuilder` as `open` classes; the helper classes above are internal and are instantiated by `LstBuilder`.
 
 ## File Routing by Extension
 
@@ -115,7 +123,7 @@ core/                              # Library module (no embedded deps)
 │       ├── RewriteRunner.kt       # Library facade / builder API
 │       ├── RunResult.kt
 │       ├── config/ToolConfig.kt
-│       ├── lst/                   # LstBuilder (orchestrator) + FileCollector, VersionDetector, GradleDslClasspathResolver, MarkerFactory + 3 stage classes
+│       ├── lst/                   # LstBuilder (orchestrator) + FileCollector, VersionDetector, GradleDslClasspathResolver, MarkerFactory + 4 stage classes
 │       ├── output/ResultFormatter.kt
 │       └── recipe/                # RecipeArtifactResolver, RecipeLoader, RecipeRunner
 cli/                               # Fat JAR module

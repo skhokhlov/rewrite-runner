@@ -14,7 +14,7 @@ import org.openrewrite.RecipeRun
  * Creates a [RecipeRunner] whose [RecipeRunner.executeRecipe] always throws [error].
  * This simulates a [LinkageError] caused by a missing transitive dependency JAR
  * without needing a real broken classpath — the same subclass pattern used for
- * [io.github.skhokhlov.rewriterunner.lst.BuildToolStage] and
+ * [io.github.skhokhlov.rewriterunner.lst.ProjectBuildStage] and
  * [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage].
  */
 private fun brokenRunner(error: LinkageError): RecipeRunner =

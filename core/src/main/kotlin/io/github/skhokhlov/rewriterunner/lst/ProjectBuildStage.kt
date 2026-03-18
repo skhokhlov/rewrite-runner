@@ -1,7 +1,10 @@
 package io.github.skhokhlov.rewriterunner.lst
 
-import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
+import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
+import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
+import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -48,7 +51,7 @@ import kotlin.io.path.exists
  * **Extensibility:** The class is `open` with `open` methods so tests can subclass
  * it to inject a fake classpath without spawning real processes.
  */
-open class BuildToolStage(protected val logger: RunnerLogger) {
+open class ProjectBuildStage(protected val logger: RunnerLogger) {
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.
      *
@@ -73,7 +76,7 @@ open class BuildToolStage(protected val logger: RunnerLogger) {
     private fun extractMavenClasspath(projectDir: Path): List<Path>? {
         val outputFile = Files.createTempFile("openrewrite-cp-", ".txt")
         try {
-            val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
+            val mvnCmd = resolveMavenCommand(projectDir)
             val mvnCommand = listOf(
                 mvnCmd,
                 "dependency:build-classpath",
@@ -202,7 +205,7 @@ open class BuildToolStage(protected val logger: RunnerLogger) {
     }
 
     private fun tryMavenCompile(projectDir: Path): Boolean {
-        val mvnCmd = if (projectDir.resolve("mvnw").exists()) "./mvnw" else "mvn"
+        val mvnCmd = resolveMavenCommand(projectDir)
         return runCompileTask(projectDir, listOf(mvnCmd, "compile", "-q"), "Maven")
     }
 

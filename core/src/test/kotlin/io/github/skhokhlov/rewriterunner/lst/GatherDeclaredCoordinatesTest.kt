@@ -3,6 +3,7 @@ package io.github.skhokhlov.rewriterunner.lst
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -15,7 +16,7 @@ import kotlin.test.assertTrue
  * Tests for [LstBuilder.gatherDeclaredCoordinates].
  *
  * Verifies that Stage 3 receives proper Maven coordinate strings (groupId:artifactId:version)
- * and NOT file-system paths (which would cause [DirectParseStage.parseCoord] to fail).
+ * and NOT file-system paths (which would cause [LocalRepositoryStage.parseCoord] to fail).
  */
 class GatherDeclaredCoordinatesTest :
     FunSpec({
@@ -25,14 +26,14 @@ class GatherDeclaredCoordinatesTest :
 
         afterEach { projectDir.toFile().deleteRecursively() }
 
-        fun failingBuildTool() = object : BuildToolStage(NoOpRunnerLogger) {
+        fun failingBuildTool() = object : ProjectBuildStage(NoOpRunnerLogger) {
             override fun extractClasspath(projectDir: Path): List<Path>? = null
         }
 
         fun lstBuilder(depStage: DependencyResolutionStage): LstBuilder = LstBuilder(
             cacheDir = projectDir.resolve("cache"),
             toolConfig = ToolConfig(logger = NoOpRunnerLogger),
-            buildToolStage = failingBuildTool(),
+            projectBuildStage = failingBuildTool(),
             depResolutionStage = depStage,
             logger = NoOpRunnerLogger
         )
