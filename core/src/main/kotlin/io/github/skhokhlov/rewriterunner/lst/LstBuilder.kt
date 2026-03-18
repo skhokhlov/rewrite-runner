@@ -10,6 +10,8 @@ import io.github.skhokhlov.rewriterunner.lst.utils.GradleDslClasspathResolver
 import io.github.skhokhlov.rewriterunner.lst.utils.MarkerFactory
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.github.skhokhlov.rewriterunner.lst.utils.VersionDetector
+import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
+import io.github.skhokhlov.rewriterunner.lst.utils.hasGradleBuildInSubdir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -61,7 +63,7 @@ import org.openrewrite.yaml.YamlParser
  * producing `Xml.Document` nodes annotated with [org.openrewrite.maven.tree.MavenResolutionResult]
  * and related Maven markers. All other `*.xml` files use [org.openrewrite.xml.XmlParser].
  */
-class LstBuilder(
+open class LstBuilder(
     private val logger: RunnerLogger,
     private val cacheDir: Path,
     private val toolConfig: ToolConfig,
@@ -263,14 +265,7 @@ class LstBuilder(
                     )
                 }
                 try {
-                    GradleParser.builder()
-                        .kotlinParser(
-                            KotlinParser.builder()
-                                .classpath(classpath + gradleDslClasspath)
-                                .typeCache(typeCache)
-                        )
-                        .buildscriptClasspath(gradleDslClasspath)
-                        .build()
+                    buildGradleKtsParser(classpath, gradleDslClasspath, typeCache)
                         .parse(gradleKtsFiles, projectDir, ctx)
                         .forEach { sf ->
                             allSources.add(
@@ -290,7 +285,15 @@ class LstBuilder(
                         .typeCache(typeCache)
                         .build()
                         .parse(gradleKtsFiles, projectDir, ctx)
-                        .forEach { allSources.add(it) }
+                        .forEach {
+                            allSources.add(
+                                markerFactory.addGradleProjectMarker(
+                                    it,
+                                    projectDir,
+                                    resolutionResult
+                                )
+                            )
+                        }
                 }
             }
         }
@@ -315,14 +318,7 @@ class LstBuilder(
                 )
             }
             try {
-                GradleParser.builder()
-                    .groovyParser(
-                        GroovyParser.builder()
-                            .classpath(classpath + gradleDslClasspath)
-                            .typeCache(typeCache)
-                    )
-                    .buildscriptClasspath(gradleDslClasspath)
-                    .build()
+                buildGradleGroovyParser(classpath, gradleDslClasspath, typeCache)
                     .parse(files, projectDir, ctx)
                     .forEach { sf ->
                         allSources.add(
@@ -338,7 +334,11 @@ class LstBuilder(
                     .typeCache(typeCache)
                     .build()
                     .parse(files, projectDir, ctx)
-                    .forEach { allSources.add(it) }
+                    .forEach {
+                        allSources.add(
+                            markerFactory.addGradleProjectMarker(it, projectDir, resolutionResult)
+                        )
+                    }
             }
         }
 
@@ -426,6 +426,36 @@ class LstBuilder(
         }
     }
 
+    // ─── Overrideable parser factories (for testing fallback paths) ──────────
+
+    /** Creates the [GradleParser] used for `.gradle.kts` files. Overrideable in tests. */
+    protected open fun buildGradleKtsParser(
+        classpath: List<Path>,
+        gradleDslClasspath: List<Path>,
+        typeCache: JavaTypeCache
+    ): GradleParser = GradleParser.builder()
+        .kotlinParser(
+            KotlinParser.builder()
+                .classpath(classpath + gradleDslClasspath)
+                .typeCache(typeCache)
+        )
+        .buildscriptClasspath(gradleDslClasspath)
+        .build()
+
+    /** Creates the [GradleParser] used for `.gradle` (Groovy DSL) files. Overrideable in tests. */
+    protected open fun buildGradleGroovyParser(
+        classpath: List<Path>,
+        gradleDslClasspath: List<Path>,
+        typeCache: JavaTypeCache
+    ): GradleParser = GradleParser.builder()
+        .groovyParser(
+            GroovyParser.builder()
+                .classpath(classpath + gradleDslClasspath)
+                .typeCache(typeCache)
+        )
+        .buildscriptClasspath(gradleDslClasspath)
+        .build()
+
     // ─── Classpath resolution (4 stages) ─────────────────────────────────────
 
     /**
@@ -455,7 +485,16 @@ class LstBuilder(
                 logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
             }
             logger.info("Stage 1 succeeded: ${stage1.size} JAR(s)")
-            return ClasspathResolutionResult(stage1 + classDirs)
+            val gradleData = depResolutionStage.collectGradleProjectData(projectDir)
+            if (gradleData == null &&
+                (hasBuildGradle(projectDir) || hasGradleBuildInSubdir(projectDir))
+            ) {
+                logger.warn(
+                    "GradleProject markers could not be built — " +
+                        "rewrite-gradle recipes may not apply. Run with --info for details."
+                )
+            }
+            return ClasspathResolutionResult(stage1 + classDirs, gradleData)
         }
 
         logger.warn(
@@ -469,6 +508,9 @@ class LstBuilder(
             logger.warn("Stage 2 threw an exception: ${e.message}")
             ClasspathResolutionResult(emptyList())
         }
+        // Preserve Gradle project data from Stage 2 even when the classpath is empty, so
+        // GradleProject markers can still be attached if Stage 3/4 resolves the JARs.
+        val stage2GradleData = stage2Result.gradleProjectData
 
         if (stage2Result.classpath.isNotEmpty()) {
             val classDirs = projectClassDirs(projectDir)
@@ -478,7 +520,7 @@ class LstBuilder(
             logger.info("Stage 2 succeeded: ${stage2Result.classpath.size} JAR(s)")
             return ClasspathResolutionResult(
                 classpath = stage2Result.classpath + classDirs,
-                gradleProjectData = stage2Result.gradleProjectData
+                gradleProjectData = stage2GradleData
             )
         }
 
@@ -500,7 +542,7 @@ class LstBuilder(
                 logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
             }
             logger.info("Stage 3 succeeded: ${stage3.size} JAR(s)")
-            return ClasspathResolutionResult(stage3 + classDirs)
+            return ClasspathResolutionResult(stage3 + classDirs, stage2GradleData)
         }
 
         logger.warn("Stage 3 failed — falling through to Stage 4")
@@ -518,7 +560,7 @@ class LstBuilder(
         } else {
             logger.info("Stage 4: using ${stage4.size} locally cached JAR(s)")
         }
-        return ClasspathResolutionResult(stage4 + classDirs)
+        return ClasspathResolutionResult(stage4 + classDirs, stage2GradleData)
     }
 
     /**

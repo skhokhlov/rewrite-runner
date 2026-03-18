@@ -65,6 +65,25 @@ open class DependencyResolutionStage(
     private val staticParser = StaticBuildFileParser(logger)
 
     /**
+     * Best-effort: runs `gradle dependencies` to collect per-project configuration data for
+     * [org.openrewrite.gradle.marker.GradleProject] marker attachment. Used by [LstBuilder] when
+     * Stage 1 already provided the compile classpath and only marker data is still needed.
+     *
+     * Returns `null` when the project is not a Gradle project, when the subprocess fails, or
+     * when no dependency data could be parsed.
+     */
+    open fun collectGradleProjectData(projectDir: Path): Map<String, GradleProjectData>? {
+        if (!hasBuildGradle(projectDir) && !hasGradleBuildInSubdir(projectDir)) return null
+        return try {
+            val rawOutput = runGradleDependenciesRawOutput(projectDir) ?: return null
+            parseGradleDependencyTaskOutputByProject(rawOutput)
+        } catch (e: Exception) {
+            logger.warn("Could not collect Gradle project data for markers: ${e.message}")
+            null
+        }
+    }
+
+    /**
      * Resolves the project's compile classpath by running subprocesses
      * (`mvn dependency:tree` and/or `gradle dependencies`) and downloading
      * the resulting coordinates via Maven Resolver.
