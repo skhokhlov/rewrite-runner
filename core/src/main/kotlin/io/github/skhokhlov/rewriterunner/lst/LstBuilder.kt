@@ -15,8 +15,10 @@ import io.github.skhokhlov.rewriterunner.lst.utils.hasGradleBuildInSubdir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.function.Consumer
 import kotlin.io.path.exists
 import kotlin.io.path.name
+import org.openrewrite.DelegatingExecutionContext
 import org.openrewrite.ExecutionContext
 import org.openrewrite.InMemoryExecutionContext
 import org.openrewrite.SourceFile
@@ -120,11 +122,19 @@ open class LstBuilder(
         parseConfig: ParseConfig = toolConfig.parse,
         includeExtensionsCli: List<String> = emptyList(),
         excludeExtensionsCli: List<String> = emptyList(),
-        ctx: ExecutionContext =
-            InMemoryExecutionContext {
-                logger.warn("Parse error: ${it.message}, ${it.stackTraceToString()}")
-            }
+        ctx: ExecutionContext = InMemoryExecutionContext {}
     ): List<SourceFile> {
+        val pendingErrors = mutableListOf<Throwable>()
+        val parseCtx = object : DelegatingExecutionContext(ctx) {
+            private val errorConsumer = Consumer<Throwable> { t ->
+                pendingErrors.add(t)
+                logger.warn("Parse warning: ${t.message}")
+                logger.info("Parse warning details:\n${t.stackTraceToString()}")
+                super.getOnError().accept(t)
+            }
+
+            override fun getOnError(): Consumer<Throwable> = errorConsumer
+        }
         val effectiveExtensions =
             fileCollector.resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
         logger.info("Parsing extensions: $effectiveExtensions")
@@ -186,7 +196,10 @@ open class LstBuilder(
                 .classpath(classpath)
                 .typeCache(typeCache)
                 .build()
-            parser.parse(files, projectDir, ctx).forEach { sourceFile ->
+            val parsed = parser.parse(files, projectDir, parseCtx).toList()
+            reportParseFailures(files, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
                 val (source, target) = versionDetector.detectJavaVersionForFile(
                     absPath,
@@ -210,7 +223,10 @@ open class LstBuilder(
         filesByExt[".kt"]?.let { files ->
             logger.info("Parsing ${files.size} Kotlin file(s)")
             val parser = KotlinParser.builder().classpath(classpath).typeCache(typeCache).build()
-            parser.parse(files, projectDir, ctx).forEach { sourceFile ->
+            val parsed = parser.parse(files, projectDir, parseCtx).toList()
+            reportParseFailures(files, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
                 val (source, target) =
                     versionDetector.detectKotlinVersionForFile(
@@ -241,7 +257,10 @@ open class LstBuilder(
                 val parser = KotlinParser.builder().classpath(
                     classpath
                 ).typeCache(typeCache).build()
-                parser.parse(plainKtsFiles, projectDir, ctx).forEach { sourceFile ->
+                val parsed = parser.parse(plainKtsFiles, projectDir, parseCtx).toList()
+                reportParseFailures(plainKtsFiles, parsed, pendingErrors, projectDir)
+                pendingErrors.clear()
+                parsed.forEach { sourceFile ->
                     val absPath = projectDir.resolve(sourceFile.sourcePath)
                     val (source, target) =
                         versionDetector.detectKotlinVersionForFile(
@@ -267,35 +286,34 @@ open class LstBuilder(
                     )
                 }
                 try {
-                    buildGradleKtsParser(classpath, gradleDslClasspath, typeCache)
-                        .parse(gradleKtsFiles, projectDir, ctx)
-                        .forEach { sf ->
-                            allSources.add(
-                                markerFactory.addGradleProjectMarker(
-                                    sf,
-                                    projectDir,
-                                    resolutionResult
-                                )
-                            )
-                        }
+                    val parsed = buildGradleKtsParser(classpath, gradleDslClasspath, typeCache)
+                        .parse(gradleKtsFiles, projectDir, parseCtx)
+                        .toList()
+                    reportParseFailures(gradleKtsFiles, parsed, pendingErrors, projectDir)
+                    pendingErrors.clear()
+                    parsed.forEach { sf ->
+                        allSources.add(
+                            markerFactory.addGradleProjectMarker(sf, projectDir, resolutionResult)
+                        )
+                    }
                 } catch (e: Exception) {
+                    pendingErrors.clear()
                     logger.warn(
                         "GradleParser failed for Kotlin DSL, falling back to KotlinParser: ${e.message}"
                     )
-                    KotlinParser.builder()
+                    val parsed = KotlinParser.builder()
                         .classpath(classpath + gradleDslClasspath)
                         .typeCache(typeCache)
                         .build()
-                        .parse(gradleKtsFiles, projectDir, ctx)
-                        .forEach {
-                            allSources.add(
-                                markerFactory.addGradleProjectMarker(
-                                    it,
-                                    projectDir,
-                                    resolutionResult
-                                )
-                            )
-                        }
+                        .parse(gradleKtsFiles, projectDir, parseCtx)
+                        .toList()
+                    reportParseFailures(gradleKtsFiles, parsed, pendingErrors, projectDir)
+                    pendingErrors.clear()
+                    parsed.forEach {
+                        allSources.add(
+                            markerFactory.addGradleProjectMarker(it, projectDir, resolutionResult)
+                        )
+                    }
                 }
             }
         }
@@ -303,7 +321,10 @@ open class LstBuilder(
         filesByExt[".groovy"]?.let { files ->
             logger.info("Parsing ${files.size} Groovy file(s)")
             val parser = GroovyParser.builder().classpath(classpath).typeCache(typeCache).build()
-            parser.parse(files, projectDir, ctx).forEach { sourceFile ->
+            val parsed = parser.parse(files, projectDir, parseCtx).toList()
+            reportParseFailures(files, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { sourceFile ->
                 val absPath = projectDir.resolve(sourceFile.sourcePath)
                 val sourceSet = if (isTestPath(absPath)) testSourceSet else mainSourceSet
                 allSources.add(
@@ -320,27 +341,34 @@ open class LstBuilder(
                 )
             }
             try {
-                buildGradleGroovyParser(classpath, gradleDslClasspath, typeCache)
-                    .parse(files, projectDir, ctx)
-                    .forEach { sf ->
-                        allSources.add(
-                            markerFactory.addGradleProjectMarker(sf, projectDir, resolutionResult)
-                        )
-                    }
+                val parsed = buildGradleGroovyParser(classpath, gradleDslClasspath, typeCache)
+                    .parse(files, projectDir, parseCtx)
+                    .toList()
+                reportParseFailures(files, parsed, pendingErrors, projectDir)
+                pendingErrors.clear()
+                parsed.forEach { sf ->
+                    allSources.add(
+                        markerFactory.addGradleProjectMarker(sf, projectDir, resolutionResult)
+                    )
+                }
             } catch (e: Exception) {
+                pendingErrors.clear()
                 logger.warn(
                     "GradleParser failed for Groovy DSL, falling back to GroovyParser: ${e.message}"
                 )
-                GroovyParser.builder()
+                val parsed = GroovyParser.builder()
                     .classpath(classpath + gradleDslClasspath)
                     .typeCache(typeCache)
                     .build()
-                    .parse(files, projectDir, ctx)
-                    .forEach {
-                        allSources.add(
-                            markerFactory.addGradleProjectMarker(it, projectDir, resolutionResult)
-                        )
-                    }
+                    .parse(files, projectDir, parseCtx)
+                    .toList()
+                reportParseFailures(files, parsed, pendingErrors, projectDir)
+                pendingErrors.clear()
+                parsed.forEach {
+                    allSources.add(
+                        markerFactory.addGradleProjectMarker(it, projectDir, resolutionResult)
+                    )
+                }
             }
         }
 
@@ -348,12 +376,18 @@ open class LstBuilder(
             ((filesByExt[".yaml"] ?: emptyList()) + (filesByExt[".yml"] ?: emptyList()))
         if (yamlFiles.isNotEmpty()) {
             logger.info("Parsing ${yamlFiles.size} YAML file(s)")
-            YamlParser().parse(yamlFiles, projectDir, ctx).forEach { allSources.add(it) }
+            val parsed = YamlParser().parse(yamlFiles, projectDir, parseCtx).toList()
+            reportParseFailures(yamlFiles, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { allSources.add(it) }
         }
 
         filesByExt[".json"]?.let { files ->
             logger.info("Parsing ${files.size} JSON file(s)")
-            JsonParser().parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            val parsed = JsonParser().parse(files, projectDir, parseCtx).toList()
+            reportParseFailures(files, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { allSources.add(it) }
         }
 
         filesByExt[".xml"]?.let { files ->
@@ -362,27 +396,39 @@ open class LstBuilder(
 
             if (pomFiles.isNotEmpty()) {
                 logger.info("Parsing ${pomFiles.size} Maven POM file(s) with MavenParser")
-                MavenParser.builder().build()
-                    .parse(pomFiles, projectDir, ctx)
-                    .forEach { allSources.add(it) }
+                val parsed = MavenParser.builder().build()
+                    .parse(pomFiles, projectDir, parseCtx)
+                    .toList()
+                reportParseFailures(pomFiles, parsed, pendingErrors, projectDir)
+                pendingErrors.clear()
+                parsed.forEach { allSources.add(it) }
             }
 
             if (otherXmlFiles.isNotEmpty()) {
                 logger.info("Parsing ${otherXmlFiles.size} XML file(s)")
-                XmlParser().parse(otherXmlFiles, projectDir, ctx).forEach { allSources.add(it) }
+                val parsedXml = XmlParser().parse(otherXmlFiles, projectDir, parseCtx).toList()
+                reportParseFailures(otherXmlFiles, parsedXml, pendingErrors, projectDir)
+                pendingErrors.clear()
+                parsedXml.forEach { allSources.add(it) }
             }
         }
 
         filesByExt[".properties"]?.let { files ->
             logger.info("Parsing ${files.size} properties file(s)")
-            PropertiesParser().parse(files, projectDir, ctx).forEach { allSources.add(it) }
+            val parsed = PropertiesParser().parse(files, projectDir, parseCtx).toList()
+            reportParseFailures(files, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { allSources.add(it) }
         }
 
         filesByExt[".toml"]?.let { files ->
             logger.info("Parsing ${files.size} TOML file(s)")
-            TomlParser.builder().build()
-                .parse(files, projectDir, ctx)
-                .forEach { allSources.add(it) }
+            val parsed = TomlParser.builder().build()
+                .parse(files, projectDir, parseCtx)
+                .toList()
+            reportParseFailures(files, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { allSources.add(it) }
         }
 
         val hclFiles = listOfNotNull(
@@ -392,16 +438,22 @@ open class LstBuilder(
         ).flatten()
         if (hclFiles.isNotEmpty()) {
             logger.info("Parsing ${hclFiles.size} HCL file(s)")
-            HclParser.builder().build()
-                .parse(hclFiles, projectDir, ctx)
-                .forEach { allSources.add(it) }
+            val parsed = HclParser.builder().build()
+                .parse(hclFiles, projectDir, parseCtx)
+                .toList()
+            reportParseFailures(hclFiles, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { allSources.add(it) }
         }
 
         filesByExt[".proto"]?.let { files ->
             logger.info("Parsing ${files.size} Protobuf file(s)")
-            ProtoParser.builder().build()
-                .parse(files, projectDir, ctx)
-                .forEach { allSources.add(it) }
+            val parsed = ProtoParser.builder().build()
+                .parse(files, projectDir, parseCtx)
+                .toList()
+            reportParseFailures(files, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { allSources.add(it) }
         }
 
         val dockerFiles = listOfNotNull(
@@ -410,9 +462,12 @@ open class LstBuilder(
         ).flatten()
         if (dockerFiles.isNotEmpty()) {
             logger.info("Parsing ${dockerFiles.size} Dockerfile(s)")
-            DockerParser.builder().build()
-                .parse(dockerFiles, projectDir, ctx)
-                .forEach { allSources.add(it) }
+            val parsed = DockerParser.builder().build()
+                .parse(dockerFiles, projectDir, parseCtx)
+                .toList()
+            reportParseFailures(dockerFiles, parsed, pendingErrors, projectDir)
+            pendingErrors.clear()
+            parsed.forEach { allSources.add(it) }
         }
 
         logger.info("LST build complete: ${allSources.size} SourceFile(s)")
@@ -613,4 +668,31 @@ open class LstBuilder(
     private fun isTestPath(absPath: Path): Boolean = absPath.toString().contains(
         "${java.io.File.separatorChar}test${java.io.File.separatorChar}"
     )
+
+    private fun reportParseFailures(
+        inputFiles: List<Path>,
+        parsedFiles: List<SourceFile>,
+        errors: List<Throwable>,
+        projectDir: Path
+    ) {
+        val parsedPaths = parsedFiles.map { it.sourcePath.normalize() }.toSet()
+        val failedEntries = inputFiles
+            .map { file -> file to projectDir.relativize(file).normalize() }
+            .filter { (_, rel) -> rel !in parsedPaths }
+        if (failedEntries.isEmpty()) return
+
+        failedEntries.forEach { (file, rel) ->
+            val filename = file.fileName.toString()
+            val reason = errors
+                .firstOrNull { t ->
+                    generateSequence(t) { it.cause }.any { it.message?.contains(filename) == true }
+                }?.message
+                ?: if (errors.size == 1 && failedEntries.size == 1) errors.first().message else null
+            if (reason != null) {
+                logger.warn("Failed to parse $rel: $reason")
+            } else {
+                logger.warn("Failed to parse $rel (run with --debug for error details)")
+            }
+        }
+    }
 }
