@@ -13,6 +13,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.openrewrite.maven.tree.MavenResolutionResult
 
@@ -975,5 +976,82 @@ class LstBuilderTest :
             val result = lstBuilder().projectClassDirs(projectDir)
 
             assertFalse(result.contains(hiddenClassDir), "Should not scan hidden subdirectories")
+        }
+
+        // ─── Parse failure warnings ───────────────────────────────────────────────
+
+        test("warn is emitted when a file fails to parse") {
+            // XML uses a strict SAX parser — truly invalid XML triggers ctx.getOnError()
+            projectDir.resolve("valid.xml").writeText("<root><item>ok</item></root>")
+            projectDir.resolve("broken.xml").writeText("<<< not xml at all >>>")
+
+            val warnings = mutableListOf<String>()
+            val capturingLogger =
+                object : RunnerLogger by NoOpRunnerLogger {
+                    override fun warn(message: String) {
+                        warnings.add(message)
+                    }
+                }
+
+            lstBuilder(logger = capturingLogger).build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".xml")
+            )
+
+            assertTrue(
+                warnings.any { it.startsWith("Parse warning:") },
+                "Expected a 'Parse warning:' message but got: $warnings"
+            )
+        }
+
+        test("parse failure warning includes the error reason") {
+            projectDir.resolve("broken.xml").writeText("<<< not xml at all >>>")
+
+            val warnings = mutableListOf<String>()
+            val capturingLogger =
+                object : RunnerLogger by NoOpRunnerLogger {
+                    override fun warn(message: String) {
+                        warnings.add(message)
+                    }
+                }
+
+            lstBuilder(logger = capturingLogger).build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".xml")
+            )
+
+            val parseWarning = warnings.firstOrNull { it.startsWith("Parse warning:") }
+            assertNotNull(parseWarning, "Expected 'Parse warning:' but got: $warnings")
+            assertTrue(
+                parseWarning.length > "Parse warning: ".length,
+                "Warning should include a reason, got: $parseWarning"
+            )
+        }
+
+        test("parse failure reports missing file path when file is dropped from parser output") {
+            // XML uses a strict SAX parser that may drop invalid files from output
+            projectDir.resolve("valid.xml").writeText("<root/>")
+            projectDir.resolve("broken.xml").writeText("<<< not xml at all >>>")
+
+            val warnings = mutableListOf<String>()
+            val capturingLogger =
+                object : RunnerLogger by NoOpRunnerLogger {
+                    override fun warn(message: String) {
+                        warnings.add(message)
+                    }
+                }
+
+            val sources = lstBuilder(logger = capturingLogger).build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".xml")
+            )
+
+            // If the XML parser drops the broken file, reportParseFailures should warn about it
+            if (sources.size == 1) {
+                assertTrue(
+                    warnings.any { it.contains("broken.xml") },
+                    "When file is dropped, expected warning mentioning 'broken.xml' but got: $warnings"
+                )
+            }
         }
     })
