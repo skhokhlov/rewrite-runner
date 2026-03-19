@@ -912,4 +912,68 @@ class LstBuilderTest :
                 "Classpath-failure warning should not be emitted when stage 1 succeeds"
             )
         }
+
+        // ─── projectClassDirs — subproject support ────────────────────────────────
+
+        test("projectClassDirs returns root Gradle class directories") {
+            val classDir = projectDir.resolve("build/classes/kotlin/main")
+            classDir.createDirectories()
+
+            val result = lstBuilder().projectClassDirs(projectDir)
+
+            assertTrue(
+                result.contains(classDir),
+                "Should include root Gradle kotlin/main class dir"
+            )
+        }
+
+        test("projectClassDirs returns root Maven class directories") {
+            val classDir = projectDir.resolve("target/classes")
+            classDir.createDirectories()
+
+            val result = lstBuilder().projectClassDirs(projectDir)
+
+            assertTrue(result.contains(classDir), "Should include root Maven target/classes")
+        }
+
+        test("projectClassDirs includes Gradle subproject class directories") {
+            val coreClassDir = projectDir.resolve("core/build/classes/kotlin/main")
+            coreClassDir.createDirectories()
+            val apiClassDir = projectDir.resolve("api/build/classes/java/main")
+            apiClassDir.createDirectories()
+
+            val result = lstBuilder().projectClassDirs(projectDir)
+
+            assertTrue(result.contains(coreClassDir), "Should include core subproject class dir")
+            assertTrue(result.contains(apiClassDir), "Should include api subproject class dir")
+        }
+
+        test("projectClassDirs includes Maven submodule class directories") {
+            val moduleClassDir = projectDir.resolve("module-a/target/classes")
+            moduleClassDir.createDirectories()
+
+            val result = lstBuilder().projectClassDirs(projectDir)
+
+            assertTrue(
+                result.contains(moduleClassDir),
+                "Should include Maven submodule target/classes"
+            )
+        }
+
+        test("projectClassDirs excludes non-existent directories") {
+            // No class dirs created at all
+            val result = lstBuilder().projectClassDirs(projectDir)
+
+            assertTrue(result.isEmpty(), "Should return empty list when no class dirs exist")
+        }
+
+        test("projectClassDirs does not scan hidden subdirectories") {
+            // Create a class dir inside a hidden subdirectory — should be ignored
+            val hiddenClassDir = projectDir.resolve(".hidden/build/classes/kotlin/main")
+            hiddenClassDir.createDirectories()
+
+            val result = lstBuilder().projectClassDirs(projectDir)
+
+            assertFalse(result.contains(hiddenClassDir), "Should not scan hidden subdirectories")
+        }
     })
