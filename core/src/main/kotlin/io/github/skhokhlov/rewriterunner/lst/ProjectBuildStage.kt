@@ -206,12 +206,19 @@ open class ProjectBuildStage(protected val logger: RunnerLogger) {
 
     private fun tryMavenCompile(projectDir: Path): Boolean {
         val mvnCmd = resolveMavenCommand(projectDir)
-        return runCompileTask(projectDir, listOf(mvnCmd, "compile", "-q"), "Maven")
+        return runCompileTask(projectDir, listOf(mvnCmd, "compile"), "Maven")
     }
 
     private fun tryGradleCompile(projectDir: Path): Boolean = runCompileTask(
         projectDir,
-        listOf(resolveGradleCommand(projectDir), "classes", "-q"),
+        listOf(
+            resolveGradleCommand(projectDir),
+            "classes",
+            "-i",
+            "-S",
+            "--no-build-cache",
+            "--no-configuration-cache"
+        ),
         "Gradle"
     )
 

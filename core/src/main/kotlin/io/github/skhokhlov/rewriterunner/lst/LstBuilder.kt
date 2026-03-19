@@ -121,7 +121,9 @@ open class LstBuilder(
         includeExtensionsCli: List<String> = emptyList(),
         excludeExtensionsCli: List<String> = emptyList(),
         ctx: ExecutionContext =
-            InMemoryExecutionContext { logger.warn("Parse error: ${it.message}") }
+            InMemoryExecutionContext {
+                logger.warn("Parse error: ${it.message}, ${it.stackTraceToString()}")
+            }
     ): List<SourceFile> {
         val effectiveExtensions =
             fileCollector.resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
@@ -459,17 +461,43 @@ open class LstBuilder(
     // ─── Classpath resolution (4 stages) ─────────────────────────────────────
 
     /**
-     * Directories where the project's own compiled classes might live.
+     * Directories where the project's own compiled classes might live, including subprojects.
      * Added to the classpath so that intra-project type references resolve correctly.
+     *
+     * Scans the root [projectDir] and its immediate non-hidden subdirectories so that
+     * compiled output from Gradle subprojects (e.g. `core/build/classes/kotlin/main`) and
+     * Maven submodules (e.g. `module-a/target/classes`) is also included.
      */
-    private fun projectClassDirs(projectDir: Path): List<Path> = listOf(
-        projectDir.resolve("target/classes"),
-        projectDir.resolve("target/test-classes"),
-        projectDir.resolve("build/classes/java/main"),
-        projectDir.resolve("build/classes/java/test"),
-        projectDir.resolve("build/classes/kotlin/main"),
-        projectDir.resolve("build/classes/kotlin/test")
-    ).filter { Files.isDirectory(it) }
+    internal fun projectClassDirs(projectDir: Path): List<Path> {
+        val candidates = mutableListOf<Path>()
+
+        fun addCandidatesFrom(dir: Path) {
+            candidates += listOf(
+                dir.resolve("target/classes"),
+                dir.resolve("target/test-classes"),
+                dir.resolve("build/classes/java/main"),
+                dir.resolve("build/classes/java/test"),
+                dir.resolve("build/classes/kotlin/main"),
+                dir.resolve("build/classes/kotlin/test")
+            )
+        }
+
+        addCandidatesFrom(projectDir)
+
+        try {
+            Files.list(projectDir).use { stream ->
+                stream
+                    .filter { path ->
+                        Files.isDirectory(path) && !path.fileName.toString().startsWith(".")
+                    }
+                    .forEach { addCandidatesFrom(it) }
+            }
+        } catch (_: Exception) {
+            // Ignore errors walking subdirectories
+        }
+
+        return candidates.filter { Files.isDirectory(it) }
+    }
 
     private fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
         logger.info("Stage 1: attempting build-tool classpath extraction")
