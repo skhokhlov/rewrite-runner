@@ -43,7 +43,7 @@ dependencies {
 
     // Tests
     testImplementation("ch.qos.logback:logback-classic:1.5.32")
-    testImplementation("io.kotest:kotest-runner-junit5:6.1.6")
+    testImplementation("io.kotest:kotest-runner-junit5:6.1.7")
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
