@@ -1,0 +1,17 @@
+hostname,port,protocol,category,required_for,purpose,description
+services.gradle.org,443,HTTPS,critical,build & tests,Gradle wrapper,Downloads Gradle distribution
+repo1.maven.org,443,HTTPS,critical,build & tests,Maven Central,Primary Maven Central mirror for dependencies
+repo.maven.apache.org,443,HTTPS,critical,build & tests,Maven Central,Alternative Maven Central mirror (fallback)
+plugins.gradle.org,443,HTTPS,critical,build & tests,Gradle plugins,Gradle Plugin Portal for build plugins
+maven.jetbrains.com,443,HTTPS,critical,build & tests,JetBrains,Kotlin compiler and Dokka plugins
+repo.gradle.org,443,HTTPS,additional,build & tests,Gradle plugins,Gradle plugin repository alternative mirror
+oss.sonatype.org,443,HTTPS,publishing,publish only,Sonatype OSS,Legacy Sonatype OSS staging repository
+s01.oss.sonatype.org,443,HTTPS,publishing,publish only,Sonatype S01,Current Sonatype S01 staging/release repository
+central.sonatype.com,443,HTTPS,publishing,publish only,Sonatype Central,Sonatype Central search API and metadata
+github.com,443,HTTPS,documentation,dokkaGenerate,GitHub,Source code links in generated documentation
+docs.oracle.com,443,HTTPS,documentation,dokkaGenerate,Java Docs,Java/JDK documentation external links
+kotlin.org,443,HTTPS,documentation,dokkaGenerate,Kotlin Docs,Kotlin stdlib documentation external links
+shields.io,443,HTTPS,documentation,dokkaGenerate,Badges,Status badge generation for README (optional)
+repo.openrewrite.org,443,HTTPS,optional,recipe execution,OpenRewrite,OpenRewrite public recipe repository
+api.github.com,443,HTTPS,ci_cd,GitHub Actions,GitHub API,GitHub REST API for release checks and PR status
+img.shields.io,443,HTTPS,ci_cd,GitHub Actions,Badges,Badge image generation for CI/CD

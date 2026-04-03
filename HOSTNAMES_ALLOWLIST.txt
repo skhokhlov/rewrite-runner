@@ -1,0 +1,56 @@
+# Firewall Allowlist - Hostnames Required for Build & Tests
+# rewrite-runner project
+# Updated: 2026-04-03
+
+# ============================================================================
+# CRITICAL - Required for Build & Tests (./gradlew check shadowJar)
+# ============================================================================
+services.gradle.org
+repo1.maven.org
+repo.maven.apache.org
+plugins.gradle.org
+maven.jetbrains.com
+
+# ============================================================================
+# ADDITIONAL - Maven Central Mirrors/Alternatives
+# ============================================================================
+repo.gradle.org
+
+# ============================================================================
+# CONDITIONAL - Only for Publishing (./gradlew publishToMavenCentral)
+# ============================================================================
+oss.sonatype.org
+s01.oss.sonatype.org
+central.sonatype.com
+
+# ============================================================================
+# CONDITIONAL - Only for Documentation (./gradlew dokkaGenerate)
+# ============================================================================
+github.com
+docs.oracle.com
+kotlin.org
+shields.io
+
+# ============================================================================
+# CONDITIONAL - Only for OpenRewrite Recipe Execution
+# ============================================================================
+repo.openrewrite.org
+
+# ============================================================================
+# OPTIONAL - CI/CD Only (GitHub Actions)
+# ============================================================================
+api.github.com
+img.shields.io
+
+# ============================================================================
+# QUICK SUMMARY
+# ============================================================================
+# Minimum allowlist (build + tests only):
+#   services.gradle.org
+#   repo1.maven.org
+#   plugins.gradle.org
+#   maven.jetbrains.com
+#
+# All connections use HTTPS (port 443)
+# DNS required (port 53 TCP/UDP)
+# ============================================================================

@@ -1,0 +1,188 @@
+{
+  "metadata": {
+    "project": "rewrite-runner",
+    "purpose": "Firewall allowlist for build and tests",
+    "generated": "2026-04-03",
+    "protocol": "HTTPS",
+    "port": 443,
+    "additional_ports": {
+      "DNS": "53 (TCP/UDP)"
+    }
+  },
+  "hostnames": {
+    "critical": {
+      "description": "Required for basic build and tests",
+      "hostnames": [
+        {
+          "hostname": "services.gradle.org",
+          "purpose": "Gradle wrapper distribution download",
+          "used_by": ["./gradlew bootstrap"]
+        },
+        {
+          "hostname": "repo1.maven.org",
+          "purpose": "Maven Central primary mirror",
+          "used_by": ["Dependency resolution", "Build plugins"]
+        },
+        {
+          "hostname": "repo.maven.apache.org",
+          "purpose": "Maven Central alternative mirror",
+          "used_by": ["Dependency resolution (fallback)"]
+        },
+        {
+          "hostname": "plugins.gradle.org",
+          "purpose": "Gradle Plugin Portal (Maven interface)",
+          "used_by": ["kotlin plugin", "shadow plugin", "dokka plugin"]
+        },
+        {
+          "hostname": "maven.jetbrains.com",
+          "purpose": "JetBrains libraries (Kotlin, Dokka)",
+          "used_by": ["Kotlin compiler", "Dokka plugins", "Kotlin stdlib"]
+        }
+      ]
+    },
+    "additional_mirrors": {
+      "description": "Alternative mirrors for redundancy",
+      "hostnames": [
+        {
+          "hostname": "repo.gradle.org",
+          "purpose": "Gradle plugin repository alternative",
+          "used_by": ["Plugin resolution (fallback)"]
+        }
+      ]
+    },
+    "publishing_only": {
+      "description": "Only needed for publishing (./gradlew publishToMavenCentral)",
+      "hostnames": [
+        {
+          "hostname": "oss.sonatype.org",
+          "purpose": "Sonatype OSS staging (legacy)",
+          "used_by": ["Maven Central publishing"]
+        },
+        {
+          "hostname": "s01.oss.sonatype.org",
+          "purpose": "Sonatype S01 staging/release (current)",
+          "used_by": ["Maven Central publishing"]
+        },
+        {
+          "hostname": "central.sonatype.com",
+          "purpose": "Sonatype Central search API",
+          "used_by": ["Maven Central publishing", "Artifact metadata"]
+        }
+      ]
+    },
+    "documentation_only": {
+      "description": "Only needed for doc generation (./gradlew dokkaGenerate)",
+      "hostnames": [
+        {
+          "hostname": "github.com",
+          "purpose": "GitHub source links in Javadoc",
+          "used_by": ["Dokka source link generation"]
+        },
+        {
+          "hostname": "docs.oracle.com",
+          "purpose": "Java/JDK documentation links",
+          "used_by": ["Dokka external links"]
+        },
+        {
+          "hostname": "kotlin.org",
+          "purpose": "Kotlin stdlib documentation links",
+          "used_by": ["Dokka external links"]
+        },
+        {
+          "hostname": "shields.io",
+          "purpose": "Status badge generation",
+          "used_by": ["README badges (optional)"]
+        }
+      ]
+    },
+    "optional_recipe_execution": {
+      "description": "Only needed when executing OpenRewrite recipes",
+      "hostnames": [
+        {
+          "hostname": "repo.openrewrite.org",
+          "purpose": "OpenRewrite public recipe repository",
+          "used_by": ["Recipe execution"]
+        }
+      ]
+    },
+    "ci_cd_only": {
+      "description": "Only needed for GitHub Actions CI/CD",
+      "hostnames": [
+        {
+          "hostname": "api.github.com",
+          "purpose": "GitHub REST API",
+          "used_by": ["Release checks", "PR status", "Action setup"]
+        },
+        {
+          "hostname": "img.shields.io",
+          "purpose": "Badge image generation",
+          "used_by": ["CI/CD status badges"]
+        }
+      ]
+    }
+  },
+  "recommendations": {
+    "minimum_allowlist": [
+      "services.gradle.org",
+      "repo1.maven.org",
+      "plugins.gradle.org",
+      "maven.jetbrains.com"
+    ],
+    "minimum_with_fallback": [
+      "services.gradle.org",
+      "repo1.maven.org",
+      "repo.maven.apache.org",
+      "plugins.gradle.org",
+      "repo.gradle.org",
+      "maven.jetbrains.com"
+    ],
+    "full_development": [
+      "services.gradle.org",
+      "repo1.maven.org",
+      "repo.maven.apache.org",
+      "plugins.gradle.org",
+      "repo.gradle.org",
+      "maven.jetbrains.com",
+      "github.com",
+      "docs.oracle.com",
+      "kotlin.org",
+      "shields.io"
+    ],
+    "with_publishing": [
+      "services.gradle.org",
+      "repo1.maven.org",
+      "repo.maven.apache.org",
+      "plugins.gradle.org",
+      "repo.gradle.org",
+      "maven.jetbrains.com",
+      "oss.sonatype.org",
+      "s01.oss.sonatype.org",
+      "central.sonatype.com"
+    ],
+    "full_ci_cd": [
+      "services.gradle.org",
+      "repo1.maven.org",
+      "repo.maven.apache.org",
+      "plugins.gradle.org",
+      "repo.gradle.org",
+      "maven.jetbrains.com",
+      "oss.sonatype.org",
+      "s01.oss.sonatype.org",
+      "central.sonatype.com",
+      "github.com",
+      "docs.oracle.com",
+      "kotlin.org",
+      "shields.io",
+      "api.github.com",
+      "img.shields.io"
+    ]
+  },
+  "notes": {
+    "protocol": "All connections use HTTPS (port 443)",
+    "dns": "DNS resolution required (port 53 TCP/UDP)",
+    "caching": "Local caching significantly reduces network requests after first run",
+    "proxy_support": "Standard HTTP/HTTPS proxy support via gradle.properties and Maven settings.xml",
+    "first_run": "First build downloads ~150MB Gradle + 500+MB dependencies; subsequent runs are much faster",
+    "git_operations": "No network required for git operations (uses local .git only)"
+  }
+}
