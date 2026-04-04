@@ -27,7 +27,7 @@ dependencies {
     implementation("org.openrewrite:rewrite-protobuf")
     implementation("org.openrewrite:rewrite-docker")
     // rewrite-gradle is not in the BOM — pin explicitly to match rewrite-core version
-    implementation("org.openrewrite:rewrite-gradle:8.75.11")
+    implementation("org.openrewrite:rewrite-gradle:8.78.4")
 
     // Maven model (pom.xml parsing in Stage 2)
     implementation("org.apache.maven:maven-model:3.9.14")
