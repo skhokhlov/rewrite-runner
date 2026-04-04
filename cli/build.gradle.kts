@@ -23,7 +23,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     // OpenRewrite needed in test scope for integration tests (Result, SourceFile, etc.)
-    testImplementation(platform("org.openrewrite.recipe:rewrite-recipe-bom:3.26.1"))
+    testImplementation(platform("org.openrewrite.recipe:rewrite-recipe-bom:3.27.0"))
     testImplementation("org.openrewrite:rewrite-core")
 }
 
