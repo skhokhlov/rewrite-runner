@@ -12,9 +12,14 @@ import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.github.skhokhlov.rewriterunner.lst.utils.VersionDetector
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import io.github.skhokhlov.rewriterunner.lst.utils.hasGradleBuildInSubdir
+import java.nio.file.FileVisitOption
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.util.EnumSet
 import java.util.function.Consumer
 import kotlin.io.path.exists
 import kotlin.io.path.name
@@ -519,39 +524,62 @@ open class LstBuilder(
      * Directories where the project's own compiled classes might live, including subprojects.
      * Added to the classpath so that intra-project type references resolve correctly.
      *
-     * Scans the root [projectDir] and its immediate non-hidden subdirectories so that
-     * compiled output from Gradle subprojects (e.g. `core/build/classes/kotlin/main`) and
-     * Maven submodules (e.g. `module-a/target/classes`) is also included.
+     * Scans [projectDir] recursively up to depth 10, pruning hidden subtrees (e.g. `.git`),
+     * so compiled output from nested Gradle subprojects (e.g. `core/build/classes/kotlin/main`)
+     * and Maven submodules (e.g. `module-a/target/classes`) is included.
      */
     internal fun projectClassDirs(projectDir: Path): List<Path> {
-        val candidates = mutableListOf<Path>()
+        val classDirSuffixes = listOf(
+            "target/classes",
+            "target/test-classes",
+            "build/classes/java/main",
+            "build/classes/java/test",
+            "build/classes/kotlin/main",
+            "build/classes/kotlin/test"
+        )
+        val discovered = linkedSetOf<Path>()
 
-        fun addCandidatesFrom(dir: Path) {
-            candidates += listOf(
-                dir.resolve("target/classes"),
-                dir.resolve("target/test-classes"),
-                dir.resolve("build/classes/java/main"),
-                dir.resolve("build/classes/java/test"),
-                dir.resolve("build/classes/kotlin/main"),
-                dir.resolve("build/classes/kotlin/test")
-            )
+        fun isHiddenRelativePath(path: Path): Boolean = path.any { segment ->
+            segment.toString().startsWith(".")
         }
 
-        addCandidatesFrom(projectDir)
+        fun maybeAdd(dir: Path) {
+            if (!Files.isDirectory(dir)) return
+            val relative = projectDir.relativize(dir)
+            if (isHiddenRelativePath(relative)) return
+            discovered.add(dir)
+        }
 
+        // Fast-path: check root project candidates directly.
+        classDirSuffixes.forEach { suffix -> maybeAdd(projectDir.resolve(suffix)) }
+
+        // Walk nested subprojects to pick up outputs like services/api/build/classes/java/main.
+        // Use walkFileTree so hidden directories are pruned early (e.g., .git subtree).
         try {
-            Files.list(projectDir).use { stream ->
-                stream
-                    .filter { path ->
-                        Files.isDirectory(path) && !path.fileName.toString().startsWith(".")
+            Files.walkFileTree(
+                projectDir,
+                EnumSet.noneOf(FileVisitOption::class.java),
+                10,
+                object : SimpleFileVisitor<Path>() {
+                    override fun preVisitDirectory(
+                        dir: Path,
+                        attrs: BasicFileAttributes
+                    ): FileVisitResult {
+                        val relative = projectDir.relativize(dir)
+                        if (isHiddenRelativePath(relative)) return FileVisitResult.SKIP_SUBTREE
+                        val relativeText = relative.toString().replace('\\', '/')
+                        if (classDirSuffixes.any { suffix -> relativeText.endsWith(suffix) }) {
+                            discovered.add(dir)
+                        }
+                        return FileVisitResult.CONTINUE
                     }
-                    .forEach { addCandidatesFrom(it) }
-            }
+                }
+            )
         } catch (_: Exception) {
-            // Ignore errors walking subdirectories
+            // Ignore errors while walking subdirectories.
         }
 
-        return candidates.filter { Files.isDirectory(it) }
+        return discovered.toList()
     }
 
     private fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
