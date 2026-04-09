@@ -11,7 +11,9 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.writeText
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.openrewrite.gradle.GradleParser
 import org.openrewrite.gradle.marker.GradleProject
@@ -231,6 +233,199 @@ class GradleProjectMarkerTest :
             assertFalse(
                 warnings.any { it.contains("GradleProject markers could not be built") },
                 "Should not warn about Gradle markers for Maven-only project"
+            )
+        }
+
+        test("GradleProject marker uses per-project metadata for subprojects and nested paths") {
+            projectDir.resolve("settings.gradle.kts").writeText(
+                """
+                rootProject.name = "root-app"
+                include(":api", ":core:util")
+                """.trimIndent()
+            )
+            projectDir.resolve("build.gradle.kts").writeText(
+                """
+                group = "com.example.root"
+                version = "1.0.0"
+                repositories { mavenCentral() }
+                """.trimIndent()
+            )
+            projectDir.resolve("api").toFile().mkdirs()
+            projectDir.resolve("api/build.gradle.kts").writeText(
+                """
+                group = "com.example.api"
+                version = "2.0.0"
+                repositories { maven { url = "https://repo.example.test/maven" } }
+                """.trimIndent()
+            )
+            projectDir.resolve("core/util").toFile().mkdirs()
+            projectDir.resolve("core/util/build.gradle").writeText(
+                """
+                group = 'com.example.util'
+                version = '3.0.0'
+                repositories { google() }
+                """.trimIndent()
+            )
+
+            val gradleData = mapOf(
+                ":" to GradleProjectData(
+                    mapOf(
+                        "compileClasspath" to GradleConfigData(
+                            requested = listOf("com.example:root-lib:1.0.0"),
+                            resolved = listOf("com.example:root-lib:1.0.0")
+                        )
+                    ),
+                    emptyList()
+                ),
+                ":api" to GradleProjectData(
+                    mapOf(
+                        "compileClasspath" to GradleConfigData(
+                            requested = listOf("com.example:api-lib:1.0.0"),
+                            resolved = listOf("com.example:api-lib:1.1.0")
+                        )
+                    ),
+                    emptyList()
+                ),
+                ":core:util" to GradleProjectData(
+                    mapOf(
+                        "compileClasspath" to GradleConfigData(
+                            requested = listOf("com.example:util-lib:1.0.0"),
+                            resolved = listOf("com.example:util-lib:1.0.1")
+                        )
+                    ),
+                    emptyList()
+                )
+            )
+
+            val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
+                projectDir,
+                includeExtensionsCli = listOf(".kts", ".gradle")
+            )
+
+            fun markerFor(path: String): GradleProject {
+                val source = sources.singleOrNull { it.sourcePath.toString() == path }
+                assertNotNull(source, "Expected source file $path to be parsed")
+                val marker = source.markers.findFirst(GradleProject::class.java).orElse(null)
+                assertNotNull(marker, "Expected GradleProject marker on $path")
+                return marker
+            }
+
+            val root = markerFor("build.gradle.kts")
+            assertEquals(":", root.path)
+            assertEquals("root-app", root.name)
+            assertEquals("com.example.root", root.group)
+            assertEquals("1.0.0", root.version)
+            assertTrue(
+                root.mavenRepositories.any { it.uri == "https://repo.maven.apache.org/maven2" },
+                "Root should use mavenCentral repository from root build file"
+            )
+
+            val api = markerFor("api/build.gradle.kts")
+            assertEquals(":api", api.path)
+            assertEquals("api", api.name)
+            assertEquals("com.example.api", api.group)
+            assertEquals("2.0.0", api.version)
+            assertTrue(
+                api.mavenRepositories.any { it.uri == "https://repo.example.test/maven" },
+                "API should use repository declared in api/build.gradle.kts"
+            )
+
+            val util = markerFor("core/util/build.gradle")
+            assertEquals(":core:util", util.path)
+            assertEquals("util", util.name)
+            assertEquals("com.example.util", util.group)
+            assertEquals("3.0.0", util.version)
+            assertTrue(
+                util.mavenRepositories.any { it.uri == "https://dl.google.com/dl/android/maven2" },
+                "Nested subproject should use repository declared in core/util/build.gradle"
+            )
+        }
+
+        test("GradleProject marker configurations include requested and resolved dependencies") {
+            projectDir.resolve("build.gradle.kts").writeText("// empty build")
+            val gradleData = mapOf(
+                ":" to GradleProjectData(
+                    mapOf(
+                        "compileClasspath" to GradleConfigData(
+                            requested = listOf(
+                                "org.sample:demo-lib:1.0.0"
+                            ),
+                            resolved = listOf(
+                                "org.sample:demo-lib:1.1.0"
+                            )
+                        )
+                    ),
+                    emptyList()
+                )
+            )
+
+            val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
+                projectDir,
+                includeExtensionsCli = listOf(".kts")
+            )
+            val marker = sources
+                .single { it.sourcePath.toString() == "build.gradle.kts" }
+                .markers.findFirst(GradleProject::class.java).orElse(null)
+            assertNotNull(marker, "Expected GradleProject marker on build.gradle.kts")
+
+            val compileClasspath = marker.nameToConfiguration["compileClasspath"]
+            assertNotNull(compileClasspath, "Expected compileClasspath configuration")
+
+            val requested = compileClasspath.requested.map {
+                "${it.groupId}:${it.artifactId}:${it.version}"
+            }
+            val directResolved = compileClasspath.directResolved.map {
+                "${it.groupId}:${it.artifactId}:${it.version}"
+            }
+            assertTrue(
+                requested.contains("org.sample:demo-lib:1.0.0"),
+                "Expected requested dependencies to be propagated from GradleProjectData"
+            )
+            assertTrue(
+                directResolved.contains("org.sample:demo-lib:1.1.0"),
+                "Expected resolved dependencies to be propagated from GradleProjectData"
+            )
+        }
+
+        test(
+            "GradleProject marker repositories are parsed from build file, not GradleProjectData"
+        ) {
+            projectDir.resolve("build.gradle.kts").writeText(
+                """
+                repositories {
+                    mavenCentral()
+                }
+                """.trimIndent()
+            )
+            val gradleData = mapOf(
+                ":" to GradleProjectData(
+                    mapOf(
+                        "compileClasspath" to GradleConfigData(
+                            requested = emptyList(),
+                            resolved = emptyList()
+                        )
+                    ),
+                    listOf("https://repo.example.invalid/should-not-be-used")
+                )
+            )
+
+            val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
+                projectDir,
+                includeExtensionsCli = listOf(".kts")
+            )
+            val marker = sources
+                .single { it.sourcePath.toString() == "build.gradle.kts" }
+                .markers.findFirst(GradleProject::class.java).orElse(null)
+            assertNotNull(marker, "Expected GradleProject marker on build.gradle.kts")
+
+            val repoUris = marker.mavenRepositories.map { it.uri }
+            assertTrue(
+                repoUris.contains("https://repo.maven.apache.org/maven2"),
+                "Expected repository URLs from static build-file parsing"
+            )
+            assertFalse(
+                repoUris.contains("https://repo.example.invalid/should-not-be-used"),
+                "Should ignore repositoryUrls from GradleProjectData until that field is populated"
             )
         }
     })

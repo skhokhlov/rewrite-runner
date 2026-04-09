@@ -12,7 +12,11 @@ import org.openrewrite.marker.BuildTool
 import org.openrewrite.marker.GitProvenance
 import org.openrewrite.marker.OperatingSystemProvenance
 import org.openrewrite.marker.ci.BuildEnvironment
+import org.openrewrite.maven.tree.Dependency
+import org.openrewrite.maven.tree.GroupArtifactVersion
 import org.openrewrite.maven.tree.MavenRepository
+import org.openrewrite.maven.tree.ResolvedDependency
+import org.openrewrite.maven.tree.ResolvedGroupArtifactVersion
 
 /**
  * Builds provenance and build-tool markers that are attached to every parsed [org.openrewrite.SourceFile].
@@ -76,7 +80,9 @@ internal class MarkerFactory(
         val buildFile = projectDir.resolve(sf.sourcePath)
         val projectPath = resolveGradleProjectPath(buildFile, projectDir, gradleProjectData.keys)
         val projectData = gradleProjectData[projectPath] ?: return sf
-        val marker = buildGradleProjectMarker(projectPath, projectDir, projectData)
+        val projectDirectory = resolveProjectDirectory(projectDir, projectPath)
+        val marker =
+            buildGradleProjectMarker(projectPath, projectDir, projectDirectory, projectData)
         return sf.withMarkers(sf.markers.addIfAbsent(marker))
     }
 
@@ -128,11 +134,12 @@ internal class MarkerFactory(
     private fun buildGradleProjectMarker(
         projectPath: String,
         projectDir: Path,
+        projectDirectory: Path,
         projectData: GradleProjectData
     ): GradleProject {
-        val name = readSettingsProjectName(projectDir) ?: projectDir.fileName.toString()
+        val name = resolveProjectName(projectPath, projectDir)
         val buildText = try {
-            findBuildFile(projectDir)?.toFile()?.readText()
+            findBuildFile(projectDirectory)?.toFile()?.readText()
         } catch (e: Exception) {
             null
         }
@@ -150,25 +157,15 @@ internal class MarkerFactory(
             "testRuntimeClasspath"
         )
 
-        val nameToConfiguration = projectData.configurationsByName.mapValues { (configName, _) ->
-            GradleDependencyConfiguration.builder()
-                .name(configName)
-                .description(null)
-                .isTransitive(true)
-                .isCanBeResolved(configName in standardResolvable)
-                .isCanBeConsumed(false)
-                .isCanBeDeclared(true)
-                .extendsFrom(emptyList())
-                .requested(emptyList())
-                .directResolved(emptyList())
-                .exceptionType(null)
-                .message(null)
-                .constraints(emptyList())
-                .attributes(emptyMap())
-                .build()
-        }
+        val nameToConfiguration = projectData.configurationsByName
+            .mapValues { (configName, configData) ->
+                mapDependencyConfiguration(configName, configData, standardResolvable)
+            }
 
-        val repos = staticParser.parseRepositoryUrls(projectDir, buildText).map { url ->
+        // Repository URLs come from static build-file parsing.
+        // Stage-2 GradleProjectData.repositoryUrls is not currently populated.
+        val repoUrls = staticParser.parseRepositoryUrls(projectDirectory, buildText)
+        val repos = repoUrls.map { url ->
             MavenRepository.builder().uri(url).knownToExist(true).build()
         }
 
@@ -180,6 +177,88 @@ internal class MarkerFactory(
             .mavenRepositories(repos)
             .nameToConfiguration(nameToConfiguration)
             .build()
+    }
+
+    private fun resolveProjectDirectory(projectDir: Path, projectPath: String): Path =
+        if (projectPath == ":") {
+            projectDir
+        } else {
+            projectDir.resolve(projectPath.trimStart(':').replace(':', '/'))
+        }
+
+    private fun resolveProjectName(projectPath: String, projectDir: Path): String =
+        when (projectPath) {
+            ":" -> readSettingsProjectName(projectDir) ?: projectDir.fileName.toString()
+            else -> projectPath.substringAfterLast(':').ifEmpty { projectDir.fileName.toString() }
+        }
+
+    private fun mapDependencyConfiguration(
+        configName: String,
+        configData: GradleConfigData,
+        standardResolvable: Set<String>
+    ): GradleDependencyConfiguration {
+        val requested = toRequestedDependencies(configData.requested)
+        val directResolved = toDirectResolvedDependencies(configData.resolved, requested)
+        return GradleDependencyConfiguration.builder()
+            .name(configName)
+            .description(null)
+            .isTransitive(true)
+            .isCanBeResolved(configName in standardResolvable)
+            .isCanBeConsumed(false)
+            .isCanBeDeclared(true)
+            .extendsFrom(emptyList())
+            .requested(requested)
+            .directResolved(directResolved)
+            .exceptionType(null)
+            .message(null)
+            .constraints(emptyList())
+            .attributes(emptyMap())
+            .build()
+    }
+
+    private fun toRequestedDependencies(coordinates: List<String>): List<Dependency> =
+        coordinates.mapNotNull { coord ->
+            parseCoordinate(coord)?.let { (group, artifact, version) ->
+                Dependency.builder()
+                    .gav(GroupArtifactVersion(group, artifact, version))
+                    .build()
+            }
+        }
+
+    private fun toDirectResolvedDependencies(
+        resolvedCoordinates: List<String>,
+        requested: List<Dependency>
+    ): List<ResolvedDependency> {
+        val requestedByGa = requested.associateBy { "${it.groupId}:${it.artifactId}" }
+        return resolvedCoordinates.mapNotNull { coord ->
+            parseCoordinate(coord)?.let { (group, artifact, version) ->
+                val requestedDependency = requestedByGa["$group:$artifact"] ?: Dependency.builder()
+                    .gav(GroupArtifactVersion(group, artifact, version))
+                    .build()
+                ResolvedDependency.builder()
+                    .repository(null)
+                    .gav(ResolvedGroupArtifactVersion(null, group, artifact, version, null))
+                    .requested(requestedDependency)
+                    .dependencies(emptyList())
+                    .licenses(emptyList())
+                    .type(null)
+                    .classifier(null)
+                    .optional(null)
+                    .depth(0)
+                    .effectiveExclusions(emptyList())
+                    .build()
+            }
+        }
+    }
+
+    private fun parseCoordinate(coord: String): Triple<String, String, String>? {
+        val parts = coord.split(":", limit = 3)
+        if (parts.size != 3) return null
+        val group = parts[0].trim()
+        val artifact = parts[1].trim()
+        val version = parts[2].trim()
+        if (group.isEmpty() || artifact.isEmpty() || version.isEmpty()) return null
+        return Triple(group, artifact, version)
     }
 
     /** Reads `rootProject.name` from `settings.gradle(.kts)`. */

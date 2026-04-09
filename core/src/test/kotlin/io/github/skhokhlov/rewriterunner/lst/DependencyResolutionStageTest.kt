@@ -477,6 +477,32 @@ class DependencyResolutionStageTest :
             assertTrue(subs.contains(":web"))
         }
 
+        test("discoverSubprojects normalizes Kotlin DSL include without leading colon") {
+            projectDir.resolve("settings.gradle.kts").writeText(
+                """
+                rootProject.name = "my-app"
+                include("api")
+                include("core", "web")
+                """.trimIndent()
+            )
+
+            val subs = staticParser().discoverSubprojects(projectDir)
+
+            assertEquals(listOf(":api", ":core", ":web"), subs)
+        }
+
+        test("discoverSubprojects normalizes nested Kotlin DSL include path") {
+            projectDir.resolve("settings.gradle.kts").writeText(
+                """
+                include("services:api")
+                """.trimIndent()
+            )
+
+            val subs = staticParser().discoverSubprojects(projectDir)
+
+            assertEquals(listOf(":services:api"), subs)
+        }
+
         test("discoverSubprojects finds subprojects from Groovy DSL settings") {
             projectDir.resolve("settings.gradle").writeText(
                 """

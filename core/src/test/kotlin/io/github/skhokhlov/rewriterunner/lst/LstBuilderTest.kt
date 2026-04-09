@@ -949,6 +949,18 @@ class LstBuilderTest :
             assertTrue(result.contains(apiClassDir), "Should include api subproject class dir")
         }
 
+        test("projectClassDirs includes nested Gradle subproject class directories") {
+            val nestedClassDir = projectDir.resolve("services/api/build/classes/java/main")
+            nestedClassDir.createDirectories()
+
+            val result = lstBuilder().projectClassDirs(projectDir)
+
+            assertTrue(
+                result.contains(nestedClassDir),
+                "Should include nested Gradle subproject class dir"
+            )
+        }
+
         test("projectClassDirs includes Maven submodule class directories") {
             val moduleClassDir = projectDir.resolve("module-a/target/classes")
             moduleClassDir.createDirectories()
@@ -976,6 +988,20 @@ class LstBuilderTest :
             val result = lstBuilder().projectClassDirs(projectDir)
 
             assertFalse(result.contains(hiddenClassDir), "Should not scan hidden subdirectories")
+        }
+
+        test("projectClassDirs excludes hidden directories at nested depth") {
+            val hiddenNestedClassDir = projectDir.resolve(
+                "services/.hidden/api/build/classes/java/main"
+            )
+            hiddenNestedClassDir.createDirectories()
+
+            val result = lstBuilder().projectClassDirs(projectDir)
+
+            assertFalse(
+                result.contains(hiddenNestedClassDir),
+                "Should ignore nested hidden directories when scanning class dirs"
+            )
         }
 
         // ─── Parse failure warnings ───────────────────────────────────────────────

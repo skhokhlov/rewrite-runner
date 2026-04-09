@@ -55,16 +55,41 @@ internal class StaticBuildFileParser(private val logger: RunnerLogger) {
         val settingsFile = findSettingsFile(projectDir) ?: return emptyList()
         return try {
             val text = settingsFile.toFile().readText()
-            val pattern = Regex("""["'](:[^"']+)["']""")
-            pattern.findAll(text)
-                .map { it.groupValues[1] }
-                .filter { it.matches(Regex(""":[a-zA-Z][\w.\-/]*""")) }
-                .distinct()
-                .toList()
+            val discovered = linkedSetOf<String>()
+
+            // Kotlin/Groovy forms with parentheses, e.g. include(":api"), include("api", "core")
+            val includeCallPattern = Regex("""(?m)\binclude\b\s*\(([^)]*)\)""")
+            includeCallPattern.findAll(text).forEach { match ->
+                val args = match.groupValues[1]
+                extractQuotedValues(args).mapNotNullTo(discovered, ::normalizeSubprojectPath)
+            }
+
+            // Groovy form without parentheses, e.g. include ':service', ':common'
+            val includeNoParenPattern = Regex("""(?m)\binclude\b\s+([^\n]+)""")
+            includeNoParenPattern.findAll(text).forEach { match ->
+                val args = match.groupValues[1]
+                extractQuotedValues(args).mapNotNullTo(discovered, ::normalizeSubprojectPath)
+            }
+
+            discovered.toList()
         } catch (e: Exception) {
             logger.warn("Failed to parse settings file for subprojects: ${e.message}")
             emptyList()
         }
+    }
+
+    private fun extractQuotedValues(input: String): List<String> =
+        Regex("""["']([^"']+)["']""").findAll(input).map { it.groupValues[1] }.toList()
+
+    private fun normalizeSubprojectPath(raw: String): String? {
+        var value = raw.trim()
+        if (value.isEmpty()) return null
+
+        value = value.replace('/', ':')
+        if (!value.startsWith(":")) value = ":$value"
+        value = value.replace(Regex(":+"), ":")
+
+        return value.takeIf { it.matches(Regex(""":[a-zA-Z][\w.\-]*(?::[a-zA-Z][\w.\-]*)*""")) }
     }
 
     // ─── Gradle static parsing ─────────────────────────────────────────────────

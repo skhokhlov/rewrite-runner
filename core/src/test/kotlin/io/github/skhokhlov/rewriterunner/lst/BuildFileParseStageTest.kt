@@ -289,6 +289,36 @@ class BuildFileParseStageTest :
             assertTrue(capturedCoords.any { it.contains("guava") })
         }
 
+        test("Gradle multi-module: parses settings.gradle.kts include without leading colon") {
+            resetTracking()
+            projectDir.resolve("settings.gradle.kts").writeText(
+                """
+                include("services:api")
+                """.trimIndent()
+            )
+            projectDir.resolve("build.gradle.kts").writeText(
+                """
+                dependencies {
+                    implementation("org.apache.commons:commons-lang3:3.12.0")
+                }
+                """.trimIndent()
+            )
+            val subDir = projectDir.resolve("services/api").also { it.createDirectories() }
+            subDir.resolve("build.gradle.kts").writeText(
+                """
+                dependencies {
+                    implementation("com.google.guava:guava:32.0.0-jre")
+                }
+                """.trimIndent()
+            )
+
+            fakeStage().resolveClasspath(projectDir)
+
+            assertTrue(traversalCalled)
+            assertTrue(capturedCoords.any { it.contains("commons-lang3") })
+            assertTrue(capturedCoords.any { it.contains("guava") })
+        }
+
         // ─── Gradle version catalog ───────────────────────────────────────────────
 
         test("Gradle version catalog: resolves version.ref entries from libs.versions.toml") {
