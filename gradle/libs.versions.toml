@@ -12,6 +12,7 @@ maven-resolver = "2.0.20"
 jackson = "3.2.1"
 dokka = "2.2.0"
 com-vanniktech-maven-publish-gradle-plugin = "0.37.0"
+cyclonedx-gradle-plugin = "3.3.0"
 rewrite-gradle-plugin = "7.32.1"
 rewrite-maven-plugin = "6.44.0"
 
@@ -33,6 +34,7 @@ jackson-module-kotlin = { group = "tools.jackson.module", name = "jackson-module
 org-jetbrains-dokka-gradle-plugin = { group = "org.jetbrains.dokka", name = "org.jetbrains.dokka.gradle.plugin", version.ref = "dokka" }
 org-jetbrains-dokka-javadoc-gradle-plugin = { group = "org.jetbrains.dokka-javadoc", name = "org.jetbrains.dokka-javadoc.gradle.plugin", version.ref = "dokka" }
 com-vanniktech-maven-publish-gradle-plugin = { group = "com.vanniktech.maven.publish", name = "com.vanniktech.maven.publish.gradle.plugin", version.ref = "com-vanniktech-maven-publish-gradle-plugin" }
+org-cyclonedx-bom-gradle-plugin = { group = "org.cyclonedx.bom", name = "org.cyclonedx.bom.gradle.plugin", version.ref = "cyclonedx-gradle-plugin" }
 # Not consumed on any compile/runtime classpath — declared so Dependabot opens PRs against the
 # versions above. The resolved versions are injected into Kotlin via the `generatePluginVersions`
 # task in core/build.gradle.kts. Module coordinates match what the runtime strategies pull:
