@@ -39,3 +39,18 @@ mavenPublishing {
         }
     }
 }
+
+afterEvaluate {
+    publishing {
+        publications {
+            named<MavenPublication>("maven") {
+                artifact(tasks.named("cyclonedxDirectBom").map { task ->
+                    (task.property("jsonOutput") as RegularFileProperty).get().asFile
+                }) {
+                    extension = "json"
+                    classifier = "cyclonedx"
+                }
+            }
+        }
+    }
+}

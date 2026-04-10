@@ -12,4 +12,5 @@ dependencies {
     implementation("org.jetbrains.dokka:org.jetbrains.dokka.gradle.plugin:2.2.0")
     implementation("org.jetbrains.dokka-javadoc:org.jetbrains.dokka-javadoc.gradle.plugin:2.2.0")
     implementation("com.vanniktech.maven.publish:com.vanniktech.maven.publish.gradle.plugin:0.36.0")
+    implementation("org.cyclonedx.bom:org.cyclonedx.bom.gradle.plugin:3.2.4")
 }
