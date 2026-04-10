@@ -6,6 +6,7 @@ plugins {
     id("kotlin-convention")
     id("publishing-convention")
     id("dokka-convention")
+    id("sbom-convention")
     alias(libs.plugins.shadow)
 }
 
