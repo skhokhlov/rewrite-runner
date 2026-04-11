@@ -102,13 +102,17 @@ open class BuildFileParseStage(
      * dependency graph, applying nearest-wins conflict resolution across the full
      * transitive graph. Used when only direct coordinates are known (static parsing).
      *
+     * Includes `compile`, `provided`, and `test` scoped transitive dependencies so
+     * that OpenRewrite can resolve types in both main and test source sets.
+     * Excludes `runtime` and `system` scoped transitives — consistent with Stage 2.
+     *
      * Overridable so tests can intercept resolution without network access.
      */
     protected open fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
         logger.info("Resolving ${coordinates.size} declared dependencies via Maven Resolver")
-        val deps = coordinates.map { Dependency(DefaultArtifact(it), "runtime") }
+        val deps = coordinates.map { Dependency(DefaultArtifact(it), "compile") }
         val collectRequest = CollectRequest(deps, emptyList(), aetherContext.remoteRepos)
-        val scopeFilter = ScopeDependencyFilter(null, listOf("test", "provided"))
+        val scopeFilter = ScopeDependencyFilter(null, listOf("runtime", "system"))
         val depRequest = DependencyRequest(collectRequest, scopeFilter)
         return try {
             aetherContext.system
