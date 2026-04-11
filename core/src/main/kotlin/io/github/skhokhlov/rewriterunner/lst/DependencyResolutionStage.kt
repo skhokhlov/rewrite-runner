@@ -200,19 +200,26 @@ open class DependencyResolutionStage(
      * [INFO] \- com.fasterxml.jackson.core:jackson-databind:jar:2.16.0:compile
      * ```
      *
+     * Includes `compile`, `provided`, and `test` scopes for correct OpenRewrite type
+     * resolution (test sources need test deps; provided deps supply compile-time types).
+     * Excludes `runtime` and `system` scopes — consistent with Stage 3.
+     *
      * @return Deduplicated list of `groupId:artifactId:version` coordinates.
      */
     internal fun parseMavenDependencyTreeOutput(output: String): List<String> {
         val coordinates = mutableSetOf<String>()
         // Lines like: [INFO] +- org.springframework:spring-core:jar:6.1.0:compile
         val pattern = Regex(
-            """^\[INFO\]\s+[\s|+\\-]+([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+):(?:jar|war|pom|ear|zip|aar|bundle):([^:]+):\w+\s*$"""
+            """^\[INFO\]\s+[\s|+\\-]+([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+):(?:jar|war|pom|ear|zip|aar|bundle):([^:]+):(\w+)\s*$"""
         )
         for (line in output.lines()) {
             val match = pattern.find(line) ?: continue
             val groupArtifact = match.groupValues[1]
             val version = match.groupValues[2]
-            if (version.isNotBlank() && version != "FAILED") {
+            val scope = match.groupValues[3]
+            if (version.isNotBlank() && version != "FAILED" &&
+                scope !in listOf("runtime", "system")
+            ) {
                 coordinates.add("$groupArtifact:$version")
             }
         }
@@ -383,15 +390,37 @@ open class DependencyResolutionStage(
      *
      * Handles resolved version overrides (`1.0 -> 2.0`) by using the final
      * resolved version. Deduplicates results.
+     *
+     * Only includes dependencies from compile-time configurations (e.g.
+     * `compileClasspath`, `testCompileClasspath`, `implementation`,
+     * `testImplementation`). Runtime-only configurations (`runtimeClasspath`,
+     * `testRuntimeClasspath`, `runtimeOnly`, `testRuntimeOnly`) are skipped so
+     * that the resulting classpath matches the compile-time view required for
+     * OpenRewrite type resolution — consistent with Stage 3.
      */
     internal fun parseGradleDependencyTaskOutput(output: String): List<String> {
         val coordinates = mutableSetOf<String>()
+        val configHeaderPattern = Regex("""^([a-zA-Z][\w\-]*)\s+-\s+.+$""")
         // Dependency lines start with tree-drawing characters (+---, \---, |    etc.)
         // followed by group:artifact:declaredVersion, optionally overridden by -> resolvedVersion.
         val depPattern = Regex(
             """^[\s|+\\-]+([a-zA-Z][\w.\-]*:[a-zA-Z][\w.\-]+):([\w.\-]+)(?:\s*->\s*([\w.\-]+))?"""
         )
+        // Start in "include" mode — lines before the first config header belong to no
+        // named configuration (task header lines, blank lines) and are harmless to skip.
+        var inCompileConfig = false
         for (line in output.lines()) {
+            // Configuration headers do not start with tree-drawing characters.
+            if (!line.startsWith(" ") && !line.startsWith("+") &&
+                !line.startsWith("\\") && !line.startsWith("|")
+            ) {
+                val configMatch = configHeaderPattern.find(line)
+                if (configMatch != null) {
+                    inCompileConfig = isCompileTimeConfiguration(configMatch.groupValues[1])
+                    continue
+                }
+            }
+            if (!inCompileConfig) continue
             val match = depPattern.find(line) ?: continue
             val groupArtifact = match.groupValues[1]
             val declaredVersion = match.groupValues[2]
@@ -403,5 +432,20 @@ open class DependencyResolutionStage(
             }
         }
         return coordinates.toList()
+    }
+
+    /**
+     * Returns true if [name] is a compile-time Gradle configuration whose dependencies
+     * belong on the compile classpath used for OpenRewrite type resolution.
+     *
+     * Excludes runtime-only configurations (e.g. `runtimeClasspath`, `runtimeOnly`,
+     * `testRuntimeClasspath`, `testRuntimeOnly`) whose dependencies are not available
+     * at compile time.
+     */
+    private fun isCompileTimeConfiguration(name: String): Boolean {
+        val lower = name.lowercase()
+        // A configuration is runtime-only when "runtime" appears in its name but
+        // "compile" does not (e.g. runtimeClasspath, testRuntimeOnly).
+        return !("runtime" in lower && "compile" !in lower)
     }
 }

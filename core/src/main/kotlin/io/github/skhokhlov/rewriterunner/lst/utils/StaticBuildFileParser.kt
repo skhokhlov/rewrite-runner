@@ -24,8 +24,11 @@ internal class StaticBuildFileParser(private val logger: RunnerLogger) {
     // ─── Maven ────────────────────────────────────────────────────────────────
 
     /**
-     * Parses the `pom.xml` in [projectDir] and returns compile/runtime dependency coordinates.
-     * Skips `provided`- and `system`-scoped dependencies and any dependency whose version is
+     * Parses the `pom.xml` in [projectDir] and returns compile-time dependency coordinates.
+     * Includes `compile` (default), `provided`, and `test` scoped dependencies so that
+     * OpenRewrite can resolve types in both main and test source sets; `provided` deps
+     * supply compile-time types even though they are not bundled at runtime.
+     * Skips `runtime`- and `system`-scoped dependencies and any dependency whose version is
      * absent or uses property interpolation (`${...}`).
      */
     fun parseMavenDependencies(projectDir: Path): List<String> {
@@ -33,7 +36,7 @@ internal class StaticBuildFileParser(private val logger: RunnerLogger) {
         return try {
             val model = MavenXpp3Reader().read(pomFile.toFile().inputStream())
             model.dependencies
-                .filter { !listOf("provided", "system").contains(it.scope) }
+                .filter { it.scope !in listOf("runtime", "system") }
                 .mapNotNull { dep ->
                     val version = dep.version?.takeIf { it.isNotBlank() && !it.startsWith("\${") }
                         ?: return@mapNotNull null
@@ -109,9 +112,16 @@ internal class StaticBuildFileParser(private val logger: RunnerLogger) {
         val buildDirs = listOf(projectDir) + subprojectDirs
 
         val coordPattern = Regex("""["']([a-zA-Z][\w.\-]+:[a-zA-Z][\w.\-]+:[\w.\-]+)["']""")
+        // runtimeOnly and testRuntimeOnly are excluded — their JARs are not on the compile
+        // classpath and are not needed for OpenRewrite type resolution.
         val threeArgPattern = Regex(
-            """(?:implementation|api|compileOnly|runtimeOnly|testImplementation|testCompileOnly)\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)"""
+            """(?:implementation|api|compileOnly|testImplementation|testCompileOnly)\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\)"""
         )
+        // Lines that start with a runtime-only configuration keyword are skipped before
+        // applying the broad coordPattern so that quoted coordinate strings on those lines
+        // are not inadvertently collected.
+        val runtimeOnlyLinePattern =
+            Regex("""^\s*(?:runtimeOnly|testRuntimeOnly|runtime|testRuntime)\b""")
 
         val coordinates = mutableListOf<String>()
         for (dir in buildDirs) {
@@ -119,7 +129,10 @@ internal class StaticBuildFileParser(private val logger: RunnerLogger) {
             logger.debug("Stage 3: statically parsing ${buildFile.toAbsolutePath()}")
             try {
                 val text = buildFile.toFile().readText()
-                coordPattern.findAll(text).forEach { match ->
+                val compileTimeText = text.lines()
+                    .filterNot { runtimeOnlyLinePattern.containsMatchIn(it) }
+                    .joinToString("\n")
+                coordPattern.findAll(compileTimeText).forEach { match ->
                     val coord = match.groupValues[1]
                     if (!coord.contains("bom") && !coord.contains("platform")) {
                         coordinates.add(coord)
