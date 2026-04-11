@@ -113,7 +113,7 @@ class DependencyResolutionStageTest :
             assertEquals("org.apache.commons:commons-lang3:3.12.0", coords.first())
         }
 
-        test("parseMavenDependencies excludes provided-scoped dependencies") {
+        test("parseMavenDependencies includes provided-scoped dependencies") {
             projectDir.resolve("pom.xml").writeText(
                 """
                 <project>
@@ -134,7 +134,12 @@ class DependencyResolutionStageTest :
             )
 
             val coords = staticParser().parseMavenDependencies(projectDir)
-            assertEquals(0, coords.size, "Provided dependency should be excluded")
+            assertEquals(
+                1,
+                coords.size,
+                "Provided dependency must be included for compile-time type resolution"
+            )
+            assertTrue(coords.contains("javax.servlet:javax.servlet-api:4.0.1"))
         }
 
         test("parseMavenDependencies skips dependency with property-placeholder version") {
@@ -181,6 +186,30 @@ class DependencyResolutionStageTest :
             )
         }
 
+        test("parseMavenDependencies excludes runtime-scoped dependencies") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>app</artifactId>
+                    <version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.postgresql</groupId>
+                            <artifactId>postgresql</artifactId>
+                            <version>42.7.0</version>
+                            <scope>runtime</scope>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """.trimIndent()
+            )
+
+            val coords = staticParser().parseMavenDependencies(projectDir)
+            assertEquals(0, coords.size, "runtime-scoped dependency must be excluded")
+        }
+
         // ─── Static Gradle build file parsing ────────────────────────────────────
 
         test("parseGradleDependenciesStatically extracts Kotlin DSL string coordinates") {
@@ -220,7 +249,10 @@ class DependencyResolutionStageTest :
             val coords = staticParser().parseGradleDependenciesStatically(projectDir)
 
             assertTrue(coords.contains("org.springframework:spring-core:6.1.0"))
-            assertTrue(coords.contains("ch.qos.logback:logback-classic:1.4.11"))
+            assertFalse(
+                coords.contains("ch.qos.logback:logback-classic:1.4.11"),
+                "runtimeOnly dep must not appear on compile classpath"
+            )
         }
 
         test("parseGradleDependenciesStatically prefers build_gradle_kts over build_gradle") {
@@ -338,6 +370,28 @@ class DependencyResolutionStageTest :
             )
         }
 
+        test("parseGradleDependenciesStatically excludes runtimeOnly dependencies") {
+            projectDir.resolve("build.gradle.kts").writeText(
+                """
+                dependencies {
+                    implementation("org.apache.commons:commons-lang3:3.12.0")
+                    runtimeOnly("org.postgresql:postgresql:42.7.0")
+                }
+                """.trimIndent()
+            )
+
+            val coords = staticParser().parseGradleDependenciesStatically(projectDir)
+
+            assertTrue(
+                coords.contains("org.apache.commons:commons-lang3:3.12.0"),
+                "compile-time dep must be included"
+            )
+            assertFalse(
+                coords.contains("org.postgresql:postgresql:42.7.0"),
+                "runtimeOnly dep must not appear on classpath"
+            )
+        }
+
         // ─── Gradle dependencies task output parsing ──────────────────────────────
 
         test("parseGradleDependencyTaskOutput extracts simple coordinates") {
@@ -357,7 +411,7 @@ class DependencyResolutionStageTest :
         test("parseGradleDependencyTaskOutput uses resolved version when overridden") {
             val output =
                 """
-                runtimeClasspath - Runtime classpath of source set 'main'.
+                compileClasspath - Compile classpath for source set 'main'.
                 +--- com.google.guava:guava:30.0-jre -> 32.1.2-jre
                 \--- org.springframework:spring-core:5.3.0 -> 6.1.0
                 """.trimIndent()
@@ -457,6 +511,109 @@ class DependencyResolutionStageTest :
 
             assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
             assertTrue(coords.contains("com.google.guava:guava:32.1.2-jre"))
+        }
+
+        test(
+            "parseGradleDependencyTaskOutput includes dependencies from testCompileClasspath configuration"
+        ) {
+            val output =
+                """
+                testCompileClasspath - Compile classpath for source set 'test'.
+                \--- junit:junit:4.13.2
+                """.trimIndent()
+
+            val coords = stage().parseGradleDependencyTaskOutput(output)
+
+            assertTrue(
+                coords.contains("junit:junit:4.13.2"),
+                "test compile classpath dep must be included"
+            )
+        }
+
+        test(
+            "parseGradleDependencyTaskOutput excludes dependencies from runtimeClasspath configuration"
+        ) {
+            val output =
+                """
+                compileClasspath - Compile classpath for source set 'main'.
+                \--- org.apache.commons:commons-lang3:3.12.0
+
+                runtimeClasspath - Runtime classpath for source set 'main'.
+                \--- org.postgresql:postgresql:42.7.0
+                """.trimIndent()
+
+            val coords = stage().parseGradleDependencyTaskOutput(output)
+
+            assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
+            assertFalse(
+                coords.contains("org.postgresql:postgresql:42.7.0"),
+                "runtime-only dependency must not appear on compile classpath"
+            )
+        }
+
+        test(
+            "parseGradleDependencyTaskOutput excludes dependencies from testRuntimeClasspath configuration"
+        ) {
+            val output =
+                """
+                testCompileClasspath - Compile classpath for source set 'test'.
+                \--- junit:junit:4.13.2
+
+                testRuntimeClasspath - Runtime classpath for source set 'test'.
+                \--- ch.qos.logback:logback-classic:1.4.0
+                """.trimIndent()
+
+            val coords = stage().parseGradleDependencyTaskOutput(output)
+
+            assertTrue(coords.contains("junit:junit:4.13.2"))
+            assertFalse(
+                coords.contains("ch.qos.logback:logback-classic:1.4.0"),
+                "test runtime-only dependency must not appear on classpath"
+            )
+        }
+
+        // ─── Maven dependency:tree output parsing ─────────────────────────────────
+
+        test("parseMavenDependencyTreeOutput includes compile-scoped dependencies") {
+            val output = "[INFO] +- org.apache.commons:commons-lang3:jar:3.12.0:compile"
+            val coords = stage().parseMavenDependencyTreeOutput(output)
+            assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
+        }
+
+        test("parseMavenDependencyTreeOutput includes provided-scoped dependencies") {
+            val output = "[INFO] +- javax.servlet:javax.servlet-api:jar:4.0.1:provided"
+            val coords = stage().parseMavenDependencyTreeOutput(output)
+            assertTrue(
+                coords.contains("javax.servlet:javax.servlet-api:4.0.1"),
+                "provided-scoped dep must be included for compile-time type resolution"
+            )
+        }
+
+        test("parseMavenDependencyTreeOutput includes test-scoped dependencies") {
+            val output = "[INFO] +- junit:junit:jar:4.13.2:test"
+            val coords = stage().parseMavenDependencyTreeOutput(output)
+            assertTrue(
+                coords.contains("junit:junit:4.13.2"),
+                "test-scoped dep must be included for test source type resolution"
+            )
+        }
+
+        test("parseMavenDependencyTreeOutput excludes runtime-scoped dependencies") {
+            val output = "[INFO] +- org.postgresql:postgresql:jar:42.7.0:runtime"
+            val coords = stage().parseMavenDependencyTreeOutput(output)
+            assertFalse(
+                coords.contains("org.postgresql:postgresql:42.7.0"),
+                "runtime-scoped dependency must not appear on compile classpath"
+            )
+        }
+
+        test("parseMavenDependencyTreeOutput excludes system-scoped dependencies") {
+            val output = "[INFO] +- com.sun:tools:jar:1.8:system"
+            val coords = stage().parseMavenDependencyTreeOutput(output)
+            assertFalse(
+                coords.contains("com.sun:tools:1.8"),
+                "system-scoped dependency must not appear on compile classpath"
+            )
         }
 
         // ─── Subproject discovery ─────────────────────────────────────────────────

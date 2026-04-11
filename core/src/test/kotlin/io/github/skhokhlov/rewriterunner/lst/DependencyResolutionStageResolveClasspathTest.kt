@@ -108,7 +108,7 @@ class DependencyResolutionStageResolveClasspathTest :
 
         // ─── StaticBuildFileParser: parseMavenDependencies edge cases ────────────
 
-        test("parseMavenDependencies skips provided-scoped dependencies") {
+        test("parseMavenDependencies includes provided-scoped dependencies") {
             projectDir.resolve("pom.xml").writeText(
                 """
                 <project>
@@ -134,8 +134,8 @@ class DependencyResolutionStageResolveClasspathTest :
             )
             val coords = StaticBuildFileParser(NoOpRunnerLogger).parseMavenDependencies(projectDir)
             assertTrue(
-                coords.none { it.contains("servlet-api") },
-                "provided scope should be excluded"
+                coords.any { it.contains("servlet-api") },
+                "provided scope must be included for compile-time type resolution"
             )
             assertTrue(
                 coords.any { it.contains("commons-lang3") },
@@ -213,7 +213,7 @@ class DependencyResolutionStageResolveClasspathTest :
                     NoOpRunnerLogger
                 ) {
                     override fun runGradleDependenciesRawOutput(projectDir: Path) =
-                        "compileClasspath\n+--- org.apache.commons:commons-lang3:3.12.0\n"
+                        "compileClasspath - Compile classpath for source set 'main'.\n+--- org.apache.commons:commons-lang3:3.12.0\n"
 
                     override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
                         directCalled = true
