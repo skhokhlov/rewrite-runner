@@ -39,7 +39,7 @@ dependencies {
 
     // Config + JSON report
     implementation("tools.jackson.dataformat:jackson-dataformat-yaml:3.1.1")
-    implementation("tools.jackson.module:jackson-module-kotlin:3.1.0")
+    implementation("tools.jackson.module:jackson-module-kotlin:3.1.2")
 
     // Tests
     testImplementation("ch.qos.logback:logback-classic:1.5.32")
