@@ -30,7 +30,7 @@ dependencies {
     implementation("org.openrewrite:rewrite-gradle:8.79.1")
 
     // Maven model (pom.xml parsing in Stage 2)
-    implementation("org.apache.maven:maven-model:3.9.14")
+    implementation("org.apache.maven:maven-model:3.9.15")
 
     // Maven Resolver (JAR download for Stage 2 + recipe artifacts)
     implementation("org.apache.maven.resolver:maven-resolver-api:2.0.16")
