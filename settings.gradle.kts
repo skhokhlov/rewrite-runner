@@ -4,7 +4,7 @@ pluginManagement {
         maven("https://plugins.gradle.org/m2")        // Gradle plugin portal via Maven interface
     }
     plugins {
-        kotlin("jvm") version "2.3.20"
+        kotlin("jvm") version "2.3.21"
         id("com.gradleup.shadow") version "9.4.1"
     }
 }
