@@ -12,16 +12,19 @@ import org.openrewrite.Result
  * @property changedFiles Paths of files that were written to disk during this run.
  *   Empty when [RewriteRunner.Builder.dryRun] is `true` or when [results] is empty.
  * @property projectDir The project directory that was analysed, for reference.
+ * @property rawDiffs Unified diffs keyed by relative file path. Populated when the
+ *   plugin-first path succeeds and no raw OpenRewrite [Result] objects are available.
  */
 data class RunResult(
     val results: List<Result>,
     val changedFiles: List<Path>,
-    val projectDir: Path
+    val projectDir: Path,
+    val rawDiffs: Map<Path, String> = emptyMap()
 ) {
     /** `true` when the recipe produced at least one change, regardless of whether
      *  changes were written to disk. */
-    val hasChanges: Boolean get() = results.isNotEmpty()
+    val hasChanges: Boolean get() = results.isNotEmpty() || rawDiffs.isNotEmpty()
 
     /** Number of source files changed by the recipe. */
-    val changeCount: Int get() = results.size
+    val changeCount: Int get() = if (results.isNotEmpty()) results.size else rawDiffs.size
 }

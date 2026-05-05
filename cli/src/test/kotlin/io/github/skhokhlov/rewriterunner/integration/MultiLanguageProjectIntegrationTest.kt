@@ -89,6 +89,7 @@ class MultiLanguageProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
+                "--skip-plugin-run",
                 "--include-extensions",
                 ".java"
             )
@@ -126,6 +127,7 @@ class MultiLanguageProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
+                "--skip-plugin-run",
                 "--include-extensions",
                 ".java,.kt,.yaml"
             )
@@ -176,6 +178,7 @@ class MultiLanguageProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions",
                     ".java,.yaml,.xml,.json,.properties",
                     "--output",
@@ -203,6 +206,7 @@ class MultiLanguageProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions",
                     ".java,.yaml,.xml,.json,.properties",
                     "--output",
@@ -239,6 +243,7 @@ class MultiLanguageProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions",
                     ".java,.yaml,.xml,.json,.properties",
                     "--output",
@@ -282,6 +287,7 @@ class MultiLanguageProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
+                "--skip-plugin-run",
                 "--include-extensions",
                 ".java,.kt,.yaml,.properties,.xml,.json",
                 "--dry-run"
@@ -313,6 +319,7 @@ class MultiLanguageProjectIntegrationTest :
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions",
                     ".java",
                     "--output",

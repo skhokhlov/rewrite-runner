@@ -54,6 +54,7 @@ class XmlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions",
                     ".xml"
                 )
@@ -115,6 +116,7 @@ class XmlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions",
                     ".xml"
                 )

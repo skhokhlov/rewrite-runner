@@ -148,6 +148,7 @@ class GroovyProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions",
                     ".gradle"
                 )
@@ -177,7 +178,8 @@ class GroovyProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString()
+                    cacheDir.toString(),
+                    "--skip-plugin-run"
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -203,6 +205,7 @@ class GroovyProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
+                "--skip-plugin-run",
                 "--include-extensions",
                 ".gradle"
             )
@@ -233,7 +236,8 @@ class GroovyProjectIntegrationTest :
                 "--rewrite-config",
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
-                cacheDir.toString()
+                cacheDir.toString(),
+                "--skip-plugin-run"
             )
 
             assertTrue(

@@ -55,6 +55,7 @@ class MavenProjectIntegrationTest :
                     "--active-recipe", "com.example.integration.FindAndReplace",
                     "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir", cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions", ".xml"
                 )
 
@@ -79,6 +80,7 @@ class MavenProjectIntegrationTest :
                 "--active-recipe", "com.example.integration.FindAndReplace",
                 "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir", cacheDir.toString(),
+                "--skip-plugin-run",
                 "--include-extensions", ".xml",
                 "--dry-run"
             )
@@ -103,6 +105,7 @@ class MavenProjectIntegrationTest :
                     "--active-recipe", "com.example.integration.FindAndReplace",
                     "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir", cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions", ".xml",
                     "--dry-run"
                 )
@@ -138,6 +141,7 @@ class MavenProjectIntegrationTest :
                     "--active-recipe", "com.example.integration.FindAndReplace",
                     "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir", cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions", ".xml",
                     "--output", "files",
                     "--dry-run"
@@ -177,6 +181,7 @@ class MavenProjectIntegrationTest :
                     "--active-recipe", "com.example.integration.FindAndReplace",
                     "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir", cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions", ".xml",
                     "--output", "files",
                     "--dry-run"

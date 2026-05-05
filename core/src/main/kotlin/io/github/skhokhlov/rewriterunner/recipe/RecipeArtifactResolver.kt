@@ -19,6 +19,12 @@ import org.eclipse.aether.util.filter.ScopeDependencyFilter
  * in the local Maven repository configured on [context]. Maven Central and any extra
  * repositories are supplied via [AetherContext.build].
  *
+ * Scope handling: recipe artifact resolution typically prunes `test`, `provided`, and
+ * `system` scopes at the Aether session level (see `AetherContext.build`'s
+ * `excludeScopesFromGraph` parameter). This resolver also applies a
+ * `ScopeDependencyFilter` (excluding `test` and `provided`) on dependency requests so
+ * only runtime/compile JARs are returned for recipe loading.
+ *
  * @param context Shared Maven Resolver context (system, session, remote repositories).
  *   Use [AetherContext.build] to create one.
  */

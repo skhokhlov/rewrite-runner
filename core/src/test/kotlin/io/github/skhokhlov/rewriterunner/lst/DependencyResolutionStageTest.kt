@@ -49,6 +49,35 @@ class DependencyResolutionStageTest :
 
         fun staticParser() = StaticBuildFileParser(NoOpRunnerLogger)
 
+        test("resolveClasspath honors configured process timeout") {
+            projectDir.resolve("pom.xml").writeText("<project/>")
+            val mvnw = projectDir.resolve("mvnw").toFile()
+            mvnw.writeText(
+                """
+                #!/bin/sh
+                sleep 5
+                exit 0
+                """.trimIndent()
+            )
+            mvnw.setExecutable(true)
+            val timedStage =
+                DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger,
+                    processTimeoutSeconds = 1
+                )
+
+            val start = System.currentTimeMillis()
+            val result = timedStage.resolveClasspath(projectDir)
+            val elapsed = System.currentTimeMillis() - start
+
+            assertTrue(result.classpath.isEmpty(), "Timed-out Stage 2 should return no classpath")
+            assertTrue(
+                elapsed < 4_000,
+                "Configured 1s timeout should stop dependency:tree promptly, took ${elapsed}ms"
+            )
+        }
+
         // ─── Maven pom.xml parsing ────────────────────────────────────────────────
 
         test("parseMavenDependencies extracts compile-scoped dependencies") {

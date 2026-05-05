@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.config
 
+import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -185,6 +186,73 @@ class ToolConfigTest :
             configFile.writeText("downloadThreads: 8")
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
             assertEquals(8, config.downloadThreads)
+        }
+
+        // ─── Timeouts ─────────────────────────────────────────────────────────────
+
+        test("timeout settings default to central execution defaults") {
+            val config = ToolConfig(logger = NoOpRunnerLogger)
+            assertEquals(
+                ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS,
+                config.processTimeoutSeconds
+            )
+            assertEquals(
+                ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                config.pluginTimeoutSeconds
+            )
+            assertEquals(
+                ExecutionTimeouts.DEFAULT_RESOLVER_CONNECT_TIMEOUT_MS,
+                config.resolverConnectTimeoutMs
+            )
+            assertEquals(
+                ExecutionTimeouts.DEFAULT_RESOLVER_REQUEST_TIMEOUT_MS,
+                config.resolverRequestTimeoutMs
+            )
+        }
+
+        test("loads timeout settings from yaml") {
+            val configFile = tempDir.resolve("runner.yml")
+            configFile.writeText(
+                """
+                processTimeoutSeconds: 45
+                pluginTimeoutSeconds: 900
+                resolverConnectTimeoutMs: 10000
+                resolverRequestTimeoutMs: 20000
+                """.trimIndent()
+            )
+            val config = ToolConfig.load(configFile, NoOpRunnerLogger)
+            assertEquals(45L, config.processTimeoutSeconds)
+            assertEquals(900L, config.pluginTimeoutSeconds)
+            assertEquals(10_000, config.resolverConnectTimeoutMs)
+            assertEquals(20_000, config.resolverRequestTimeoutMs)
+        }
+
+        // ─── OpenRewrite plugin versions ─────────────────────────────────────────
+
+        test("rewrite plugin versions default to central constants") {
+            val config = ToolConfig(logger = NoOpRunnerLogger)
+            assertEquals(
+                ToolConfig.REWRITE_GRADLE_PLUGIN_VERSION,
+                config.rewriteGradlePluginVersion
+            )
+            assertEquals(
+                ToolConfig.REWRITE_MAVEN_PLUGIN_VERSION,
+                config.rewriteMavenPluginVersion
+            )
+        }
+
+        test("loads rewrite plugin versions from yaml") {
+            val configFile = tempDir.resolve("runner.yml")
+            configFile.writeText(
+                """
+                rewriteGradlePluginVersion: 7.20.0
+                rewriteMavenPluginVersion: 6.23.0
+                """.trimIndent()
+            )
+
+            val config = ToolConfig.load(configFile, NoOpRunnerLogger)
+            assertEquals("7.20.0", config.rewriteGradlePluginVersion)
+            assertEquals("6.23.0", config.rewriteMavenPluginVersion)
         }
 
         test("repository without credentials has null username and password") {

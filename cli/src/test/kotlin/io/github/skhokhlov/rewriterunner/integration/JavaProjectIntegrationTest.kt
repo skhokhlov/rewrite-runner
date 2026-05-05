@@ -266,6 +266,7 @@ class JavaProjectIntegrationTest :
                     "--active-recipe", "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir", cacheDir.toString(),
                     "--include-extensions", ".java",
+                    "--skip-plugin-run",
                     "--dry-run"
                 )
 
@@ -322,6 +323,7 @@ class JavaProjectIntegrationTest :
                     "--active-recipe", "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir", cacheDir.toString(),
                     "--include-extensions", ".java",
+                    "--skip-plugin-run",
                     "--dry-run"
                 )
 

@@ -122,6 +122,30 @@ class RewriteRunnerBuilderTest :
             assertFalse(builder.dryRun)
         }
 
+        test("builder stores skipPluginRun true") {
+            val builder =
+                RewriteRunner.builder()
+                    .projectDir(tempDir)
+                    .activeRecipe("org.openrewrite.FindSourceFiles")
+                    .skipPluginRun(true)
+            assertTrue(builder.skipPluginRun)
+        }
+
+        test("builder stores timeout overrides") {
+            val builder =
+                RewriteRunner.builder()
+                    .projectDir(tempDir)
+                    .activeRecipe("org.openrewrite.FindSourceFiles")
+                    .processTimeoutSeconds(45)
+                    .pluginTimeoutSeconds(900)
+                    .resolverConnectTimeoutMs(10_000)
+                    .resolverRequestTimeoutMs(20_000)
+            assertEquals(45L, builder.processTimeoutSeconds)
+            assertEquals(900L, builder.pluginTimeoutSeconds)
+            assertEquals(10_000, builder.resolverConnectTimeoutMs)
+            assertEquals(20_000, builder.resolverRequestTimeoutMs)
+        }
+
         test("builder stores includeExtensions") {
             val extensions = listOf(".java", ".kt")
             val builder =
@@ -147,6 +171,19 @@ class RewriteRunnerBuilderTest :
         test("dryRun defaults to false") {
             val builder = RewriteRunner.builder()
             assertFalse(builder.dryRun)
+        }
+
+        test("skipPluginRun defaults to false") {
+            val builder = RewriteRunner.builder()
+            assertFalse(builder.skipPluginRun)
+        }
+
+        test("timeout overrides default to null") {
+            val builder = RewriteRunner.builder()
+            assertNull(builder.processTimeoutSeconds)
+            assertNull(builder.pluginTimeoutSeconds)
+            assertNull(builder.resolverConnectTimeoutMs)
+            assertNull(builder.resolverRequestTimeoutMs)
         }
 
         test("rewriteConfig defaults to null") {

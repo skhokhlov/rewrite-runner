@@ -79,6 +79,12 @@ class RunCommand : Callable<Int> {
     var dryRun: Boolean = false
 
     @Option(
+        names = ["--skip-plugin-run"],
+        description = ["Skip plugin-first execution; use full LST pipeline directly."]
+    )
+    var skipPluginRun: Boolean = false
+
+    @Option(
         names = ["--info"],
         description = ["Enable INFO-level logging (default)."]
     )
@@ -116,6 +122,36 @@ class RunCommand : Callable<Int> {
     )
     var downloadThreads: Int? = null
 
+    @Option(
+        names = ["--process-timeout-seconds"],
+        description = [
+            "Timeout for build-tool subprocesses in the fallback LST pipeline.",
+            "Defaults to 120."
+        ]
+    )
+    var processTimeoutSeconds: Long? = null
+
+    @Option(
+        names = ["--plugin-timeout-seconds"],
+        description = ["Timeout for plugin-first Gradle/Maven invocations. Defaults to 600."]
+    )
+    var pluginTimeoutSeconds: Long? = null
+
+    @Option(
+        names = ["--resolver-connect-timeout-ms"],
+        description = ["TCP connection timeout for Maven Resolver downloads. Defaults to 30000."]
+    )
+    var resolverConnectTimeoutMs: Int? = null
+
+    @Option(
+        names = ["--resolver-request-timeout-ms"],
+        description = [
+            "Socket read/request timeout for Maven Resolver downloads.",
+            "Defaults to 60000."
+        ]
+    )
+    var resolverRequestTimeoutMs: Int? = null
+
     override fun call(): Int {
         val logger =
             LogbackRunnerLogger(showInfo = infoLogging || debugLogging, showDebug = debugLogging)
@@ -126,6 +162,7 @@ class RunCommand : Callable<Int> {
                 .activeRecipe(activeRecipe)
                 .recipeArtifacts(recipeArtifacts)
                 .dryRun(dryRun)
+                .skipPluginRun(skipPluginRun)
                 .includeExtensions(includeExtensions)
                 .excludeExtensions(excludeExtensions)
                 .logger(logger)
@@ -134,13 +171,17 @@ class RunCommand : Callable<Int> {
             configFile?.let { builder.configFile(it) }
             if (noMavenCentral) builder.includeMavenCentral(false)
             downloadThreads?.let { builder.downloadThreads(it) }
+            processTimeoutSeconds?.let { builder.processTimeoutSeconds(it) }
+            pluginTimeoutSeconds?.let { builder.pluginTimeoutSeconds(it) }
+            resolverConnectTimeoutMs?.let { builder.resolverConnectTimeoutMs(it) }
+            resolverRequestTimeoutMs?.let { builder.resolverRequestTimeoutMs(it) }
 
             val runResult = builder.build().run()
 
             ResultFormatter(
                 outputMode,
                 spec.commandLine().out
-            ).format(runResult.results, runResult.projectDir)
+            ).format(runResult)
 
             0
         } catch (e: IllegalArgumentException) {

@@ -168,6 +168,7 @@ class KotlinProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
+                    "--skip-plugin-run",
                     "--include-extensions",
                     ".kts"
                 )
@@ -192,7 +193,8 @@ class KotlinProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString()
+                    cacheDir.toString(),
+                    "--skip-plugin-run"
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -217,6 +219,7 @@ class KotlinProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
+                "--skip-plugin-run",
                 "--include-extensions",
                 ".kts",
                 "--dry-run"
@@ -244,7 +247,8 @@ class KotlinProjectIntegrationTest :
                 "--rewrite-config",
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
-                cacheDir.toString()
+                cacheDir.toString(),
+                "--skip-plugin-run"
             )
 
             assertTrue(
@@ -273,6 +277,7 @@ class KotlinProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
+                "--skip-plugin-run",
                 "--include-extensions",
                 ".kts"
             )

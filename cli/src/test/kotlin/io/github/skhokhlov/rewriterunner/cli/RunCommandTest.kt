@@ -101,6 +101,14 @@ class RunCommandTest :
             assertEquals(false, cmd.dryRun, "--dry-run should default to false")
         }
 
+        test("--skip-plugin-run defaults to false") {
+            val cmd = RunCommand()
+            CommandLine(
+                cmd
+            ).parseArgs("--active-recipe", "io.github.skhokhlov.rewriterunner.MyRecipe")
+            assertEquals(false, cmd.skipPluginRun, "--skip-plugin-run should default to false")
+        }
+
         test("--debug defaults to false") {
             val cmd = RunCommand()
             CommandLine(
@@ -154,6 +162,15 @@ class RunCommandTest :
             )
         }
 
+        test("--help output mentions --skip-plugin-run") {
+            val baos = ByteArrayOutputStream()
+            cli().setOut(PrintWriter(baos)).execute("--help")
+            assertTrue(
+                baos.toString().contains("skip-plugin-run"),
+                "--help should document --skip-plugin-run option"
+            )
+        }
+
         test("--download-threads is parsed and propagated to the command") {
             val cmd = RunCommand()
             CommandLine(cmd).parseArgs(
@@ -167,6 +184,36 @@ class RunCommandTest :
                 cmd.downloadThreads,
                 "--download-threads 8 should set downloadThreads to 8"
             )
+        }
+
+        test("timeout options are parsed") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs(
+                "--active-recipe",
+                "io.github.skhokhlov.rewriterunner.MyRecipe",
+                "--process-timeout-seconds",
+                "45",
+                "--plugin-timeout-seconds",
+                "900",
+                "--resolver-connect-timeout-ms",
+                "10000",
+                "--resolver-request-timeout-ms",
+                "20000"
+            )
+            assertEquals(45L, cmd.processTimeoutSeconds)
+            assertEquals(900L, cmd.pluginTimeoutSeconds)
+            assertEquals(10_000, cmd.resolverConnectTimeoutMs)
+            assertEquals(20_000, cmd.resolverRequestTimeoutMs)
+        }
+
+        test("--help output mentions timeout options") {
+            val baos = ByteArrayOutputStream()
+            cli().setOut(PrintWriter(baos)).execute("--help")
+            val help = baos.toString()
+            assertTrue(help.contains("--process-timeout-seconds"))
+            assertTrue(help.contains("--plugin-timeout-seconds"))
+            assertTrue(help.contains("--resolver-connect-timeout-ms"))
+            assertTrue(help.contains("--resolver-request-timeout-ms"))
         }
 
         test("multiple --recipe-artifact flags are collected into a list") {

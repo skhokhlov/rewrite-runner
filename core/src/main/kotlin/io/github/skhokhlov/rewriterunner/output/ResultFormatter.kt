@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.output
 
+import io.github.skhokhlov.rewriterunner.RunResult
 import java.io.OutputStream
 import java.io.PrintStream
 import java.io.PrintWriter
@@ -76,6 +77,25 @@ class ResultFormatter(
         }
     }
 
+    /**
+     * Write formatted output for a full [RunResult], including plugin-first raw diffs
+     * when no OpenRewrite [Result] objects were produced in-process.
+     */
+    fun format(runResult: RunResult) {
+        // In-process recipe results and plugin-first raw diffs are mutually exclusive
+        // for normal runner output. Prefer Result objects if a future path supplies both.
+        if (runResult.results.isNotEmpty() || runResult.rawDiffs.isEmpty()) {
+            format(runResult.results, runResult.projectDir)
+            return
+        }
+
+        when (outputMode) {
+            OutputMode.DIFF -> printRawDiffs(runResult.rawDiffs)
+            OutputMode.FILES -> printRawFiles(runResult.rawDiffs.keys)
+            OutputMode.REPORT -> writeRawReport(runResult.rawDiffs, runResult.projectDir)
+        }
+    }
+
     // ─── diff ─────────────────────────────────────────────────────────────────
 
     private fun printDiffs(results: List<Result>) {
@@ -91,6 +111,14 @@ class ResultFormatter(
         }
     }
 
+    private fun printRawDiffs(rawDiffs: Map<Path, String>) {
+        if (rawDiffs.isEmpty()) {
+            out.println("No changes produced.")
+            return
+        }
+        rawDiffs.values.forEach { out.println(it.trimEnd()) }
+    }
+
     // ─── files ────────────────────────────────────────────────────────────────
 
     private fun printFiles(results: List<Result>) {
@@ -102,6 +130,14 @@ class ResultFormatter(
             val path = result.after?.sourcePath ?: result.before?.sourcePath
             if (path != null) out.println(path)
         }
+    }
+
+    private fun printRawFiles(paths: Set<Path>) {
+        if (paths.isEmpty()) {
+            out.println("No files changed.")
+            return
+        }
+        paths.forEach { out.println(it) }
     }
 
     // ─── report ───────────────────────────────────────────────────────────────
@@ -116,6 +152,23 @@ class ResultFormatter(
                     "isNewFile" to (r.before == null),
                     "isDeletedFile" to (r.after == null),
                     "diff" to r.diff()
+                )
+            }
+        )
+        json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
+        out.println("Report written to: ${reportFile.absolutePath}")
+    }
+
+    private fun writeRawReport(rawDiffs: Map<Path, String>, reportDir: Path) {
+        val reportFile = reportDir.resolve("openrewrite-report.json").toFile()
+        val report = mapOf(
+            "totalChanged" to rawDiffs.size,
+            "results" to rawDiffs.map { (path, diff) ->
+                mapOf(
+                    "filePath" to path.toString(),
+                    "isNewFile" to diff.contains("\n--- /dev/null\n"),
+                    "isDeletedFile" to diff.contains("\n+++ /dev/null\n"),
+                    "diff" to diff
                 )
             }
         )
