@@ -177,13 +177,13 @@ import io.github.skhokhlov.rewriterunner.output.ResultFormatter
 val result = runner.run()
 
 // Print unified diffs to stdout
-ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
+ResultFormatter(OutputMode.DIFF).format(result)
 
 // Print only the paths of changed files (one per line)
-ResultFormatter(OutputMode.FILES).format(result.results, result.projectDir)
+ResultFormatter(OutputMode.FILES).format(result)
 
 // Write openrewrite-report.json to the project directory
-ResultFormatter(OutputMode.REPORT).format(result.results, result.projectDir)
+ResultFormatter(OutputMode.REPORT).format(result)
 ```
 
 `OutputMode` values:
@@ -209,6 +209,7 @@ Library consumers that only need to inspect changes programmatically can skip `R
 | `cacheDir(Path)` | optional | `~/.rewriterunner/cache` | Cache root for downloaded recipe JARs (stored under `<cacheDir>/repository`). Project dependencies always resolve from `~/.m2/repository`. |
 | `configFile(Path)` | optional | auto-discovered | Path to `rewriterunner.yml`; auto-discovery checks `<projectDir>/rewriterunner.yml` then `~/.rewriterunner/rewriterunner.yml` |
 | `dryRun(Boolean)` | optional | `false` | Analyse without writing to disk |
+| `skipPluginRun(Boolean)` | optional | `false` | Skip plugin-first execution and use the in-process LST pipeline directly |
 | `includeExtensions(List<String>)` | optional | all supported | File extensions to parse; overrides config file setting |
 | `excludeExtensions(List<String>)` | optional | — | File extensions to skip; overrides config file setting |
 | `excludePaths(List<String>)` | optional | — | Glob patterns (relative to project root) for paths to skip during parsing; overrides `parse.excludePaths` from config file |
@@ -305,10 +306,15 @@ val result = RewriteRunner.builder()
 ## CLI Reference
 
 ```
-Usage: rewrite-runner [-h] [--dry-run] [--info] [--debug] [--no-maven-central]
+Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
+                          [--no-maven-central]
                           [--active-recipe=<recipe>]
                           [--cache-dir=<path>] [--config=<path>]
                           [--download-threads=<n>]
+                          [--process-timeout-seconds=<seconds>]
+                          [--plugin-timeout-seconds=<seconds>]
+                          [--resolver-connect-timeout-ms=<ms>]
+                          [--resolver-request-timeout-ms=<ms>]
                           [--output=<mode>] [--project-dir=<path>]
                           [--rewrite-config=<path>]
                           [--exclude-extensions=<ext>[,<ext>...]]
@@ -326,7 +332,12 @@ Usage: rewrite-runner [-h] [--dry-run] [--info] [--debug] [--no-maven-central]
 | `--cache-dir` | Cache root for downloaded recipe JARs (stored under `<path>/repository`). Project dependencies always resolve from `~/.m2/repository`. | `~/.rewriterunner/cache` |
 | `--config` | Path to tool config file (`rewriterunner.yml`) | `<project-dir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` |
 | `--dry-run` | Run recipe but do not write changes to disk | `false` |
+| `--skip-plugin-run` | Skip plugin-first execution; use full LST pipeline directly | `false` |
 | `--download-threads` | Number of parallel artifact download threads | `5` |
+| `--process-timeout-seconds` | Timeout for build-tool subprocesses in the fallback LST pipeline | `120` |
+| `--plugin-timeout-seconds` | Timeout for plugin-first Gradle/Maven invocations | `600` |
+| `--resolver-connect-timeout-ms` | TCP connection timeout for Maven Resolver downloads | `30000` |
+| `--resolver-request-timeout-ms` | Socket read/request timeout for Maven Resolver downloads | `60000` |
 | `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
 | `--exclude-extensions` | Comma-separated file extensions to skip | — |
 | `--no-maven-central` | Disable Maven Central; use only repositories from the config file | `false` |
@@ -428,6 +439,12 @@ repositories:
 cacheDir: ~/.rewriterunner/cache
 
 downloadThreads: 5   # parallel artifact download threads (default: 5)
+processTimeoutSeconds: 120        # fallback LST build-tool subprocess timeout
+pluginTimeoutSeconds: 600         # plugin-first rewriteDryRun/rewriteRun timeout
+rewriteGradlePluginVersion: 7.32.1
+rewriteMavenPluginVersion: 6.38.0
+resolverConnectTimeoutMs: 30000   # Maven Resolver TCP connection timeout
+resolverRequestTimeoutMs: 60000   # Maven Resolver socket/request timeout
 
 parse:
   includeExtensions: [".java", ".kt", ".xml"]
@@ -438,6 +455,21 @@ parse:
 ```
 
 Environment variable placeholders (`${VAR_NAME}`) are expanded at runtime.
+
+## Plugin-First Execution
+
+Before building its own LST, the tool first attempts to apply the recipe through the official OpenRewrite plugin for the project's build tool:
+
+- **Gradle**: injects a temporary init script that applies the `org.openrewrite.rewrite` plugin, then runs `rewriteDryRun` and, when not in `--dry-run` mode, `rewriteRun`
+- **Maven**: invokes `org.openrewrite.maven:rewrite-maven-plugin` directly via `./mvnw`, `mvnw.cmd`, or system `mvn`
+
+The dry-run goal always runs first so the tool can capture generated `rewrite.patch` files and format output in `diff`, `files`, or `report` mode. Maven multi-module builds may emit patches under each changed module's `target/site/rewrite/` directory, and those paths are reported relative to the project root. If no patches contain changes, the run short-circuits with no changes. If plugin execution succeeds with changes, the in-process LST pipeline is skipped entirely.
+
+If the plugin path fails for any reason (no build tool, plugin resolution failure, build error, recipe unavailable, timeout), the tool falls through silently to the fallback pipeline below.
+
+This plugin-first stage is enabled by default. Existing callers that need the previous direct LST pipeline behavior should pass `--skip-plugin-run` or set `skipPluginRun(true)`.
+
+Use `--skip-plugin-run` to bypass this stage.
 
 ## Resilient Parsing Pipeline
 
@@ -452,7 +484,7 @@ If successful, the resulting JAR list is passed to `JavaParser` for full type at
 
 ### Stage 2 — Direct dependency resolution
 If Stage 1 fails (broken build, no wrapper, timeout), the tool resolves dependencies without running the full build:
-- **Maven**: parses `pom.xml` using `maven-model`. All scopes except `provided` and `system` are included — test-scoped dependencies (JUnit, Mockito, etc.) are resolved so that test source files can be fully type-attributed.
+- **Maven**: parses `pom.xml` using `maven-model`. Includes `compile`, `provided`, and `test` scopes; excludes `runtime` and `system` scopes — provided and test dependencies are included to support compile-time and test-source type resolution while runtime-only artifacts are skipped.
 - **Gradle**: runs `gradle dependencies` for the root project **and all declared subprojects** (discovered from `settings.gradle` / `settings.gradle.kts`), parsing the resolved dependency tree to get accurately resolved versions; falls back to best-effort static regex parsing of `build.gradle` / `build.gradle.kts` if Gradle cannot be invoked.
 
 > **Note:** The `gradle dependencies` task only reports dependencies for the project it is applied to. Subprojects are queried explicitly (`:sub:dependencies`) so that multi-module builds are fully covered.
@@ -479,7 +511,7 @@ Unresolved types appear as `JavaType.Unknown` in the LST, but all structural, te
 
 | Extension | Parser |
 |-----------|--------|
-| `.java` | `JavaParser` (with classpath from 3-stage pipeline) |
+| `.java` | `JavaParser` (with classpath from fallback pipeline) |
 | `.kt`, `.kts` | `KotlinParser` (`.kts` augmented with Gradle DSL classpath) |
 | `.groovy`, `.gradle` | `GroovyParser` (`.gradle` augmented with Gradle DSL classpath) |
 | `.yaml`, `.yml` | `YamlParser` |

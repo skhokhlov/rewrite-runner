@@ -45,6 +45,18 @@ class RunResultTest :
             assertEquals(0, result.changeCount)
         }
 
+        test("rawDiffs count as changes when results are empty") {
+            val result =
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = emptyList(),
+                    projectDir = projectDir,
+                    rawDiffs = mapOf(Paths.get("Foo.java") to "diff --git a/Foo.java b/Foo.java\n")
+                )
+            assertTrue(result.hasChanges)
+            assertEquals(1, result.changeCount)
+        }
+
         test("data class equals and copy work correctly") {
             val changedFiles = listOf(Paths.get("/tmp/project/Foo.java"))
             val r1 =

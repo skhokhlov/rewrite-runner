@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.lst.utils
 
+import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import java.nio.file.Path
@@ -31,8 +32,12 @@ import org.openrewrite.maven.tree.ResolvedGroupArtifactVersion
 internal class MarkerFactory(
     private val logger: RunnerLogger,
     private val staticParser: StaticBuildFileParser,
-    private val versionDetector: VersionDetector
+    private val versionDetector: VersionDetector,
+    private val processTimeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS,
+    private val processRunner: ProcessRunner = ::runProcess
 ) {
+    private val metadataProbeTimeoutSeconds = minOf(processTimeoutSeconds, 5)
+
     fun buildEnvironment(): BuildEnvironment? = try {
         BuildEnvironment.build { key -> System.getenv(key) }
     } catch (e: Exception) {
@@ -94,12 +99,12 @@ internal class MarkerFactory(
     private fun detectMavenVersion(projectDir: Path): String = try {
         val mvnCmd = resolveMavenCommand(projectDir)
         val output = StringBuilder()
-        val result = runProcess(
+        val result = processRunner(
             projectDir,
             listOf(mvnCmd, "--version"),
-            captureStdout = output,
-            timeoutSeconds = 5,
-            logger = logger
+            output,
+            metadataProbeTimeoutSeconds,
+            logger
         )
         if (result == 0) {
             Regex("""Apache Maven ([\d.]+)""").find(output.toString())?.groupValues?.get(1)

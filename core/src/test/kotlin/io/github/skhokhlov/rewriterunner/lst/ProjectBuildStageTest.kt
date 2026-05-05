@@ -264,6 +264,30 @@ class ProjectBuildStageTest :
                 "Should complete within 15 seconds without hanging, took ${elapsed}ms"
             )
         }
+
+        test("extractClasspath honors configured process timeout") {
+            projectDir.resolve("pom.xml").writeText("<project/>")
+            val mvnw = projectDir.resolve("mvnw").toFile()
+            mvnw.writeText(
+                """
+                #!/bin/sh
+                sleep 5
+                exit 0
+                """.trimIndent()
+            )
+            mvnw.setExecutable(true)
+
+            val timedStage = ProjectBuildStage(NoOpRunnerLogger, processTimeoutSeconds = 1)
+            val start = System.currentTimeMillis()
+            val result = timedStage.extractClasspath(projectDir)
+            val elapsed = System.currentTimeMillis() - start
+
+            assertNull(result, "Timed-out classpath extraction should fall through")
+            assertTrue(
+                elapsed < 4_000,
+                "Configured 1s timeout should stop the wrapper promptly, took ${elapsed}ms"
+            )
+        }
     })
 
 private fun assertTrue_compat(value: Boolean, message: String) {

@@ -13,13 +13,27 @@ Orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`:
 
 | Step | Class | Description |
 |------|-------|-------------|
+| 0 | `PluginRecipeRunner` | Try official Gradle/Maven OpenRewrite plugin first; short-circuit on success |
 | 1 | `ToolConfig` | Load YAML config (env var interpolation, tilde expansion) |
-| 2 | `RecipeArtifactResolver` | Resolve recipe JARs from Maven coordinates |
+| 2 | `RecipeArtifactResolver` | Resolve recipe JARs from Maven coordinates for the fallback path |
 | 3 | `RecipeLoader` | Load recipe from JARs + optional `rewrite.yaml` |
 | 4 | `LstBuilder` | Build LST via 4-stage classpath pipeline + multi-language parsing |
 | 5 | `RecipeRunner` | Execute recipe, collect `List<Result>` |
 | 6 | — | Write changed files to disk (skipped when `dryRun = true`) |
 | 7 | `ResultFormatter` | Format output (diff / files / report) |
+
+## Stage 0: Plugin-First Execution
+
+`PluginRecipeRunner` checks the project root for Gradle or Maven build files and tries the official OpenRewrite plugin before the in-process LST pipeline:
+
+| Build tool | Strategy | Patch path |
+|------------|----------|------------|
+| Gradle | Generate a temporary init script, apply `org.openrewrite.gradle.RewritePlugin`, run `rewriteDryRun`, then `rewriteRun` when not in dry-run mode | `build/reports/rewrite/rewrite.patch` in each changed project |
+| Maven | Invoke `org.openrewrite.maven:rewrite-maven-plugin:<version>:dryRun`, then `:run` when not in dry-run mode | `target/site/rewrite/rewrite.patch` in each changed module |
+
+The dry-run goal always runs first so `PatchParser` can split `rewrite.patch` files into `RunResult.rawDiffs`. If the plugin returns non-empty patches and the apply goal succeeds (or the user requested `dryRun`), `RewriteRunner.run()` returns immediately with empty `results` and populated `rawDiffs`. Gradle project patches and Maven module patches are rebased to project-root-relative paths before formatting. `ResultFormatter.format(RunResult)` handles this raw-diff path for `diff`, `files`, and `report` output.
+
+If plugin execution is skipped or fails (no build file, non-zero exit, process start failure, timeout, missing recipe/plugin), the runner logs at info level and falls through to the LST pipeline. `--skip-plugin-run` / `Builder.skipPluginRun(true)` bypasses Stage 0.
 
 ## Maven Local Repository Strategy
 
@@ -67,6 +81,18 @@ The resolved classpath is **shared across all language parsers** — `JavaParser
 | `MarkerFactory` | `BuildTool`, `GitProvenance`, `OperatingSystemProvenance`, `BuildEnvironment`, `GradleProject` markers |
 
 `ProjectBuildStage` and `DependencyResolutionStage` remain injected into `LstBuilder` as `open` classes; the helper classes above are internal and are instantiated by `LstBuilder`.
+
+External process timeouts are configurable:
+
+| Timeout | Default | Applies to |
+|---------|---------|------------|
+| `pluginTimeoutSeconds` | 600 s | Stage 0 `rewriteDryRun` / `rewriteRun` plugin invocations |
+| `processTimeoutSeconds` | 120 s | Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands |
+| `resolverConnectTimeoutMs` | 30000 ms | Maven Resolver TCP connections |
+| `resolverRequestTimeoutMs` | 60000 ms | Maven Resolver socket reads / requests |
+
+Stage 0 plugin versions are also configurable via `rewriteGradlePluginVersion`
+and `rewriteMavenPluginVersion`.
 
 ## File Routing by Extension
 

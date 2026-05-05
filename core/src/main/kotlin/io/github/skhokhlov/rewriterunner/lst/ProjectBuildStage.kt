@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.lst
 
+import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
@@ -51,7 +52,10 @@ import kotlin.io.path.exists
  * **Extensibility:** The class is `open` with `open` methods so tests can subclass
  * it to inject a fake classpath without spawning real processes.
  */
-open class ProjectBuildStage(protected val logger: RunnerLogger) {
+open class ProjectBuildStage(
+    protected val logger: RunnerLogger,
+    private val processTimeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS
+) {
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.
      *
@@ -87,6 +91,7 @@ open class ProjectBuildStage(protected val logger: RunnerLogger) {
             val result = runProcess(
                 projectDir,
                 mvnCommand,
+                timeoutSeconds = processTimeoutSeconds,
                 logger = logger
             ) ?: return null
 
@@ -140,6 +145,7 @@ open class ProjectBuildStage(protected val logger: RunnerLogger) {
                 projectDir,
                 gradleCommand,
                 captureStdout = output,
+                timeoutSeconds = processTimeoutSeconds,
                 logger = logger
             ) ?: return null
 
@@ -224,7 +230,13 @@ open class ProjectBuildStage(protected val logger: RunnerLogger) {
 
     private fun runCompileTask(projectDir: Path, command: List<String>, toolName: String): Boolean =
         try {
-            val result = runProcess(projectDir, command, logger = logger) ?: return false
+            val result =
+                runProcess(
+                    projectDir,
+                    command,
+                    timeoutSeconds = processTimeoutSeconds,
+                    logger = logger
+                ) ?: return false
             if (result == 0) {
                 logger.info("$toolName compilation succeeded")
                 true

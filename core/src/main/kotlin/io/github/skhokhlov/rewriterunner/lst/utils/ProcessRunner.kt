@@ -1,11 +1,21 @@
 package io.github.skhokhlov.rewriterunner.lst.utils
 
+import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
+
+internal typealias ProcessRunner = (
+    workDir: Path,
+    command: List<String>,
+    captureStdout: StringBuilder?,
+    timeoutSeconds: Long,
+    logger: RunnerLogger
+) -> Int?
 
 /**
  * Runs an external process in [workDir] and waits up to [timeoutSeconds] for it to finish.
@@ -21,7 +31,7 @@ internal fun runProcess(
     workDir: Path,
     command: List<String>,
     captureStdout: StringBuilder? = null,
-    timeoutSeconds: Long = 120,
+    timeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS,
     logger: RunnerLogger
 ): Int? {
     val pb = ProcessBuilder(command).directory(workDir.toFile())
@@ -38,9 +48,13 @@ internal fun runProcess(
     // Log each line at DEBUG so Maven/Gradle output is visible with --debug.
     val prefix = command.first().substringAfterLast('/')
     fun drainStream(stream: InputStream, tag: String) = Thread(null, {
-        stream.bufferedReader().forEachLine {
-            logger.debug("[$prefix $tag] $it")
-            if (tag == "stdout") captureStdout?.append(it)?.append('\n')
+        try {
+            stream.bufferedReader().forEachLine {
+                logger.debug("[$prefix $tag] $it")
+                if (tag == "stdout") captureStdout?.append(it)?.append('\n')
+            }
+        } catch (e: IOException) {
+            logger.debug("[$prefix $tag] stream closed: ${e.message}")
         }
     }, "process-drain-$tag").apply {
         isDaemon = true
@@ -48,17 +62,33 @@ internal fun runProcess(
     }
     val stdoutThread = drainStream(process.inputStream, "stdout")
     val stderrThread = drainStream(process.errorStream, "stderr")
-    stdoutThread.join()
-    stderrThread.join()
 
     val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
     if (!finished) {
         process.destroyForcibly()
+        closeProcessStreams(process)
+        stdoutThread.join(TIMEOUT_DRAIN_JOIN_MILLIS)
+        stderrThread.join(TIMEOUT_DRAIN_JOIN_MILLIS)
         logger.warn("Process ${command.first()} timed out after ${timeoutSeconds}s")
         return null
     }
 
+    stdoutThread.join()
+    stderrThread.join()
+
     return process.exitValue()
+}
+
+private const val TIMEOUT_DRAIN_JOIN_MILLIS = 100L
+
+private fun closeProcessStreams(process: Process) {
+    listOf(process.outputStream, process.inputStream, process.errorStream).forEach { stream ->
+        try {
+            stream.close()
+        } catch (_: IOException) {
+            // Best effort: the process may already have closed one or more streams.
+        }
+    }
 }
 
 /** Returns the `build.gradle.kts` or `build.gradle` file in [dir], or null if neither exists. */

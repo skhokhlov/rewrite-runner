@@ -27,6 +27,11 @@ val result = RewriteRunner.builder()
 | `cacheDir(Path)` | `Path?` | from config / `~/.rewriterunner/cache` | Recipe JAR cache directory; stored under `<cacheDir>/repository`. Project deps always use `~/.m2/repository`. |
 | `configFile(Path)` | `Path?` | `<projectDir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` | `rewriterunner.yml` tool config (case-insensitive name match). Pass `null` to use auto-discovery. |
 | `dryRun(Boolean)` | `Boolean` | `false` | Run without writing files to disk |
+| `skipPluginRun(Boolean)` | `Boolean` | `false` | Bypass official Gradle/Maven plugin execution and use the in-process LST pipeline directly |
+| `processTimeoutSeconds(Long)` | `Long?` | from config / `120` | Timeout for build-tool subprocesses in the fallback LST pipeline |
+| `pluginTimeoutSeconds(Long)` | `Long?` | from config / `600` | Timeout for official Gradle/Maven plugin invocations in Stage 0 |
+| `resolverConnectTimeoutMs(Int)` | `Int?` | from config / `30000` | TCP connection timeout for Maven Resolver artifact downloads |
+| `resolverRequestTimeoutMs(Int)` | `Int?` | from config / `60000` | Socket read/request timeout for Maven Resolver artifact downloads |
 | `includeExtensions(List<String>)` | `List` | `[]` | Restrict to these extensions (e.g. `[".java", ".kt"]`); overrides `parse.includeExtensions` from config file |
 | `excludeExtensions(List<String>)` | `List` | `[]` | Skip these extensions; overrides `parse.excludeExtensions` from config file |
 | `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file |
@@ -55,6 +60,7 @@ Return type of `RewriteRunner.run()`.
 | `results` | `List<Result>` | Raw OpenRewrite results (one per changed file). Empty means no changes. |
 | `changedFiles` | `List<Path>` | Files written to disk during this run. Empty when `dryRun = true` or no changes. |
 | `projectDir` | `Path` | Resolved project directory (same as `Builder.projectDir`) |
+| `rawDiffs` | `Map<Path, String>` | Unified diffs from the plugin-first path. Empty when the in-process LST path runs. |
 | `hasChanges` | `Boolean` | `true` when the recipe produced at least one change, regardless of `dryRun` |
 | `changeCount` | `Int` | Number of changed source files |
 
@@ -84,13 +90,13 @@ import io.github.skhokhlov.rewriterunner.output.ResultFormatter
 val result = runner.run()
 
 // Print unified diffs to stdout
-ResultFormatter(OutputMode.DIFF).format(result.results, result.projectDir)
+ResultFormatter(OutputMode.DIFF).format(result)
 
 // Print one changed-file path per line to stdout
-ResultFormatter(OutputMode.FILES).format(result.results, result.projectDir)
+ResultFormatter(OutputMode.FILES).format(result)
 
 // Write openrewrite-report.json to the project directory
-ResultFormatter(OutputMode.REPORT).format(result.results, result.projectDir)
+ResultFormatter(OutputMode.REPORT).format(result)
 ```
 
 ### OutputMode
@@ -115,10 +121,13 @@ ResultFormatter(outputMode: OutputMode, writer: PrintWriter)
 
 ```kotlin
 fun format(results: List<Result>, reportDir: Path? = null)
+fun format(runResult: RunResult)
 ```
 
 - `results` — the list from `RunResult.results`. May be empty; prints `"No changes produced."` / `"No files changed."` for `DIFF` / `FILES` modes.
 - `reportDir` — directory where `openrewrite-report.json` is written. Ignored for `DIFF` and `FILES` modes. Defaults to the current directory (`.`).
+
+Use `format(runResult)` when you want formatted output that also supports Stage 0 plugin results stored in `RunResult.rawDiffs`.
 
 ## ToolConfig YAML
 
@@ -136,6 +145,13 @@ parse:
   includeExtensions: [".java", ".kt"]   # restrict to these; overridden by CLI flag
   excludeExtensions: [".xml"]           # skip these; overridden by CLI flag
   excludePaths: ["generated/", "vendor/"] # glob patterns relative to project root
+
+processTimeoutSeconds: 120
+pluginTimeoutSeconds: 600
+rewriteGradlePluginVersion: 7.32.1
+rewriteMavenPluginVersion: 6.38.0
+resolverConnectTimeoutMs: 30000
+resolverRequestTimeoutMs: 60000
 ```
 
 ### ToolConfig fields
@@ -146,6 +162,12 @@ parse:
 | `repositories` | `List<RepositoryConfig>` | `[]` | Extra Maven repos for resolution |
 | `parse` | `ParseConfig` | defaults | File inclusion/exclusion config |
 | `includeMavenCentral` | `Boolean` | `true` | Include Maven Central as a remote repository. Set `false` to restrict to only the repositories listed in `repositories`. |
+| `processTimeoutSeconds` | `Long` | `120` | Timeout for Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands. |
+| `pluginTimeoutSeconds` | `Long` | `600` | Timeout for Stage 0 official OpenRewrite plugin invocations. |
+| `rewriteGradlePluginVersion` | `String` | `7.32.1` | Version of `org.openrewrite:plugin` used for Stage 0 Gradle plugin execution. |
+| `rewriteMavenPluginVersion` | `String` | `6.38.0` | Version of `org.openrewrite.maven:rewrite-maven-plugin` used for Stage 0 Maven plugin execution. |
+| `resolverConnectTimeoutMs` | `Int` | `30000` | TCP connection timeout for Maven Resolver artifact downloads. |
+| `resolverRequestTimeoutMs` | `Int` | `60000` | Socket read/request timeout for Maven Resolver artifact downloads. |
 
 ### RepositoryConfig fields
 

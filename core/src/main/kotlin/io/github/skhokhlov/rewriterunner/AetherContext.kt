@@ -71,8 +71,8 @@ class AetherContext(
         fun build(
             localRepoDir: Path,
             extraRepositories: List<RepositoryConfig> = emptyList(),
-            connectTimeoutMs: Int = 30_000,
-            requestTimeoutMs: Int = 60_000,
+            connectTimeoutMs: Int = ExecutionTimeouts.DEFAULT_RESOLVER_CONNECT_TIMEOUT_MS,
+            requestTimeoutMs: Int = ExecutionTimeouts.DEFAULT_RESOLVER_REQUEST_TIMEOUT_MS,
             downloadThreads: Int = 5,
             excludeScopesFromGraph: Collection<String> = emptyList(),
             includeMavenCentral: Boolean = true,

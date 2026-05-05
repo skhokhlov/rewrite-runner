@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.output
 
+import io.github.skhokhlov.rewriterunner.RunResult
 import io.kotest.core.spec.style.FunSpec
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
@@ -236,5 +237,58 @@ class ResultFormatterTest :
                 json.readTree(reportDir.resolve("openrewrite-report.json").readText())
             assertEquals(0, tree["totalChanged"].asInt())
             assertEquals(0, tree["results"].size())
+        }
+
+        // ─── Raw diff / plugin mode ──────────────────────────────────────────────
+
+        test("format RunResult prints raw diffs when OpenRewrite results are empty") {
+            val output =
+                captureOutput { pw ->
+                    ResultFormatter(OutputMode.DIFF, pw).format(
+                        RunResult(
+                            results = emptyList(),
+                            changedFiles = emptyList(),
+                            projectDir = reportDir,
+                            rawDiffs = mapOf(
+                                Path.of("Foo.java") to "diff --git a/Foo.java b/Foo.java\n"
+                            )
+                        )
+                    )
+                }
+            assertTrue(output.contains("diff --git a/Foo.java b/Foo.java"))
+        }
+
+        test("format RunResult files mode prints raw diff paths") {
+            val output =
+                captureOutput { pw ->
+                    ResultFormatter(OutputMode.FILES, pw).format(
+                        RunResult(
+                            results = emptyList(),
+                            changedFiles = emptyList(),
+                            projectDir = reportDir,
+                            rawDiffs = mapOf(Path.of("Foo.java") to "diff")
+                        )
+                    )
+                }
+            assertEquals("Foo.java", output.trim())
+        }
+
+        test("format RunResult report mode writes raw diff report") {
+            captureOutput { pw ->
+                ResultFormatter(OutputMode.REPORT, pw).format(
+                    RunResult(
+                        results = emptyList(),
+                        changedFiles = emptyList(),
+                        projectDir = reportDir,
+                        rawDiffs = mapOf(
+                            Path.of("Foo.java") to "diff --git a/Foo.java b/Foo.java\n"
+                        )
+                    )
+                )
+            }
+            val tree =
+                json.readTree(reportDir.resolve("openrewrite-report.json").readText())
+            assertEquals(1, tree["totalChanged"].asInt())
+            assertEquals("Foo.java", tree["results"][0]["filePath"].asText())
         }
     })

@@ -41,6 +41,11 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 | `--cache-dir` | | JAR cache directory | `~/.rewriterunner/cache` |
 | `--config` | | Path to `rewriterunner.yml` | `<projectDir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` |
 | `--dry-run` | | Run without writing to disk | `false` |
+| `--skip-plugin-run` | | Skip official plugin-first execution and use the LST pipeline directly | `false` |
+| `--process-timeout-seconds` | | Build-tool subprocess timeout for the fallback LST pipeline | `120` |
+| `--plugin-timeout-seconds` | | Stage 0 Gradle/Maven plugin timeout | `600` |
+| `--resolver-connect-timeout-ms` | | Maven Resolver TCP connection timeout | `30000` |
+| `--resolver-request-timeout-ms` | | Maven Resolver socket/request timeout | `60000` |
 | `--include-extensions` | | Comma-separated file types to parse | — |
 | `--exclude-extensions` | | Comma-separated file types to skip | — |
 | `--info` | | Enable INFO-level logging to stderr | `false` |
@@ -58,6 +63,7 @@ core/src/
 │   ├── RewriteRunner.kt            # Library facade — builder API, orchestrates the full pipeline
 │   ├── RunResult.kt
 │   ├── config/ToolConfig.kt        # YAML config + env var interpolation
+│   ├── plugin/                     # Stage 0 official Gradle/Maven plugin execution + patch parsing
 │   ├── lst/
 │   │   ├── LstBuilder.kt           # Orchestrates 4-stage pipeline + multi-language parsing
 │   │   ├── ProjectBuildStage.kt       # Stage 1: Maven/Gradle subprocess (build-classpath/init-script)
@@ -98,6 +104,7 @@ cli/src/
 - `InMemoryLargeSourceSet` is in `org.openrewrite.internal` (not the top-level package)
 - `ProjectBuildStage` and `DependencyResolutionStage` are `open` with `open` methods — subclass in tests instead of mocking
 - `ResultFormatter` has a secondary constructor accepting `PrintWriter`; `RunCommand` passes picocli's `@Spec` output writer
+- Stage 0 tries the official Gradle/Maven OpenRewrite plugins first and returns `RunResult.rawDiffs` on success. Use `--skip-plugin-run` / `Builder.skipPluginRun(true)` when testing or debugging the in-process LST pipeline directly.
 - Extension filtering: CLI flags take precedence over config file settings
 - OpenRewrite requires all source files in memory simultaneously — for large projects use `-Xmx6g`
 - Dockerfile/Containerfile files are collected both by extension (`.dockerfile`, `.containerfile`) and by filename prefix (`Dockerfile*`, `Containerfile*`) — all go into the `.dockerfile` bucket for `DockerParser`

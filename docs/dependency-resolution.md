@@ -48,7 +48,7 @@ The stage first extracts declared dependency coordinates from the build file wit
 
 | Build file | Strategy | Notes |
 |---|---|---|
-| `pom.xml` | `MavenXpp3Reader` | Skips `provided`, `system`, and unresolved property versions (`${...}`). Includes `test` scope (needed for test source type resolution). |
+| `pom.xml` | `MavenXpp3Reader` | Skips `runtime` and `system`, and unresolved property versions (`${...}`). Includes `provided` and `test` scopes (provided supplies compile-time types; test is needed for test source type resolution). |
 | `build.gradle.kts` / `build.gradle` — Gradle wrapper present | `gradle -q dependencies` task | Runs for root project and all subprojects found in `settings.gradle(.kts)`. Parses the tree output, resolves `1.0 -> 2.0` conflict notation to the final version. Returns `null` on non-zero exit or empty output. |
 | `build.gradle.kts` / `build.gradle` — no wrapper or task failed | Static regex | Extracts quoted `"group:artifact:version"` strings and `implementation("g","a","v")` three-arg forms. Best-effort: version catalog refs and BOM-managed versions are missed. |
 
@@ -64,9 +64,14 @@ All coordinate sources — including Maven POM parsing and static Gradle fallbac
 
 When the Gradle task (`gradle dependencies`) is used, it already returns the **full resolved transitive graph** (Gradle has already done conflict resolution). Those coordinates are resolved directly with `ArtifactRequest` — no re-traversal needed. This is why both paths (Gradle task output and static/Maven parsing) use the same `resolveArtifactsDirectly` method.
 
-#### No scope pruning in the session
+#### Scope handling for project classpath resolution
 
-The project context does **not** set `excludeScopesFromGraph`, so no `ScopeDependencySelector` is installed. `test`-scoped dependencies declared in the project's build file are included in the coordinate list and resolved normally.
+The project `AetherContext` is built without `excludeScopesFromGraph` (no session-level `ScopeDependencySelector`). To present a consistent compile-time view across fallback stages, the LST pipeline applies compile-time scope filtering as follows:
+
+- Stage 2 parsing excludes `runtime` and `system` scoped dependencies (runtime-only artifacts not required for compilation).
+- Stage 3 POM traversal applies a `ScopeDependencyFilter` to exclude `runtime` and `system` transitives when resolving declared coordinates.
+
+`provided` and `test` scopes are intentionally included so that compile-time types and test source files can be type-resolved. This approach avoids downloading unnecessary runtime-only POMs while ensuring types needed for compilation and test sources are available.
 
 ### Local repository
 
@@ -91,5 +96,5 @@ Both recipe and project `AetherContext` instances apply the following settings:
 | Repository `checksumPolicy` | `CHECKSUM_POLICY_IGNORE` | Don't fail or retry when a repository omits `.sha1` / `.sha256` files (common on corporate proxies and private registries) |
 | Repository update policy | `UPDATE_POLICY_DAILY` | Re-check remote metadata at most once per day; cached artifacts are reused within a day |
 | Parallel download threads | configurable (`--download-threads`, default 5) | Tune for network bandwidth vs resource constraints |
-| `CONNECT_TIMEOUT` | 30 s | Avoid hanging on slow connections |
-| `REQUEST_TIMEOUT` | 60 s | Abort if a server accepts the connection but never responds |
+| `CONNECT_TIMEOUT` | configurable (`resolverConnectTimeoutMs`, default 30 s) | Avoid hanging on slow connections |
+| `REQUEST_TIMEOUT` | configurable (`resolverRequestTimeoutMs`, default 60 s) | Abort if a server accepts the connection but never responds |

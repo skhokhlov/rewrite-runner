@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.config
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
@@ -63,6 +64,16 @@ data class ParseConfig(
  *   Defaults to `~/.rewriterunner/cache`.
  * @property parse File parsing configuration controlling which extensions and paths are
  *   included or excluded from the LST-building stage.
+ * @property processTimeoutSeconds Timeout for build-tool subprocesses in the fallback
+ *   LST pipeline.
+ * @property pluginTimeoutSeconds Timeout for official Gradle/Maven plugin invocations
+ *   in Stage 0.
+ * @property rewriteGradlePluginVersion Version of the official OpenRewrite Gradle plugin
+ *   used by Stage 0 plugin-first execution.
+ * @property rewriteMavenPluginVersion Version of the official OpenRewrite Maven plugin
+ *   used by Stage 0 plugin-first execution.
+ * @property resolverConnectTimeoutMs TCP connection timeout for Maven Resolver downloads.
+ * @property resolverRequestTimeoutMs Socket read/request timeout for Maven Resolver downloads.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ToolConfig(
@@ -71,6 +82,12 @@ data class ToolConfig(
     val parse: ParseConfig = ParseConfig(),
     val includeMavenCentral: Boolean = true,
     val downloadThreads: Int = 5,
+    val processTimeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS,
+    val pluginTimeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+    val rewriteGradlePluginVersion: String = REWRITE_GRADLE_PLUGIN_VERSION,
+    val rewriteMavenPluginVersion: String = REWRITE_MAVEN_PLUGIN_VERSION,
+    val resolverConnectTimeoutMs: Int = ExecutionTimeouts.DEFAULT_RESOLVER_CONNECT_TIMEOUT_MS,
+    val resolverRequestTimeoutMs: Int = ExecutionTimeouts.DEFAULT_RESOLVER_REQUEST_TIMEOUT_MS,
     val logger: RunnerLogger = NoOpRunnerLogger
 ) {
     /** Returns [cacheDir] with `~` expanded to the user home directory and environment
@@ -95,6 +112,9 @@ data class ToolConfig(
     }
 
     companion object {
+        const val REWRITE_GRADLE_PLUGIN_VERSION = "7.32.1"
+        const val REWRITE_MAVEN_PLUGIN_VERSION = "6.38.0"
+
         private val yaml = YAMLMapper.builder()
             .addModule(KotlinModule.Builder().build())
             .build()

@@ -5,9 +5,13 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
+import kotlin.io.path.readText
 import kotlin.io.path.writeText
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+
+private val isWindows = System.getProperty("os.name", "").lowercase().contains("windows")
 
 class RewriteRunnerTest :
     FunSpec({
@@ -131,5 +135,86 @@ class RewriteRunnerTest :
                 .build()
                 .run()
             // No assertion needed — the test passes if no exception is thrown
+        }
+
+        // ─── plugin version config ──────────────────────────────────────────────
+
+        test("plugin-first Gradle run uses configured rewrite plugin version").config(
+            enabled = !isWindows
+        ) {
+            val marker = projectDir.resolve("plugin-version-used.txt")
+            val configFile = projectDir.resolve("rewriterunner.yml")
+            configFile.writeText("rewriteGradlePluginVersion: 7.20.0")
+            projectDir.resolve("build.gradle.kts").writeText("")
+            val gradlew = projectDir.resolve("gradlew").toFile()
+            gradlew.writeText(
+                """
+                #!/bin/sh
+                marker="${marker.toAbsolutePath()}"
+                init_script=""
+                previous=""
+                for arg in "${'$'}@"; do
+                    if [ "${'$'}previous" = "--init-script" ]; then
+                        init_script="${'$'}arg"
+                    fi
+                    previous="${'$'}arg"
+                done
+                if grep -q 'org.openrewrite:plugin:7.20.0' "${'$'}init_script"; then
+                    echo "${'$'}1" > "${'$'}marker"
+                    exit 0
+                fi
+                echo "configured Gradle plugin version was not used" > "${'$'}marker"
+                exit 1
+                """.trimIndent()
+            )
+            gradlew.setExecutable(true)
+
+            RewriteRunner.builder()
+                .projectDir(projectDir)
+                .activeRecipe("com.example.Recipe")
+                .configFile(configFile)
+                .dryRun(true)
+                .build()
+                .run()
+
+            assertEquals("rewriteDryRun", marker.readText().trim())
+        }
+
+        test("plugin-first Maven run uses configured rewrite plugin version").config(
+            enabled = !isWindows
+        ) {
+            val marker = projectDir.resolve("plugin-version-used.txt")
+            val configFile = projectDir.resolve("rewriterunner.yml")
+            configFile.writeText("rewriteMavenPluginVersion: 6.23.0")
+            projectDir.resolve("pom.xml").writeText("<project/>")
+            val mvnw = projectDir.resolve("mvnw").toFile()
+            mvnw.writeText(
+                """
+                #!/bin/sh
+                marker="${marker.toAbsolutePath()}"
+                for arg in "${'$'}@"; do
+                    if [ "${'$'}arg" = "org.openrewrite.maven:rewrite-maven-plugin:6.23.0:dryRun" ]; then
+                        echo "${'$'}arg" > "${'$'}marker"
+                        exit 0
+                    fi
+                done
+                echo "configured Maven plugin version was not used" > "${'$'}marker"
+                exit 1
+                """.trimIndent()
+            )
+            mvnw.setExecutable(true)
+
+            RewriteRunner.builder()
+                .projectDir(projectDir)
+                .activeRecipe("com.example.Recipe")
+                .configFile(configFile)
+                .dryRun(true)
+                .build()
+                .run()
+
+            assertEquals(
+                "org.openrewrite.maven:rewrite-maven-plugin:6.23.0:dryRun",
+                marker.readText().trim()
+            )
         }
     })

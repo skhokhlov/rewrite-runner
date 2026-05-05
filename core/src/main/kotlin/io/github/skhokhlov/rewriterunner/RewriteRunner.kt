@@ -3,6 +3,8 @@ package io.github.skhokhlov.rewriterunner
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.LstBuilder
+import io.github.skhokhlov.rewriterunner.plugin.PluginRecipeRunner
+import io.github.skhokhlov.rewriterunner.plugin.PluginRunResult
 import io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver
 import io.github.skhokhlov.rewriterunner.recipe.RecipeLoader
 import io.github.skhokhlov.rewriterunner.recipe.RecipeRunner
@@ -15,6 +17,7 @@ import kotlin.io.path.exists
  * Programmatic entry point for running OpenRewrite recipes from library code.
  *
  * Encapsulates the same orchestration pipeline that the CLI uses:
+ * 0. Try the official Gradle/Maven OpenRewrite plugin via [PluginRecipeRunner].
  * 1. Load [ToolConfig] (from [Builder.configFile] if supplied, otherwise defaults).
  * 2. Resolve recipe JARs from Maven coordinates via [RecipeArtifactResolver].
  * 3. Load the requested recipe via [RecipeLoader].
@@ -64,17 +67,95 @@ class RewriteRunner private constructor(private val config: Builder) {
             "projectDir does not exist or is not a directory: ${config.projectDir}"
         }
 
-        // 1. Load tool config
-        logger.lifecycle("[1/6] Loading configuration")
         val effectiveConfigFile = config.configFile
             ?: findConfigCaseInsensitive(config.projectDir)
             ?: findConfigCaseInsensitive(
                 Paths.get(System.getProperty("user.home"), ".rewriterunner")
             )
         val toolConfig = ToolConfig.load(effectiveConfigFile, logger)
+        val effectiveProcessTimeoutSeconds =
+            positiveLong(
+                config.processTimeoutSeconds ?: toolConfig.processTimeoutSeconds,
+                "processTimeoutSeconds"
+            )
+        val effectivePluginTimeoutSeconds =
+            positiveLong(
+                config.pluginTimeoutSeconds ?: toolConfig.pluginTimeoutSeconds,
+                "pluginTimeoutSeconds"
+            )
+        val effectiveResolverConnectTimeoutMs =
+            positiveInt(
+                config.resolverConnectTimeoutMs ?: toolConfig.resolverConnectTimeoutMs,
+                "resolverConnectTimeoutMs"
+            )
+        val effectiveResolverRequestTimeoutMs =
+            positiveInt(
+                config.resolverRequestTimeoutMs ?: toolConfig.resolverRequestTimeoutMs,
+                "resolverRequestTimeoutMs"
+            )
+
+        // Stage 0: let the project's own build tool run the official OpenRewrite plugin first.
+        if (!config.skipPluginRun) {
+            logger.lifecycle("[0/7] Attempting plugin-first recipe execution")
+            val pluginResult =
+                PluginRecipeRunner(
+                    logger = logger,
+                    timeoutSeconds = effectivePluginTimeoutSeconds,
+                    rewriteGradlePluginVersion = toolConfig.rewriteGradlePluginVersion,
+                    rewriteMavenPluginVersion = toolConfig.rewriteMavenPluginVersion
+                ).run(
+                    projectDir = config.projectDir,
+                    activeRecipe = config.activeRecipe,
+                    recipeArtifacts = config.recipeArtifacts,
+                    rewriteConfig = config.rewriteConfig,
+                    rewriteConfigContent = config.rewriteConfigContent,
+                    dryRun = config.dryRun,
+                    includeMavenCentral = config.includeMavenCentral
+                        ?: toolConfig.includeMavenCentral,
+                    repositories = toolConfig.resolvedRepositories() + config.repositories
+                )
+            when (pluginResult) {
+                is PluginRunResult.Success -> {
+                    logger.lifecycle(
+                        "      Plugin complete: ${pluginResult.diffs.size} file(s) changed"
+                    )
+                    return RunResult(
+                        results = emptyList(),
+                        changedFiles = pluginResult.changedFiles,
+                        projectDir = config.projectDir,
+                        rawDiffs = pluginResult.diffs
+                    )
+                }
+
+                PluginRunResult.NoChanges -> {
+                    logger.lifecycle("      Plugin complete: no changes")
+                    return RunResult(
+                        results = emptyList(),
+                        changedFiles = emptyList(),
+                        projectDir = config.projectDir
+                    )
+                }
+
+                is PluginRunResult.Failed ->
+                    logger.info("      Plugin failed: ${pluginResult.reason}")
+
+                is PluginRunResult.Skipped ->
+                    logger.info("      Plugin skipped: ${pluginResult.reason}")
+            }
+        }
+
+        // 1. Load tool config
+        logger.lifecycle("[1/7] Loading configuration")
         val effectiveCacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).also {
             logger.info("      Cache dir: $it")
         }
+        val effectiveToolConfig =
+            toolConfig.copy(
+                processTimeoutSeconds = effectiveProcessTimeoutSeconds,
+                pluginTimeoutSeconds = effectivePluginTimeoutSeconds,
+                resolverConnectTimeoutMs = effectiveResolverConnectTimeoutMs,
+                resolverRequestTimeoutMs = effectiveResolverRequestTimeoutMs
+            )
         val effectiveIncludeMavenCentral =
             config.includeMavenCentral ?: toolConfig.includeMavenCentral
         val effectiveDownloadThreads = config.downloadThreads ?: toolConfig.downloadThreads
@@ -86,6 +167,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         val recipeAetherContext = AetherContext.build(
             localRepoDir = recipeLocalRepoDir,
             extraRepositories = effectiveRepositories,
+            connectTimeoutMs = effectiveResolverConnectTimeoutMs,
+            requestTimeoutMs = effectiveResolverRequestTimeoutMs,
             downloadThreads = effectiveDownloadThreads,
             // Prune test/provided/system scope nodes from the graph during collection so
             // their POMs are never fetched. Recipes only need compile/runtime JARs to run.
@@ -99,6 +182,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         val projectAetherContext = AetherContext.build(
             localRepoDir = mavenLocalRepoDir,
             extraRepositories = effectiveRepositories,
+            connectTimeoutMs = effectiveResolverConnectTimeoutMs,
+            requestTimeoutMs = effectiveResolverRequestTimeoutMs,
             downloadThreads = effectiveDownloadThreads,
             includeMavenCentral = effectiveIncludeMavenCentral,
             logger = logger
@@ -106,17 +191,17 @@ class RewriteRunner private constructor(private val config: Builder) {
 
         // 2. Resolve recipe JARs
         val recipeJars = if (config.recipeArtifacts.isNotEmpty()) {
-            logger.lifecycle("[2/6] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
+            logger.lifecycle("[2/7] Resolving ${config.recipeArtifacts.size} recipe artifact(s)")
             RecipeArtifactResolver(recipeAetherContext, logger).resolveAll(config.recipeArtifacts)
         } else {
-            logger.lifecycle("[2/6] No recipe artifacts specified — using classpath recipes only")
+            logger.lifecycle("[2/7] No recipe artifacts specified — using classpath recipes only")
             emptyList()
         }
 
         // Stages 3–6 run inside RecipeLoader.use{} so the URLClassLoader over recipe JARs
         // is always closed when this block exits (success or exception), releasing file
         // descriptors promptly rather than waiting for GC.
-        logger.lifecycle("[3/6] Loading recipe '${config.activeRecipe}'")
+        logger.lifecycle("[3/7] Loading recipe '${config.activeRecipe}'")
         return RecipeLoader(logger).use { recipeLoader ->
 
             // 3. Load recipe (precedence: string content > explicit path > implicit projectDir/rewrite.yaml)
@@ -143,16 +228,16 @@ class RewriteRunner private constructor(private val config: Builder) {
             // is deferred to the end of this use{} block, after all stages complete.
             logger.info("      Recipe ready: ${recipe.name}")
 
-            // 4. Build LST (3-stage pipeline)
+            // 4. Build LST (4-stage pipeline)
             // OpenRewrite requires all source files in memory simultaneously to support
             // cross-file analysis. For large projects set -Xmx accordingly, e.g.:
             //   java -Xmx6g -jar rewrite-runner-all.jar …
-            logger.lifecycle("[4/6] Building LST for ${config.projectDir}")
+            logger.lifecycle("[4/7] Building LST for ${config.projectDir}")
             val lstBuilder =
                 LstBuilder(
                     logger = logger,
                     cacheDir = effectiveCacheDir,
-                    toolConfig = toolConfig,
+                    toolConfig = effectiveToolConfig,
                     aetherContext = projectAetherContext
                 )
             val effectiveParseConfig =
@@ -175,7 +260,7 @@ class RewriteRunner private constructor(private val config: Builder) {
 
             // 5. Run recipe
             logger.lifecycle(
-                "[5/6] Running recipe '${recipe.name}' against ${sourceFiles.size} file(s)"
+                "[5/7] Running recipe '${recipe.name}' against ${sourceFiles.size} file(s)"
             )
             val recipeStart = System.currentTimeMillis()
             val results = RecipeRunner(logger).run(recipe, sourceFiles)
@@ -187,7 +272,7 @@ class RewriteRunner private constructor(private val config: Builder) {
             // 6. Apply changes (unless dryRun)
             val writtenFiles = mutableListOf<Path>()
             if (!config.dryRun) {
-                logger.lifecycle("[6/6] Writing changes to disk")
+                logger.lifecycle("[6/7] Writing changes to disk")
                 for (result in results) {
                     if (result.after == null) {
                         // Recipe deleted this file — remove it from disk
@@ -217,7 +302,7 @@ class RewriteRunner private constructor(private val config: Builder) {
                 }
             } else {
                 logger.lifecycle(
-                    "[6/6] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
+                    "[6/7] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
                 )
             }
 
@@ -258,6 +343,8 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var dryRun: Boolean = false
             private set
+        internal var skipPluginRun: Boolean = false
+            private set
         internal var includeExtensions: List<String> = emptyList()
             private set
         internal var excludeExtensions: List<String> = emptyList()
@@ -265,6 +352,14 @@ class RewriteRunner private constructor(private val config: Builder) {
         internal var includeMavenCentral: Boolean? = null
             private set
         internal var downloadThreads: Int? = null
+            private set
+        internal var processTimeoutSeconds: Long? = null
+            private set
+        internal var pluginTimeoutSeconds: Long? = null
+            private set
+        internal var resolverConnectTimeoutMs: Int? = null
+            private set
+        internal var resolverRequestTimeoutMs: Int? = null
             private set
         internal var repositories: List<RepositoryConfig> = emptyList()
             private set
@@ -335,6 +430,12 @@ class RewriteRunner private constructor(private val config: Builder) {
         fun dryRun(value: Boolean): Builder = apply { dryRun = value }
 
         /**
+         * When `true`, bypass the official Gradle/Maven plugin attempt and use the
+         * in-process LST pipeline directly.
+         */
+        fun skipPluginRun(value: Boolean): Builder = apply { skipPluginRun = value }
+
+        /**
          * Restrict parsing to the given file extensions (e.g. `".java"`, `".kt"`).
          * Overrides any `includeExtensions` setting from the tool config file.
          */
@@ -355,6 +456,24 @@ class RewriteRunner private constructor(private val config: Builder) {
          * When not set, falls back to `downloadThreads` from the tool config.
          */
         fun downloadThreads(n: Int): Builder = apply { downloadThreads = n }
+
+        /**
+         * Timeout for non-plugin build-tool subprocesses, including LST Stage 1,
+         * Stage 2, compile attempts, and build-tool metadata commands.
+         */
+        fun processTimeoutSeconds(seconds: Long): Builder =
+            apply { processTimeoutSeconds = seconds }
+
+        /** Timeout for official OpenRewrite Gradle/Maven plugin invocations in Stage 0. */
+        fun pluginTimeoutSeconds(seconds: Long): Builder = apply { pluginTimeoutSeconds = seconds }
+
+        /** TCP connection timeout for Maven Resolver artifact downloads. */
+        fun resolverConnectTimeoutMs(milliseconds: Int): Builder =
+            apply { resolverConnectTimeoutMs = milliseconds }
+
+        /** Socket read/request timeout for Maven Resolver artifact downloads. */
+        fun resolverRequestTimeoutMs(milliseconds: Int): Builder =
+            apply { resolverRequestTimeoutMs = milliseconds }
 
         /**
          * Override whether Maven Central is included as a remote repository.
@@ -431,6 +550,16 @@ class RewriteRunner private constructor(private val config: Builder) {
             }
         } catch (_: Exception) {
             null
+        }
+
+        private fun positiveLong(value: Long, name: String): Long {
+            require(value > 0) { "$name must be greater than 0: $value" }
+            return value
+        }
+
+        private fun positiveInt(value: Int, name: String): Int {
+            require(value > 0) { "$name must be greater than 0: $value" }
+            return value
         }
     }
 }
