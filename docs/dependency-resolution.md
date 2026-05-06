@@ -96,5 +96,5 @@ Both recipe and project `AetherContext` instances apply the following settings:
 | Repository `checksumPolicy` | `CHECKSUM_POLICY_IGNORE` | Don't fail or retry when a repository omits `.sha1` / `.sha256` files (common on corporate proxies and private registries) |
 | Repository update policy | `UPDATE_POLICY_DAILY` | Re-check remote metadata at most once per day; cached artifacts are reused within a day |
 | Parallel download threads | configurable (`--download-threads`, default 5) | Tune for network bandwidth vs resource constraints |
-| `CONNECT_TIMEOUT` | configurable (`resolverConnectTimeoutMs`, default 30 s) | Avoid hanging on slow connections |
-| `REQUEST_TIMEOUT` | configurable (`resolverRequestTimeoutMs`, default 60 s) | Abort if a server accepts the connection but never responds |
+| `CONNECT_TIMEOUT` | configurable (`resolverConnectTimeout`, default `30s`) | Avoid hanging on slow connections |
+| `REQUEST_TIMEOUT` | configurable (`resolverRequestTimeout`, default `60s`) | Abort if a server accepts the connection but never responds |

@@ -6,6 +6,7 @@ import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 import kotlin.streams.toList
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader
@@ -15,7 +16,7 @@ private val MAVEN_PATCH_PATH: Path = Path.of("target/site/rewrite/rewrite.patch"
 
 internal open class MavenPluginStrategy(
     private val logger: RunnerLogger,
-    private val timeoutSeconds: Long,
+    private val timeout: Duration,
     private val rewritePluginVersion: String
 ) : PluginBuildStrategy {
     override fun run(
@@ -87,7 +88,8 @@ internal open class MavenPluginStrategy(
     open fun execute(projectDir: Path, command: List<String>): Int? = runProcess(
         workDir = projectDir,
         command = command,
-        timeoutSeconds = timeoutSeconds,
+        timeout = timeout,
+        timeoutName = "pluginTimeout",
         logger = logger
     )
 

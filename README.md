@@ -106,12 +106,14 @@ dependencies {
 ```kotlin
 import io.github.skhokhlov.rewriterunner.RewriteRunner
 import java.nio.file.Paths
+import java.time.Duration
 
 fun main() {
     val result = RewriteRunner.builder()
         .projectDir(Paths.get("/path/to/project"))
         .activeRecipe("org.openrewrite.java.format.AutoFormat")
         .recipeArtifact("org.openrewrite.recipe:rewrite-static-analysis:LATEST")
+        .processTimeout(Duration.ofSeconds(120))
         .dryRun(true)   // preview changes without writing to disk
         .build()
         .run()
@@ -127,6 +129,7 @@ fun main() {
 import io.github.skhokhlov.rewriterunner.RewriteRunner;
 import io.github.skhokhlov.rewriterunner.RunResult;
 import java.nio.file.Paths;
+import java.time.Duration;
 
 public class Example {
     public static void main(String[] args) {
@@ -134,6 +137,7 @@ public class Example {
             .projectDir(Paths.get("/path/to/project"))
             .activeRecipe("org.openrewrite.java.format.AutoFormat")
             .recipeArtifact("org.openrewrite.recipe:rewrite-static-analysis:LATEST")
+            .processTimeout(Duration.ofSeconds(120))
             .dryRun(true)
             .build()
             .run();
@@ -311,10 +315,10 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
                           [--active-recipe=<recipe>]
                           [--cache-dir=<path>] [--config=<path>]
                           [--download-threads=<n>]
-                          [--process-timeout-seconds=<seconds>]
-                          [--plugin-timeout-seconds=<seconds>]
-                          [--resolver-connect-timeout-ms=<ms>]
-                          [--resolver-request-timeout-ms=<ms>]
+                          [--process-timeout=<duration>]
+                          [--plugin-timeout=<duration>]
+                          [--resolver-connect-timeout=<duration>]
+                          [--resolver-request-timeout=<duration>]
                           [--output=<mode>] [--project-dir=<path>]
                           [--rewrite-config=<path>]
                           [--exclude-extensions=<ext>[,<ext>...]]
@@ -334,10 +338,10 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
 | `--dry-run` | Run recipe but do not write changes to disk | `false` |
 | `--skip-plugin-run` | Skip plugin-first execution; use full LST pipeline directly | `false` |
 | `--download-threads` | Number of parallel artifact download threads | `5` |
-| `--process-timeout-seconds` | Timeout for build-tool subprocesses in the fallback LST pipeline | `120` |
-| `--plugin-timeout-seconds` | Timeout for plugin-first Gradle/Maven invocations | `600` |
-| `--resolver-connect-timeout-ms` | TCP connection timeout for Maven Resolver downloads | `30000` |
-| `--resolver-request-timeout-ms` | Socket read/request timeout for Maven Resolver downloads | `60000` |
+| `--process-timeout` | Timeout for build-tool subprocesses in the fallback LST pipeline. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `120s` |
+| `--plugin-timeout` | Timeout for plugin-first Gradle/Maven invocations. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `10m` |
+| `--resolver-connect-timeout` | TCP connection timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `30s` |
+| `--resolver-request-timeout` | Socket read/request timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `60s` |
 | `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
 | `--exclude-extensions` | Comma-separated file extensions to skip | — |
 | `--no-maven-central` | Disable Maven Central; use only repositories from the config file | `false` |
@@ -429,6 +433,7 @@ Create `rewriterunner.yml` to configure repositories and caching for your enviro
 2. `~/.rewriterunner/rewriterunner.yml` — global fallback, shared across all projects
 
 File name matching is case-insensitive (e.g. `RewriteRunner.yml` also works). Override either default with `--config <path>`.
+Duration values require units such as `30000ms`, `120s`, `10m`, `2h`, `1d`, or ISO-8601 values such as `PT2M`.
 
 ```yaml
 repositories:
@@ -439,12 +444,12 @@ repositories:
 cacheDir: ~/.rewriterunner/cache
 
 downloadThreads: 5   # parallel artifact download threads (default: 5)
-processTimeoutSeconds: 120        # fallback LST build-tool subprocess timeout
-pluginTimeoutSeconds: 600         # plugin-first rewriteDryRun/rewriteRun timeout
+processTimeout: 120s              # fallback LST build-tool subprocess timeout
+pluginTimeout: 10m                # plugin-first rewriteDryRun/rewriteRun timeout
 rewriteGradlePluginVersion: 7.32.1
 rewriteMavenPluginVersion: 6.38.0
-resolverConnectTimeoutMs: 30000   # Maven Resolver TCP connection timeout
-resolverRequestTimeoutMs: 60000   # Maven Resolver socket/request timeout
+resolverConnectTimeout: 30s       # Maven Resolver TCP connection timeout
+resolverRequestTimeout: 60s       # Maven Resolver socket/request timeout
 
 parse:
   includeExtensions: [".java", ".kt", ".xml"]

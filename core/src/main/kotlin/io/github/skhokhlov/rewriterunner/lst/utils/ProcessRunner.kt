@@ -2,10 +2,12 @@ package io.github.skhokhlov.rewriterunner.lst.utils
 
 import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.config.DurationParser
 import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 
@@ -13,12 +15,13 @@ internal typealias ProcessRunner = (
     workDir: Path,
     command: List<String>,
     captureStdout: StringBuilder?,
-    timeoutSeconds: Long,
+    timeout: Duration,
+    timeoutName: String,
     logger: RunnerLogger
 ) -> Int?
 
 /**
- * Runs an external process in [workDir] and waits up to [timeoutSeconds] for it to finish.
+ * Runs an external process in [workDir] and waits up to [timeout] for it to finish.
  *
  * Both stdout and stderr are always drained on background threads to prevent OS pipe-buffer
  * deadlock (~64 KB limit). Each line is logged at DEBUG level (visible with `--debug`).
@@ -31,9 +34,11 @@ internal fun runProcess(
     workDir: Path,
     command: List<String>,
     captureStdout: StringBuilder? = null,
-    timeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS,
+    timeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT,
+    timeoutName: String = "processTimeout",
     logger: RunnerLogger
 ): Int? {
+    DurationParser.requirePositive(timeout, timeoutName)
     val pb = ProcessBuilder(command).directory(workDir.toFile())
 
     val process =
@@ -63,13 +68,14 @@ internal fun runProcess(
     val stdoutThread = drainStream(process.inputStream, "stdout")
     val stderrThread = drainStream(process.errorStream, "stderr")
 
-    val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+    val timeoutMillis = timeout.toMillis().coerceAtLeast(1)
+    val finished = process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
     if (!finished) {
         process.destroyForcibly()
         closeProcessStreams(process)
         stdoutThread.join(TIMEOUT_DRAIN_JOIN_MILLIS)
         stderrThread.join(TIMEOUT_DRAIN_JOIN_MILLIS)
-        logger.warn("Process ${command.first()} timed out after ${timeoutSeconds}s")
+        logger.warn("Process ${command.first()} timed out after $timeout")
         return null
     }
 

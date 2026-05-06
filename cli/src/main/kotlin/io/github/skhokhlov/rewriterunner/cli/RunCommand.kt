@@ -1,9 +1,11 @@
 package io.github.skhokhlov.rewriterunner.cli
 
 import io.github.skhokhlov.rewriterunner.RewriteRunner
+import io.github.skhokhlov.rewriterunner.config.DurationParser
 import io.github.skhokhlov.rewriterunner.output.OutputMode
 import io.github.skhokhlov.rewriterunner.output.ResultFormatter
 import java.nio.file.Path
+import java.time.Duration
 import java.util.concurrent.Callable
 import picocli.CommandLine
 import picocli.CommandLine.Command
@@ -123,34 +125,44 @@ class RunCommand : Callable<Int> {
     var downloadThreads: Int? = null
 
     @Option(
-        names = ["--process-timeout-seconds"],
+        names = ["--process-timeout"],
         description = [
             "Timeout for build-tool subprocesses in the fallback LST pipeline.",
-            "Defaults to 120."
-        ]
+            "Use values like 120s, 10m, or PT2M. Defaults to 120s."
+        ],
+        converter = [DurationConverter::class]
     )
-    var processTimeoutSeconds: Long? = null
+    var processTimeout: Duration? = null
 
     @Option(
-        names = ["--plugin-timeout-seconds"],
-        description = ["Timeout for plugin-first Gradle/Maven invocations. Defaults to 600."]
+        names = ["--plugin-timeout"],
+        description = [
+            "Timeout for plugin-first Gradle/Maven invocations.",
+            "Use values like 10m, 600s, or PT10M. Defaults to 10m."
+        ],
+        converter = [DurationConverter::class]
     )
-    var pluginTimeoutSeconds: Long? = null
+    var pluginTimeout: Duration? = null
 
     @Option(
-        names = ["--resolver-connect-timeout-ms"],
-        description = ["TCP connection timeout for Maven Resolver downloads. Defaults to 30000."]
+        names = ["--resolver-connect-timeout"],
+        description = [
+            "TCP connection timeout for Maven Resolver downloads.",
+            "Use values like 30s, 30000ms, or PT30S. Defaults to 30s."
+        ],
+        converter = [DurationConverter::class]
     )
-    var resolverConnectTimeoutMs: Int? = null
+    var resolverConnectTimeout: Duration? = null
 
     @Option(
-        names = ["--resolver-request-timeout-ms"],
+        names = ["--resolver-request-timeout"],
         description = [
             "Socket read/request timeout for Maven Resolver downloads.",
-            "Defaults to 60000."
-        ]
+            "Use values like 60s, 1m, or PT1M. Defaults to 60s."
+        ],
+        converter = [DurationConverter::class]
     )
-    var resolverRequestTimeoutMs: Int? = null
+    var resolverRequestTimeout: Duration? = null
 
     override fun call(): Int {
         val logger =
@@ -171,10 +183,10 @@ class RunCommand : Callable<Int> {
             configFile?.let { builder.configFile(it) }
             if (noMavenCentral) builder.includeMavenCentral(false)
             downloadThreads?.let { builder.downloadThreads(it) }
-            processTimeoutSeconds?.let { builder.processTimeoutSeconds(it) }
-            pluginTimeoutSeconds?.let { builder.pluginTimeoutSeconds(it) }
-            resolverConnectTimeoutMs?.let { builder.resolverConnectTimeoutMs(it) }
-            resolverRequestTimeoutMs?.let { builder.resolverRequestTimeoutMs(it) }
+            processTimeout?.let { builder.processTimeout(it) }
+            pluginTimeout?.let { builder.pluginTimeout(it) }
+            resolverConnectTimeout?.let { builder.resolverConnectTimeout(it) }
+            resolverRequestTimeout?.let { builder.resolverRequestTimeout(it) }
 
             val runResult = builder.build().run()
 
@@ -207,4 +219,12 @@ private class OutputModeConverter : ITypeConverter<OutputMode> {
                 "Unknown output mode '$value'. Valid values: " +
                     OutputMode.entries.joinToString(", ") { it.name.lowercase() }
             )
+}
+
+private class DurationConverter : ITypeConverter<Duration> {
+    override fun convert(value: String): Duration = try {
+        DurationParser.parse(value)
+    } catch (e: IllegalArgumentException) {
+        throw CommandLine.TypeConversionException(e.message)
+    }
 }

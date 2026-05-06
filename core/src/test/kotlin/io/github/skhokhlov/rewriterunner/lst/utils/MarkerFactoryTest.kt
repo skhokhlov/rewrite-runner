@@ -4,6 +4,7 @@ import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import org.openrewrite.marker.BuildTool
@@ -20,18 +21,18 @@ class MarkerFactoryTest :
             projectDir.resolve("pom.xml").writeText("<project/>")
             projectDir.resolve("mvnw").writeText("")
             var observedCommand: List<String>? = null
-            var observedTimeoutSeconds: Long? = null
+            var observedTimeout: Duration? = null
 
             val factory =
                 MarkerFactory(
                     logger = NoOpRunnerLogger,
                     staticParser = StaticBuildFileParser(NoOpRunnerLogger),
                     versionDetector = VersionDetector(NoOpRunnerLogger),
-                    processTimeoutSeconds = 20,
-                    processRunner = { workDir, command, _, timeoutSeconds, _ ->
+                    processTimeout = Duration.ofSeconds(20),
+                    processRunner = { workDir, command, _, timeout, _, _ ->
                         assertEquals(projectDir, workDir)
                         observedCommand = command
-                        observedTimeoutSeconds = timeoutSeconds
+                        observedTimeout = timeout
                         null
                     }
                 )
@@ -41,6 +42,6 @@ class MarkerFactoryTest :
             assertEquals(BuildTool.Type.Maven, marker?.type)
             assertEquals("unknown", marker?.version)
             assertEquals(listOf("./mvnw", "--version"), observedCommand)
-            assertEquals(5L, observedTimeoutSeconds)
+            assertEquals(Duration.ofSeconds(5), observedTimeout)
         }
     })

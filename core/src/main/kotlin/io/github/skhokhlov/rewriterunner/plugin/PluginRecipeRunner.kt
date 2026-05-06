@@ -7,17 +7,18 @@ import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 
 internal class PluginRecipeRunner(
     private val logger: RunnerLogger = NoOpRunnerLogger,
-    timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS,
+    timeout: Duration = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
     rewriteGradlePluginVersion: String = ToolConfig.REWRITE_GRADLE_PLUGIN_VERSION,
     rewriteMavenPluginVersion: String = ToolConfig.REWRITE_MAVEN_PLUGIN_VERSION,
     private val gradleStrategy: PluginBuildStrategy =
-        GradlePluginStrategy(logger, timeoutSeconds, rewriteGradlePluginVersion),
+        GradlePluginStrategy(logger, timeout, rewriteGradlePluginVersion),
     private val mavenStrategy: PluginBuildStrategy =
-        MavenPluginStrategy(logger, timeoutSeconds, rewriteMavenPluginVersion)
+        MavenPluginStrategy(logger, timeout, rewriteMavenPluginVersion)
 ) {
     /**
      * Tries Gradle before Maven when both root build files are present.
@@ -85,9 +86,5 @@ internal class PluginRecipeRunner(
             .takeIf { it.isNotEmpty() }
             ?.let { PluginRunResult.Failed(it.joinToString(" ; ") { failure -> failure.reason }) }
             ?: PluginRunResult.Skipped("no supported build tool found")
-    }
-
-    companion object {
-        const val DEFAULT_TIMEOUT_SECONDS = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS
     }
 }

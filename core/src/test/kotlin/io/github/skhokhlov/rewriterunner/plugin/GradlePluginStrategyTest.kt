@@ -7,6 +7,7 @@ import io.github.skhokhlov.rewriterunner.config.ToolConfig.Companion.REWRITE_GRA
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -30,7 +31,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 GradlePluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     REWRITE_GRADLE_PLUGIN_VERSION
                 )
 
@@ -57,7 +58,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeoutSeconds = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     rewritePluginVersion = "7.20.0"
                 )
 
@@ -77,7 +78,7 @@ class GradlePluginStrategyTest :
         test("generateInitScript adds repositories for plugin management and all projects") {
             val strategy = GradlePluginStrategy(
                 logger = NoOpRunnerLogger,
-                timeoutSeconds = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                 rewritePluginVersion = "7.20.0"
             )
 
@@ -115,7 +116,7 @@ class GradlePluginStrategyTest :
         test("generateInitScript adds recipe artifacts to root rewrite configuration only") {
             val strategy = GradlePluginStrategy(
                 logger = NoOpRunnerLogger,
-                timeoutSeconds = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                 rewritePluginVersion = "7.20.0"
             )
 
@@ -148,7 +149,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeoutSeconds = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
@@ -192,7 +193,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeoutSeconds = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
@@ -247,7 +248,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeoutSeconds = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? = 0
@@ -272,7 +273,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeoutSeconds = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? = null
@@ -300,7 +301,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeoutSeconds = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
@@ -351,7 +352,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 GradlePluginStrategy(
                     NoOpRunnerLogger,
-                    timeoutSeconds = 1,
+                    timeout = Duration.ofSeconds(1),
                     REWRITE_GRADLE_PLUGIN_VERSION
                 )
             val start = System.currentTimeMillis()

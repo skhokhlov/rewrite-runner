@@ -8,6 +8,7 @@ import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 
 /**
@@ -54,7 +55,7 @@ import kotlin.io.path.exists
  */
 open class ProjectBuildStage(
     protected val logger: RunnerLogger,
-    private val processTimeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS
+    private val processTimeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT
 ) {
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.
@@ -91,7 +92,7 @@ open class ProjectBuildStage(
             val result = runProcess(
                 projectDir,
                 mvnCommand,
-                timeoutSeconds = processTimeoutSeconds,
+                timeout = processTimeout,
                 logger = logger
             ) ?: return null
 
@@ -145,7 +146,7 @@ open class ProjectBuildStage(
                 projectDir,
                 gradleCommand,
                 captureStdout = output,
-                timeoutSeconds = processTimeoutSeconds,
+                timeout = processTimeout,
                 logger = logger
             ) ?: return null
 
@@ -234,7 +235,7 @@ open class ProjectBuildStage(
                 runProcess(
                     projectDir,
                     command,
-                    timeoutSeconds = processTimeoutSeconds,
+                    timeout = processTimeout,
                     logger = logger
                 ) ?: return false
             if (result == 0) {
