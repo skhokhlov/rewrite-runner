@@ -119,13 +119,13 @@ class RunCommand : Callable<Int> {
     var noMavenCentral: Boolean = false
 
     @Option(
-        names = ["--download-threads"],
+        names = ["--artifact-download-threads", "--download-threads"],
         description = ["Number of parallel artifact download threads. Defaults to 5."]
     )
     var downloadThreads: Int? = null
 
     @Option(
-        names = ["--process-timeout"],
+        names = ["--subprocess-run-timeout"],
         description = [
             "Timeout for build-tool subprocesses in the fallback LST pipeline.",
             "Use values like 120s, 10m, or PT2M. Defaults to 120s."
@@ -135,7 +135,7 @@ class RunCommand : Callable<Int> {
     var processTimeout: Duration? = null
 
     @Option(
-        names = ["--plugin-timeout"],
+        names = ["--plugin-run-timeout"],
         description = [
             "Timeout for plugin-first Gradle/Maven invocations.",
             "Use values like 10m, 600s, or PT10M. Defaults to 10m."
@@ -145,7 +145,7 @@ class RunCommand : Callable<Int> {
     var pluginTimeout: Duration? = null
 
     @Option(
-        names = ["--resolver-connect-timeout"],
+        names = ["--artifact-resolver-connect-timeout", "--resolver-connect-timeout"],
         description = [
             "TCP connection timeout for Maven Resolver downloads.",
             "Use values like 30s, 30000ms, or PT30S. Defaults to 30s."
@@ -155,7 +155,7 @@ class RunCommand : Callable<Int> {
     var resolverConnectTimeout: Duration? = null
 
     @Option(
-        names = ["--resolver-request-timeout"],
+        names = ["--artifact-resolver-request-timeout", "--resolver-request-timeout"],
         description = [
             "Socket read/request timeout for Maven Resolver downloads.",
             "Use values like 60s, 1m, or PT1M. Defaults to 60s."
@@ -182,11 +182,11 @@ class RunCommand : Callable<Int> {
             cacheDir?.let { builder.cacheDir(it) }
             configFile?.let { builder.configFile(it) }
             if (noMavenCentral) builder.includeMavenCentral(false)
-            downloadThreads?.let { builder.downloadThreads(it) }
-            processTimeout?.let { builder.processTimeout(it) }
-            pluginTimeout?.let { builder.pluginTimeout(it) }
-            resolverConnectTimeout?.let { builder.resolverConnectTimeout(it) }
-            resolverRequestTimeout?.let { builder.resolverRequestTimeout(it) }
+            downloadThreads?.let { builder.artifactDownloadThreads(it) }
+            processTimeout?.let { builder.subprocessRunTimeout(it) }
+            pluginTimeout?.let { builder.pluginRunTimeout(it) }
+            resolverConnectTimeout?.let { builder.artifactResolverConnectTimeout(it) }
+            resolverRequestTimeout?.let { builder.artifactResolverRequestTimeout(it) }
 
             val runResult = builder.build().run()
 

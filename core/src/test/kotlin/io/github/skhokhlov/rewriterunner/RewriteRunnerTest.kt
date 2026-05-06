@@ -131,8 +131,10 @@ class RewriteRunnerTest :
                 .projectDir(projectDir)
                 .activeRecipe("com.test.DeleteProperties")
                 .cacheDir(cacheDir)
-                .repository(RepositoryConfig(url = "https://repo.example.com/maven"))
-                .repositories(listOf(RepositoryConfig(url = "https://other.example.com/maven")))
+                .artifactRepository(RepositoryConfig(url = "https://repo.example.com/maven"))
+                .artifactRepositories(
+                    listOf(RepositoryConfig(url = "https://other.example.com/maven"))
+                )
                 .build()
                 .run()
             // No assertion needed — the test passes if no exception is thrown
@@ -162,7 +164,7 @@ class RewriteRunnerTest :
                 .activeRecipe("org.openrewrite.FindSourceFiles")
                 .cacheDir(cacheDir)
                 .skipPluginRun(true)
-                .processTimeout(Duration.ofMillis(100))
+                .subprocessRunTimeout(Duration.ofMillis(100))
                 .build()
                 .run()
 

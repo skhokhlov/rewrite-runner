@@ -137,14 +137,14 @@ class RewriteRunnerBuilderTest :
                 RewriteRunner.builder()
                     .projectDir(tempDir)
                     .activeRecipe("org.openrewrite.FindSourceFiles")
-                    .processTimeout(Duration.ofSeconds(45))
-                    .pluginTimeout(Duration.ofMinutes(15))
-                    .resolverConnectTimeout(Duration.ofSeconds(10))
-                    .resolverRequestTimeout(Duration.ofSeconds(20))
-            assertEquals(Duration.ofSeconds(45), builder.processTimeout)
-            assertEquals(Duration.ofMinutes(15), builder.pluginTimeout)
-            assertEquals(Duration.ofSeconds(10), builder.resolverConnectTimeout)
-            assertEquals(Duration.ofSeconds(20), builder.resolverRequestTimeout)
+                    .subprocessRunTimeout(Duration.ofSeconds(45))
+                    .pluginRunTimeout(Duration.ofMinutes(15))
+                    .artifactResolverConnectTimeout(Duration.ofSeconds(10))
+                    .artifactResolverRequestTimeout(Duration.ofSeconds(20))
+            assertEquals(Duration.ofSeconds(45), builder.subprocessRunTimeout)
+            assertEquals(Duration.ofMinutes(15), builder.pluginRunTimeout)
+            assertEquals(Duration.ofSeconds(10), builder.artifactResolverConnectTimeout)
+            assertEquals(Duration.ofSeconds(20), builder.artifactResolverRequestTimeout)
         }
 
         test("builder stores includeExtensions") {
@@ -181,10 +181,10 @@ class RewriteRunnerBuilderTest :
 
         test("timeout overrides default to null") {
             val builder = RewriteRunner.builder()
-            assertNull(builder.processTimeout)
-            assertNull(builder.pluginTimeout)
-            assertNull(builder.resolverConnectTimeout)
-            assertNull(builder.resolverRequestTimeout)
+            assertNull(builder.subprocessRunTimeout)
+            assertNull(builder.pluginRunTimeout)
+            assertNull(builder.artifactResolverConnectTimeout)
+            assertNull(builder.artifactResolverRequestTimeout)
         }
 
         test("rewriteConfig defaults to null") {

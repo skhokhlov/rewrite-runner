@@ -200,29 +200,6 @@ ResultFormatter(OutputMode.REPORT).format(result)
 
 Library consumers that only need to inspect changes programmatically can skip `ResultFormatter` entirely and work with `RunResult.results` directly.
 
-### Builder reference
-
-| Method | Type | Default | Description |
-|--------|------|---------|-------------|
-| `projectDir(Path)` | required | `.` (cwd) | Project root to analyse |
-| `activeRecipe(String)` | required | — | Fully-qualified recipe name |
-| `recipeArtifact(String)` | optional (repeatable) | — | Maven coordinate of a recipe JAR; may be called multiple times |
-| `recipeArtifacts(List<String>)` | optional | — | Set all recipe artifact coordinates at once |
-| `rewriteConfig(Path)` | optional | `<projectDir>/rewrite.yaml` | Path to a `rewrite.yaml` for custom composite recipes |
-| `rewriteConfigContent(String)` | optional | — | Raw `rewrite.yaml` content as a string; takes precedence over `rewriteConfig` when both are set |
-| `cacheDir(Path)` | optional | `~/.rewriterunner/cache` | Cache root for downloaded recipe JARs (stored under `<cacheDir>/repository`). Project dependencies always resolve from `~/.m2/repository`. |
-| `configFile(Path)` | optional | auto-discovered | Path to `rewriterunner.yml`; auto-discovery checks `<projectDir>/rewriterunner.yml` then `~/.rewriterunner/rewriterunner.yml` |
-| `dryRun(Boolean)` | optional | `false` | Analyse without writing to disk |
-| `skipPluginRun(Boolean)` | optional | `false` | Skip plugin-first execution and use the in-process LST pipeline directly |
-| `includeExtensions(List<String>)` | optional | all supported | File extensions to parse; overrides config file setting |
-| `excludeExtensions(List<String>)` | optional | — | File extensions to skip; overrides config file setting |
-| `excludePaths(List<String>)` | optional | — | Glob patterns (relative to project root) for paths to skip during parsing; overrides `parse.excludePaths` from config file |
-| `downloadThreads(Int)` | optional | `5` | Number of parallel artifact download threads. Increase for fast networks; decrease in resource-constrained environments. |
-| `includeMavenCentral(Boolean)` | optional | `true` | Include Maven Central as a resolution repository. Set to `false` for air-gapped or enterprise environments. |
-| `repository(RepositoryConfig)` | optional (repeatable) | — | Add one extra Maven repository for artifact resolution; combined with repositories from config file |
-| `repositories(List<RepositoryConfig>)` | optional | — | Set all extra Maven repositories at once; combined with repositories from config file |
-| `logger(RunnerLogger)` | optional | `NoOpRunnerLogger` | Receives pipeline log events; implement to capture lifecycle, info, debug, warn, and error messages |
-
 ### Logging
 
 By default the `core` library produces **no log output** — all logging is suppressed via `NoOpRunnerLogger`. To receive pipeline events, implement `RunnerLogger` and pass it to the builder:
@@ -274,7 +251,7 @@ val result = RewriteRunner.builder()
     .projectDir(Paths.get("/path/to/project"))
     .activeRecipe("org.openrewrite.java.format.AutoFormat")
     .recipeArtifact("org.openrewrite.recipe:rewrite-static-analysis:LATEST")
-    .repository(RepositoryConfig(
+    .artifactRepository(RepositoryConfig(
         url = "https://nexus.example.com/repository/maven-public",
         username = System.getenv("NEXUS_USER"),
         password = System.getenv("NEXUS_PASS")
@@ -314,11 +291,11 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
                           [--no-maven-central]
                           [--active-recipe=<recipe>]
                           [--cache-dir=<path>] [--config=<path>]
-                          [--download-threads=<n>]
-                          [--process-timeout=<duration>]
-                          [--plugin-timeout=<duration>]
-                          [--resolver-connect-timeout=<duration>]
-                          [--resolver-request-timeout=<duration>]
+                          [--artifact-download-threads=<n>]
+                          [--subprocess-run-timeout=<duration>]
+                          [--plugin-run-timeout<duration>]
+                          [--artifact-resolver-connect-timeout=<duration>]
+                          [--artifact-resolver-request-timeout=<duration>]
                           [--output=<mode>] [--project-dir=<path>]
                           [--rewrite-config=<path>]
                           [--exclude-extensions=<ext>[,<ext>...]]
@@ -326,27 +303,27 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
                           [--recipe-artifact=<coord>]...
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--project-dir`, `-p` | Project directory to refactor | `.` (current directory) |
-| `--active-recipe`, `-r` | Fully-qualified recipe name to run | *(required)* |
-| `--recipe-artifact` | Maven coordinate of a recipe JAR to load (repeatable) | — |
-| `--rewrite-config` | Path to `rewrite.yaml` for custom recipe compositions | `<project-dir>/rewrite.yaml` |
-| `--output`, `-o` | Output mode: `diff`, `files`, or `report` | `diff` |
-| `--cache-dir` | Cache root for downloaded recipe JARs (stored under `<path>/repository`). Project dependencies always resolve from `~/.m2/repository`. | `~/.rewriterunner/cache` |
-| `--config` | Path to tool config file (`rewriterunner.yml`) | `<project-dir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` |
-| `--dry-run` | Run recipe but do not write changes to disk | `false` |
-| `--skip-plugin-run` | Skip plugin-first execution; use full LST pipeline directly | `false` |
-| `--download-threads` | Number of parallel artifact download threads | `5` |
-| `--process-timeout` | Timeout for build-tool subprocesses in the fallback LST pipeline. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `120s` |
-| `--plugin-timeout` | Timeout for plugin-first Gradle/Maven invocations. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `10m` |
-| `--resolver-connect-timeout` | TCP connection timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `30s` |
-| `--resolver-request-timeout` | Socket read/request timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `60s` |
-| `--include-extensions` | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
-| `--exclude-extensions` | Comma-separated file extensions to skip | — |
-| `--no-maven-central` | Disable Maven Central; use only repositories from the config file | `false` |
-| `--info` | Enable INFO-level logging to stderr | `false` |
-| `--debug` | Enable DEBUG-level logging to stderr (overrides `--info`) | `false` |
+| Option                                | Description | Default |
+|---------------------------------------|-------------|---------|
+| `--project-dir`, `-p`                 | Project directory to refactor | `.` (current directory) |
+| `--active-recipe`, `-r`               | Fully-qualified recipe name to run | *(required)* |
+| `--recipe-artifact`                   | Maven coordinate of a recipe JAR to load (repeatable) | — |
+| `--rewrite-config`                    | Path to `rewrite.yaml` for custom recipe compositions | `<project-dir>/rewrite.yaml` |
+| `--output`, `-o`                      | Output mode: `diff`, `files`, or `report` | `diff` |
+| `--cache-dir`                         | Cache root for downloaded recipe JARs (stored under `<path>/repository`). Project dependencies always resolve from `~/.m2/repository`. | `~/.rewriterunner/cache` |
+| `--config`                            | Path to tool config file (`rewriterunner.yml`) | `<project-dir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` |
+| `--dry-run`                           | Run recipe but do not write changes to disk | `false` |
+| `--skip-plugin-run`                   | Skip plugin-first execution; use full LST pipeline directly | `false` |
+| `--artifact-download-threads`         | Number of parallel artifact download threads | `5` |
+| `--subprocess-run-timeout`            | Timeout for build-tool subprocesses in the fallback LST pipeline. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `120s` |
+| `--plugin-run-timeout`                | Timeout for plugin-first Gradle/Maven invocations. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `10m` |
+| `--artifact-resolver-connect-timeout` | TCP connection timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `30s` |
+| `--artifact-resolver-request-timeout` | Socket read/request timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `60s` |
+| `--include-extensions`                | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
+| `--exclude-extensions`                | Comma-separated file extensions to skip | — |
+| `--no-maven-central`                  | Disable Maven Central; use only repositories from the config file | `false` |
+| `--info`                              | Enable INFO-level logging to stderr | `false` |
+| `--debug`                             | Enable DEBUG-level logging to stderr (overrides `--info`) | `false` |
 
 ### Output modes
 

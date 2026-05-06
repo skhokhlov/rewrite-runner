@@ -1,9 +1,8 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
-import io.github.skhokhlov.rewriterunner.config.ToolConfig.Companion.REWRITE_GRADLE_PLUGIN_VERSION
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -31,8 +30,8 @@ class GradlePluginStrategyTest :
             val strategy =
                 GradlePluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    REWRITE_GRADLE_PLUGIN_VERSION
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 )
 
             val initScript =
@@ -58,7 +57,7 @@ class GradlePluginStrategyTest :
             val strategy =
                 GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     rewritePluginVersion = "7.20.0"
                 )
 
@@ -78,7 +77,7 @@ class GradlePluginStrategyTest :
         test("generateInitScript adds repositories for plugin management and all projects") {
             val strategy = GradlePluginStrategy(
                 logger = NoOpRunnerLogger,
-                timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
+                timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                 rewritePluginVersion = "7.20.0"
             )
 
@@ -116,7 +115,7 @@ class GradlePluginStrategyTest :
         test("generateInitScript adds recipe artifacts to root rewrite configuration only") {
             val strategy = GradlePluginStrategy(
                 logger = NoOpRunnerLogger,
-                timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
+                timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                 rewritePluginVersion = "7.20.0"
             )
 
@@ -149,8 +148,8 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
                         commands.add(command)
@@ -180,7 +179,7 @@ class GradlePluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = false,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.Success>(result)
@@ -193,8 +192,8 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
                         commands.add(command)
@@ -228,7 +227,7 @@ class GradlePluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = false,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.Success>(result)
@@ -248,8 +247,8 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? = 0
                 }
@@ -263,7 +262,7 @@ class GradlePluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = false,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.NoChanges>(result)
@@ -273,8 +272,8 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? = null
                 }
@@ -288,7 +287,7 @@ class GradlePluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = true,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertEquals(
@@ -301,8 +300,8 @@ class GradlePluginStrategyTest :
             val strategy =
                 object : GradlePluginStrategy(
                     logger = NoOpRunnerLogger,
-                    timeout = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    rewritePluginVersion = REWRITE_GRADLE_PLUGIN_VERSION
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
                         if ("rewriteDryRun" in command) {
@@ -332,7 +331,7 @@ class GradlePluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = false,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertEquals(PluginRunResult.Failed("Gradle rewriteRun exited with 2"), result)
@@ -353,7 +352,7 @@ class GradlePluginStrategyTest :
                 GradlePluginStrategy(
                     NoOpRunnerLogger,
                     timeout = Duration.ofSeconds(1),
-                    REWRITE_GRADLE_PLUGIN_VERSION
+                    ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 )
             val start = System.currentTimeMillis()
             val result =
@@ -365,7 +364,7 @@ class GradlePluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = true,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
             val elapsed = System.currentTimeMillis() - start
 

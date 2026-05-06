@@ -27,7 +27,7 @@ internal open class MavenPluginStrategy(
         rewriteConfigContent: String?,
         dryRun: Boolean,
         includeMavenCentral: Boolean,
-        repositories: List<RepositoryConfig>
+        artifactRepositories: List<RepositoryConfig>
     ): PluginRunResult {
         val effectiveRewriteConfig =
             createRewriteConfigFile(rewriteConfigContent)

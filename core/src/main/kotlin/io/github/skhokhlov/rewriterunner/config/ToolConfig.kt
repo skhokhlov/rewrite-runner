@@ -1,7 +1,6 @@
 package io.github.skhokhlov.rewriterunner.config
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
@@ -59,35 +58,37 @@ data class ParseConfig(
  * string fields. Loaded via [ToolConfig.load]; programmatic library users may also
  * construct instances directly.
  *
- * @property repositories Additional remote Maven repositories for JAR resolution.
+ * @property artifactRepositories Additional remote Maven repositories for JAR resolution.
  * @property cacheDir Cache root for downloaded recipe JARs. Supports `~` and `${ENV_VAR}`
  *   expansion. Recipe artifacts are stored under `<cacheDir>/repository`, isolated from the
  *   user's Maven local repository. Project dependencies always resolve from `~/.m2/repository`.
  *   Defaults to `~/.rewriterunner/cache`.
  * @property parse File parsing configuration controlling which extensions and paths are
  *   included or excluded from the LST-building stage.
- * @property processTimeout Timeout for build-tool subprocesses in the fallback LST pipeline.
- * @property pluginTimeout Timeout for official Gradle/Maven plugin invocations in Stage 0.
+ * @property subprocessRunTimeout Timeout for build-tool subprocesses in the fallback LST pipeline.
+ * @property pluginRunTimeout Timeout for official Gradle/Maven plugin invocations in Stage 0.
  * @property rewriteGradlePluginVersion Version of the official OpenRewrite Gradle plugin
  *   used by Stage 0 plugin-first execution.
  * @property rewriteMavenPluginVersion Version of the official OpenRewrite Maven plugin
  *   used by Stage 0 plugin-first execution.
- * @property resolverConnectTimeout TCP connection timeout for Maven Resolver downloads.
- * @property resolverRequestTimeout Socket read/request timeout for Maven Resolver downloads.
+ * @property artifactResolverConnectTimeout TCP connection timeout for Maven Resolver downloads.
+ * @property artifactResolverRequestTimeout Socket read/request timeout for Maven Resolver downloads.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ToolConfig(
-    val repositories: List<RepositoryConfig> = emptyList(),
-    val cacheDir: String = "~/.rewriterunner/cache",
+    val artifactRepositories: List<RepositoryConfig> = emptyList(),
+    val cacheDir: String = ToolConfigDefaults.CACHE_DIR,
     val parse: ParseConfig = ParseConfig(),
-    val includeMavenCentral: Boolean = true,
-    val downloadThreads: Int = DOWNLOAD_THREADS,
-    val processTimeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT,
-    val pluginTimeout: Duration = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-    val rewriteGradlePluginVersion: String = REWRITE_GRADLE_PLUGIN_VERSION,
-    val rewriteMavenPluginVersion: String = REWRITE_MAVEN_PLUGIN_VERSION,
-    val resolverConnectTimeout: Duration = ExecutionTimeouts.DEFAULT_RESOLVER_CONNECT_TIMEOUT,
-    val resolverRequestTimeout: Duration = ExecutionTimeouts.DEFAULT_RESOLVER_REQUEST_TIMEOUT,
+    val includeMavenCentral: Boolean = ToolConfigDefaults.INCLUDE_MAVEN_CENTRAL,
+    val artifactDownloadThreads: Int = ToolConfigDefaults.ARTIFACT_DOWNLOAD_THREADS,
+    val subprocessRunTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT,
+    val pluginRunTimeout: Duration = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+    val rewriteGradlePluginVersion: String = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
+    val rewriteMavenPluginVersion: String = ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
+    val artifactResolverConnectTimeout: Duration =
+        ToolConfigDefaults.ARTIFACT_RESOLVER_CONNECT_TIMEOUT,
+    val artifactResolverRequestTimeout: Duration =
+        ToolConfigDefaults.ARTIFACT_RESOLVER_REQUEST_TIMEOUT,
     val logger: RunnerLogger = NoOpRunnerLogger
 ) {
     /** Returns [cacheDir] with `~` expanded to the user home directory and environment
@@ -102,8 +103,8 @@ data class ToolConfig(
         }
     }
 
-    /** Returns [repositories] with all environment variable placeholders expanded. */
-    fun resolvedRepositories(): List<RepositoryConfig> = repositories.map { repo ->
+    /** Returns [artifactRepositories] with all environment variable placeholders expanded. */
+    fun resolvedArtifactRepositories(): List<RepositoryConfig> = artifactRepositories.map { repo ->
         repo.copy(
             url = interpolateEnvVars(repo.url, logger),
             username = repo.username?.let { interpolateEnvVars(it, logger) },
@@ -112,10 +113,6 @@ data class ToolConfig(
     }
 
     companion object {
-        const val REWRITE_GRADLE_PLUGIN_VERSION = "7.32.1"
-        const val REWRITE_MAVEN_PLUGIN_VERSION = "6.38.0"
-        const val DOWNLOAD_THREADS = 5
-
         private val yaml = YAMLMapper.builder()
             .addModule(KotlinModule.Builder().build())
             .addModule(
@@ -139,7 +136,6 @@ data class ToolConfig(
                 val rawText = configFile.readText()
                 val text = interpolateEnvVars(rawText, logger)
                 return try {
-                    rejectLegacyTimeoutFields(text)
                     yaml.readValue(text, ToolConfig::class.java).copy(logger = logger)
                 } catch (e: Exception) {
                     throw unwrapConfigException(e)
@@ -149,25 +145,6 @@ data class ToolConfig(
                 logger = logger
             )
         }
-
-        private fun rejectLegacyTimeoutFields(text: String) {
-            val parsed = yaml.readValue(text, Map::class.java) ?: return
-            val keys = parsed.keys.mapNotNull { it?.toString() }
-            val legacyName = keys.firstOrNull { it in LEGACY_TIMEOUT_FIELDS } ?: return
-            val replacement = LEGACY_TIMEOUT_FIELDS.getValue(legacyName)
-            throw IllegalArgumentException(
-                "Legacy timeout field '$legacyName' is no longer supported; " +
-                    "use '$replacement' with a Duration value such as 120s, 10m, or 30000ms"
-            )
-        }
-
-        private val LEGACY_TIMEOUT_FIELDS =
-            mapOf(
-                "processTimeoutSeconds" to "processTimeout",
-                "pluginTimeoutSeconds" to "pluginTimeout",
-                "resolverConnectTimeoutMs" to "resolverConnectTimeout",
-                "resolverRequestTimeoutMs" to "resolverRequestTimeout"
-            )
 
         private fun unwrapConfigException(e: Exception): Exception {
             var cause: Throwable? = e

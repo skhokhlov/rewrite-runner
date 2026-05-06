@@ -77,22 +77,22 @@ class RewriteRunner private constructor(private val config: Builder) {
         val toolConfig = ToolConfig.load(effectiveConfigFile, logger)
         val effectiveProcessTimeout =
             DurationParser.requirePositive(
-                config.processTimeout ?: toolConfig.processTimeout,
+                config.subprocessRunTimeout ?: toolConfig.subprocessRunTimeout,
                 "processTimeout"
             )
         val effectivePluginTimeout =
             DurationParser.requirePositive(
-                config.pluginTimeout ?: toolConfig.pluginTimeout,
+                config.pluginRunTimeout ?: toolConfig.pluginRunTimeout,
                 "pluginTimeout"
             )
         val effectiveResolverConnectTimeout =
             DurationParser.requirePositive(
-                config.resolverConnectTimeout ?: toolConfig.resolverConnectTimeout,
+                config.artifactResolverConnectTimeout ?: toolConfig.artifactResolverConnectTimeout,
                 "resolverConnectTimeout"
             )
         val effectiveResolverRequestTimeout =
             DurationParser.requirePositive(
-                config.resolverRequestTimeout ?: toolConfig.resolverRequestTimeout,
+                config.artifactResolverRequestTimeout ?: toolConfig.artifactResolverRequestTimeout,
                 "resolverRequestTimeout"
             )
 
@@ -114,7 +114,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                     dryRun = config.dryRun,
                     includeMavenCentral = config.includeMavenCentral
                         ?: toolConfig.includeMavenCentral,
-                    repositories = toolConfig.resolvedRepositories() + config.repositories
+                    artifactRepositories =
+                        toolConfig.resolvedArtifactRepositories() + config.artifactRepositories
                 )
             when (pluginResult) {
                 is PluginRunResult.Success -> {
@@ -153,15 +154,17 @@ class RewriteRunner private constructor(private val config: Builder) {
         }
         val effectiveToolConfig =
             toolConfig.copy(
-                processTimeout = effectiveProcessTimeout,
-                pluginTimeout = effectivePluginTimeout,
-                resolverConnectTimeout = effectiveResolverConnectTimeout,
-                resolverRequestTimeout = effectiveResolverRequestTimeout
+                subprocessRunTimeout = effectiveProcessTimeout,
+                pluginRunTimeout = effectivePluginTimeout,
+                artifactResolverConnectTimeout = effectiveResolverConnectTimeout,
+                artifactResolverRequestTimeout = effectiveResolverRequestTimeout
             )
         val effectiveIncludeMavenCentral =
             config.includeMavenCentral ?: toolConfig.includeMavenCentral
-        val effectiveDownloadThreads = config.downloadThreads ?: toolConfig.downloadThreads
-        val effectiveRepositories = toolConfig.resolvedRepositories() + config.repositories
+        val effectiveDownloadThreads =
+            config.artifactDownloadThreads ?: toolConfig.artifactDownloadThreads
+        val effectiveRepositories =
+            toolConfig.resolvedArtifactRepositories() + config.artifactRepositories
         // Recipe artifacts are isolated in the tool's own cache so they never mix with
         // the project's build artifacts in the user's Maven local repository.
         val recipeLocalRepoDir = effectiveCacheDir.resolve("repository")
@@ -353,17 +356,17 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var includeMavenCentral: Boolean? = null
             private set
-        internal var downloadThreads: Int? = null
+        internal var artifactDownloadThreads: Int? = null
             private set
-        internal var processTimeout: Duration? = null
+        internal var subprocessRunTimeout: Duration? = null
             private set
-        internal var pluginTimeout: Duration? = null
+        internal var pluginRunTimeout: Duration? = null
             private set
-        internal var resolverConnectTimeout: Duration? = null
+        internal var artifactResolverConnectTimeout: Duration? = null
             private set
-        internal var resolverRequestTimeout: Duration? = null
+        internal var artifactResolverRequestTimeout: Duration? = null
             private set
-        internal var repositories: List<RepositoryConfig> = emptyList()
+        internal var artifactRepositories: List<RepositoryConfig> = emptyList()
             private set
         internal var excludePaths: List<String> = emptyList()
             private set
@@ -457,24 +460,27 @@ class RewriteRunner private constructor(private val config: Builder) {
          * Set the number of parallel artifact download threads. Defaults to 5.
          * When not set, falls back to `downloadThreads` from the tool config.
          */
-        fun downloadThreads(n: Int): Builder = apply { downloadThreads = n }
+        fun artifactDownloadThreads(n: Int): Builder = apply { artifactDownloadThreads = n }
 
         /**
          * Timeout for non-plugin build-tool subprocesses, including LST Stage 1,
          * Stage 2, compile attempts, and build-tool metadata commands.
          */
-        fun processTimeout(timeout: Duration): Builder = apply { processTimeout = timeout }
+        fun subprocessRunTimeout(timeout: Duration): Builder = apply {
+            subprocessRunTimeout =
+                timeout
+        }
 
         /** Timeout for official OpenRewrite Gradle/Maven plugin invocations in Stage 0. */
-        fun pluginTimeout(timeout: Duration): Builder = apply { pluginTimeout = timeout }
+        fun pluginRunTimeout(timeout: Duration): Builder = apply { pluginRunTimeout = timeout }
 
         /** TCP connection timeout for Maven Resolver artifact downloads. */
-        fun resolverConnectTimeout(timeout: Duration): Builder =
-            apply { resolverConnectTimeout = timeout }
+        fun artifactResolverConnectTimeout(timeout: Duration): Builder =
+            apply { artifactResolverConnectTimeout = timeout }
 
         /** Socket read/request timeout for Maven Resolver artifact downloads. */
-        fun resolverRequestTimeout(timeout: Duration): Builder =
-            apply { resolverRequestTimeout = timeout }
+        fun artifactResolverRequestTimeout(timeout: Duration): Builder =
+            apply { artifactResolverRequestTimeout = timeout }
 
         /**
          * Override whether Maven Central is included as a remote repository.
@@ -489,16 +495,16 @@ class RewriteRunner private constructor(private val config: Builder) {
          * multiple times; all entries accumulate and are combined with any repositories
          * declared in the tool config file.
          */
-        fun repository(repo: RepositoryConfig): Builder = apply {
-            repositories = repositories + repo
+        fun artifactRepository(repo: RepositoryConfig): Builder = apply {
+            artifactRepositories = artifactRepositories + repo
         }
 
         /**
          * Replace the full list of extra Maven repositories for artifact resolution.
          * Combined with any repositories declared in the tool config file.
          */
-        fun repositories(repos: List<RepositoryConfig>): Builder = apply {
-            repositories = repos
+        fun artifactRepositories(repos: List<RepositoryConfig>): Builder = apply {
+            artifactRepositories = repos
         }
 
         /**

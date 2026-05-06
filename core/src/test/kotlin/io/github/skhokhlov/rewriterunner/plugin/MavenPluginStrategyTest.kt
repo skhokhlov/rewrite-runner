@@ -1,8 +1,7 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
-import io.github.skhokhlov.rewriterunner.config.ToolConfig.Companion.REWRITE_MAVEN_PLUGIN_VERSION
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -28,8 +27,8 @@ class MavenPluginStrategyTest :
             val strategy =
                 MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    REWRITE_MAVEN_PLUGIN_VERSION
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 )
 
             val command =
@@ -61,8 +60,8 @@ class MavenPluginStrategyTest :
             val strategy =
                 MavenPluginStrategy(
                     logger = NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    REWRITE_MAVEN_PLUGIN_VERSION
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 )
 
             val command =
@@ -77,7 +76,7 @@ class MavenPluginStrategyTest :
             assertTrue(
                 command.contains(
                     "org.openrewrite.maven:rewrite-maven-plugin:" +
-                        "$REWRITE_MAVEN_PLUGIN_VERSION:dryRun"
+                        ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION + ":dryRun"
                 )
             )
         }
@@ -86,10 +85,10 @@ class MavenPluginStrategyTest :
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    REWRITE_MAVEN_PLUGIN_VERSION
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? = 1
+                    override fun execute(projectDir: Path, command: List<String>): Int = 1
                 }
 
             val result =
@@ -101,7 +100,7 @@ class MavenPluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = true,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.Failed>(result)
@@ -112,8 +111,8 @@ class MavenPluginStrategyTest :
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    REWRITE_MAVEN_PLUGIN_VERSION
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
                         commands.add(command)
@@ -141,7 +140,7 @@ class MavenPluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = true,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.Success>(result)
@@ -181,8 +180,8 @@ class MavenPluginStrategyTest :
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    REWRITE_MAVEN_PLUGIN_VERSION
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
                         commands.add(command)
@@ -216,7 +215,7 @@ class MavenPluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = false,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.Success>(result)
@@ -262,8 +261,8 @@ class MavenPluginStrategyTest :
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                    REWRITE_MAVEN_PLUGIN_VERSION
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
                         if (command.any { it.endsWith(":dryRun") }) {
@@ -310,7 +309,7 @@ class MavenPluginStrategyTest :
                     rewriteConfigContent = null,
                     dryRun = false,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.Success>(result)

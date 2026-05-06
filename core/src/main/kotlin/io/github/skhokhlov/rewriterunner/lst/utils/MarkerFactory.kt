@@ -1,8 +1,7 @@
 package io.github.skhokhlov.rewriterunner.lst.utils
 
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
-import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import java.nio.file.Path
 import java.time.Duration
 import java.util.UUID
@@ -34,7 +33,7 @@ internal class MarkerFactory(
     private val logger: RunnerLogger,
     private val staticParser: StaticBuildFileParser,
     private val versionDetector: VersionDetector,
-    private val processTimeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT,
+    private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT,
     private val processRunner: ProcessRunner = ::runProcess
 ) {
     private val metadataProbeTimeout = minOf(processTimeout, Duration.ofSeconds(5))
