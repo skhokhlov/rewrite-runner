@@ -69,6 +69,8 @@ internal open class MavenPluginStrategy(
     ): List<String> = buildList {
         add(resolveMavenCommand(projectDir))
         add("-U")
+        add("--no-transfer-progress")
+        add("--batch-mode")
         add(
             "org.openrewrite.maven:rewrite-maven-plugin:" +
                 "$rewritePluginVersion:$goal"
