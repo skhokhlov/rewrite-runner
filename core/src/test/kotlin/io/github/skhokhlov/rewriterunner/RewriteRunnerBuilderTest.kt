@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.time.Duration
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -136,14 +137,14 @@ class RewriteRunnerBuilderTest :
                 RewriteRunner.builder()
                     .projectDir(tempDir)
                     .activeRecipe("org.openrewrite.FindSourceFiles")
-                    .processTimeoutSeconds(45)
-                    .pluginTimeoutSeconds(900)
-                    .resolverConnectTimeoutMs(10_000)
-                    .resolverRequestTimeoutMs(20_000)
-            assertEquals(45L, builder.processTimeoutSeconds)
-            assertEquals(900L, builder.pluginTimeoutSeconds)
-            assertEquals(10_000, builder.resolverConnectTimeoutMs)
-            assertEquals(20_000, builder.resolverRequestTimeoutMs)
+                    .processTimeout(Duration.ofSeconds(45))
+                    .pluginTimeout(Duration.ofMinutes(15))
+                    .resolverConnectTimeout(Duration.ofSeconds(10))
+                    .resolverRequestTimeout(Duration.ofSeconds(20))
+            assertEquals(Duration.ofSeconds(45), builder.processTimeout)
+            assertEquals(Duration.ofMinutes(15), builder.pluginTimeout)
+            assertEquals(Duration.ofSeconds(10), builder.resolverConnectTimeout)
+            assertEquals(Duration.ofSeconds(20), builder.resolverRequestTimeout)
         }
 
         test("builder stores includeExtensions") {
@@ -180,10 +181,10 @@ class RewriteRunnerBuilderTest :
 
         test("timeout overrides default to null") {
             val builder = RewriteRunner.builder()
-            assertNull(builder.processTimeoutSeconds)
-            assertNull(builder.pluginTimeoutSeconds)
-            assertNull(builder.resolverConnectTimeoutMs)
-            assertNull(builder.resolverRequestTimeoutMs)
+            assertNull(builder.processTimeout)
+            assertNull(builder.pluginTimeout)
+            assertNull(builder.resolverConnectTimeout)
+            assertNull(builder.resolverRequestTimeout)
         }
 
         test("rewriteConfig defaults to null") {

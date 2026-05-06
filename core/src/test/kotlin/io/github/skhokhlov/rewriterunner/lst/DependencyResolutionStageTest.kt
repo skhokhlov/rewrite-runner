@@ -8,6 +8,7 @@ import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import java.util.jar.JarOutputStream
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
@@ -64,7 +65,7 @@ class DependencyResolutionStageTest :
                 DependencyResolutionStage(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger,
-                    processTimeoutSeconds = 1
+                    processTimeout = Duration.ofSeconds(1)
                 )
 
             val start = System.currentTimeMillis()

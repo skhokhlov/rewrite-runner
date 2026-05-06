@@ -4,6 +4,7 @@ import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -135,6 +136,40 @@ class RewriteRunnerTest :
                 .build()
                 .run()
             // No assertion needed — the test passes if no exception is thrown
+        }
+
+        // ─── timeout propagation ────────────────────────────────────────────────
+
+        test("builder process timeout override reaches fallback ToolConfig").config(
+            enabled = !isWindows
+        ) {
+            projectDir.resolve("pom.xml").writeText("<project/>")
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+            val completedMarker = projectDir.resolve("mvnw-completed")
+            val mvnw = projectDir.resolve("mvnw").toFile()
+            mvnw.writeText(
+                """
+                #!/bin/sh
+                sleep 2
+                touch "${completedMarker.toAbsolutePath()}"
+                exit 0
+                """.trimIndent()
+            )
+            mvnw.setExecutable(true)
+
+            RewriteRunner.builder()
+                .projectDir(projectDir)
+                .activeRecipe("org.openrewrite.FindSourceFiles")
+                .cacheDir(cacheDir)
+                .skipPluginRun(true)
+                .processTimeout(Duration.ofMillis(100))
+                .build()
+                .run()
+
+            assertFalse(
+                completedMarker.exists(),
+                "Configured process timeout should stop the wrapper before it completes"
+            )
         }
 
         // ─── plugin version config ──────────────────────────────────────────────

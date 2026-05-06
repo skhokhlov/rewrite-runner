@@ -4,10 +4,12 @@ import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.repository.RepositoryPolicy
 import org.eclipse.aether.util.graph.selector.AndDependencySelector
 
@@ -116,6 +118,23 @@ class AetherContextTest :
                 1,
                 ctx.session.configProperties["aether.connector.basic.threads"],
                 "Download threads should be 1"
+            )
+        }
+
+        test("build converts resolver Duration values to millisecond config properties") {
+            val ctx = AetherContext.build(
+                localRepoDir = tempDir.resolve("repo"),
+                connectTimeout = Duration.ofMillis(12_345),
+                requestTimeout = Duration.ofSeconds(67),
+                logger = NoOpRunnerLogger
+            )
+            assertEquals(
+                12_345,
+                ctx.session.configProperties[ConfigurationProperties.CONNECT_TIMEOUT]
+            )
+            assertEquals(
+                67_000,
+                ctx.session.configProperties[ConfigurationProperties.REQUEST_TIMEOUT]
             )
         }
 

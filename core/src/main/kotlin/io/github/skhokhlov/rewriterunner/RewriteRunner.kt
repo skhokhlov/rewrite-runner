@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner
 
+import io.github.skhokhlov.rewriterunner.config.DurationParser
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.LstBuilder
@@ -11,6 +12,7 @@ import io.github.skhokhlov.rewriterunner.recipe.RecipeRunner
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.time.Duration
 import kotlin.io.path.exists
 
 /**
@@ -73,25 +75,25 @@ class RewriteRunner private constructor(private val config: Builder) {
                 Paths.get(System.getProperty("user.home"), ".rewriterunner")
             )
         val toolConfig = ToolConfig.load(effectiveConfigFile, logger)
-        val effectiveProcessTimeoutSeconds =
-            positiveLong(
-                config.processTimeoutSeconds ?: toolConfig.processTimeoutSeconds,
-                "processTimeoutSeconds"
+        val effectiveProcessTimeout =
+            DurationParser.requirePositive(
+                config.processTimeout ?: toolConfig.processTimeout,
+                "processTimeout"
             )
-        val effectivePluginTimeoutSeconds =
-            positiveLong(
-                config.pluginTimeoutSeconds ?: toolConfig.pluginTimeoutSeconds,
-                "pluginTimeoutSeconds"
+        val effectivePluginTimeout =
+            DurationParser.requirePositive(
+                config.pluginTimeout ?: toolConfig.pluginTimeout,
+                "pluginTimeout"
             )
-        val effectiveResolverConnectTimeoutMs =
-            positiveInt(
-                config.resolverConnectTimeoutMs ?: toolConfig.resolverConnectTimeoutMs,
-                "resolverConnectTimeoutMs"
+        val effectiveResolverConnectTimeout =
+            DurationParser.requirePositive(
+                config.resolverConnectTimeout ?: toolConfig.resolverConnectTimeout,
+                "resolverConnectTimeout"
             )
-        val effectiveResolverRequestTimeoutMs =
-            positiveInt(
-                config.resolverRequestTimeoutMs ?: toolConfig.resolverRequestTimeoutMs,
-                "resolverRequestTimeoutMs"
+        val effectiveResolverRequestTimeout =
+            DurationParser.requirePositive(
+                config.resolverRequestTimeout ?: toolConfig.resolverRequestTimeout,
+                "resolverRequestTimeout"
             )
 
         // Stage 0: let the project's own build tool run the official OpenRewrite plugin first.
@@ -100,7 +102,7 @@ class RewriteRunner private constructor(private val config: Builder) {
             val pluginResult =
                 PluginRecipeRunner(
                     logger = logger,
-                    timeoutSeconds = effectivePluginTimeoutSeconds,
+                    timeout = effectivePluginTimeout,
                     rewriteGradlePluginVersion = toolConfig.rewriteGradlePluginVersion,
                     rewriteMavenPluginVersion = toolConfig.rewriteMavenPluginVersion
                 ).run(
@@ -151,10 +153,10 @@ class RewriteRunner private constructor(private val config: Builder) {
         }
         val effectiveToolConfig =
             toolConfig.copy(
-                processTimeoutSeconds = effectiveProcessTimeoutSeconds,
-                pluginTimeoutSeconds = effectivePluginTimeoutSeconds,
-                resolverConnectTimeoutMs = effectiveResolverConnectTimeoutMs,
-                resolverRequestTimeoutMs = effectiveResolverRequestTimeoutMs
+                processTimeout = effectiveProcessTimeout,
+                pluginTimeout = effectivePluginTimeout,
+                resolverConnectTimeout = effectiveResolverConnectTimeout,
+                resolverRequestTimeout = effectiveResolverRequestTimeout
             )
         val effectiveIncludeMavenCentral =
             config.includeMavenCentral ?: toolConfig.includeMavenCentral
@@ -167,8 +169,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         val recipeAetherContext = AetherContext.build(
             localRepoDir = recipeLocalRepoDir,
             extraRepositories = effectiveRepositories,
-            connectTimeoutMs = effectiveResolverConnectTimeoutMs,
-            requestTimeoutMs = effectiveResolverRequestTimeoutMs,
+            connectTimeout = effectiveResolverConnectTimeout,
+            requestTimeout = effectiveResolverRequestTimeout,
             downloadThreads = effectiveDownloadThreads,
             // Prune test/provided/system scope nodes from the graph during collection so
             // their POMs are never fetched. Recipes only need compile/runtime JARs to run.
@@ -182,8 +184,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         val projectAetherContext = AetherContext.build(
             localRepoDir = mavenLocalRepoDir,
             extraRepositories = effectiveRepositories,
-            connectTimeoutMs = effectiveResolverConnectTimeoutMs,
-            requestTimeoutMs = effectiveResolverRequestTimeoutMs,
+            connectTimeout = effectiveResolverConnectTimeout,
+            requestTimeout = effectiveResolverRequestTimeout,
             downloadThreads = effectiveDownloadThreads,
             includeMavenCentral = effectiveIncludeMavenCentral,
             logger = logger
@@ -353,13 +355,13 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var downloadThreads: Int? = null
             private set
-        internal var processTimeoutSeconds: Long? = null
+        internal var processTimeout: Duration? = null
             private set
-        internal var pluginTimeoutSeconds: Long? = null
+        internal var pluginTimeout: Duration? = null
             private set
-        internal var resolverConnectTimeoutMs: Int? = null
+        internal var resolverConnectTimeout: Duration? = null
             private set
-        internal var resolverRequestTimeoutMs: Int? = null
+        internal var resolverRequestTimeout: Duration? = null
             private set
         internal var repositories: List<RepositoryConfig> = emptyList()
             private set
@@ -461,19 +463,18 @@ class RewriteRunner private constructor(private val config: Builder) {
          * Timeout for non-plugin build-tool subprocesses, including LST Stage 1,
          * Stage 2, compile attempts, and build-tool metadata commands.
          */
-        fun processTimeoutSeconds(seconds: Long): Builder =
-            apply { processTimeoutSeconds = seconds }
+        fun processTimeout(timeout: Duration): Builder = apply { processTimeout = timeout }
 
         /** Timeout for official OpenRewrite Gradle/Maven plugin invocations in Stage 0. */
-        fun pluginTimeoutSeconds(seconds: Long): Builder = apply { pluginTimeoutSeconds = seconds }
+        fun pluginTimeout(timeout: Duration): Builder = apply { pluginTimeout = timeout }
 
         /** TCP connection timeout for Maven Resolver artifact downloads. */
-        fun resolverConnectTimeoutMs(milliseconds: Int): Builder =
-            apply { resolverConnectTimeoutMs = milliseconds }
+        fun resolverConnectTimeout(timeout: Duration): Builder =
+            apply { resolverConnectTimeout = timeout }
 
         /** Socket read/request timeout for Maven Resolver artifact downloads. */
-        fun resolverRequestTimeoutMs(milliseconds: Int): Builder =
-            apply { resolverRequestTimeoutMs = milliseconds }
+        fun resolverRequestTimeout(timeout: Duration): Builder =
+            apply { resolverRequestTimeout = timeout }
 
         /**
          * Override whether Maven Central is included as a remote repository.
@@ -550,16 +551,6 @@ class RewriteRunner private constructor(private val config: Builder) {
             }
         } catch (_: Exception) {
             null
-        }
-
-        private fun positiveLong(value: Long, name: String): Long {
-            require(value > 0) { "$name must be greater than 0: $value" }
-            return value
-        }
-
-        private fun positiveInt(value: Int, name: String): Int {
-            require(value > 0) { "$name must be greater than 0: $value" }
-            return value
         }
     }
 }

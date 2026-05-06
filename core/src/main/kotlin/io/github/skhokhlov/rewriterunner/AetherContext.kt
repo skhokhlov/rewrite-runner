@@ -1,7 +1,10 @@
 package io.github.skhokhlov.rewriterunner
 
+import io.github.skhokhlov.rewriterunner.config.DurationParser
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
+import io.github.skhokhlov.rewriterunner.config.ToolConfig.Companion.DOWNLOAD_THREADS
 import java.nio.file.Path
+import java.time.Duration
 import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.RepositorySystem
 import org.eclipse.aether.RepositorySystemSession
@@ -54,9 +57,9 @@ class AetherContext(
          *   default (`~/.m2/repository`) to reuse the user's existing local repository.
          * @param extraRepositories Additional remote Maven repositories beyond Maven Central.
          *   Credentials from [RepositoryConfig] are applied when present.
-         * @param connectTimeoutMs TCP connection timeout in milliseconds. Defaults to 30 000.
-         * @param requestTimeoutMs Socket read / request timeout in milliseconds. Defaults to
-         *   60 000. An explicit value prevents hanging when a remote server accepts the TCP
+         * @param connectTimeout TCP connection timeout. Defaults to 30 s.
+         * @param requestTimeout Socket read / request timeout. Defaults to 60 s.
+         *   An explicit value prevents hanging when a remote server accepts the TCP
          *   connection but never sends an HTTP response.
          * @param downloadThreads Number of parallel artifact download threads used by the
          *   connector. Defaults to 5. Increase for faster downloads on high-bandwidth networks;
@@ -71,9 +74,9 @@ class AetherContext(
         fun build(
             localRepoDir: Path,
             extraRepositories: List<RepositoryConfig> = emptyList(),
-            connectTimeoutMs: Int = ExecutionTimeouts.DEFAULT_RESOLVER_CONNECT_TIMEOUT_MS,
-            requestTimeoutMs: Int = ExecutionTimeouts.DEFAULT_RESOLVER_REQUEST_TIMEOUT_MS,
-            downloadThreads: Int = 5,
+            connectTimeout: Duration = ExecutionTimeouts.DEFAULT_RESOLVER_CONNECT_TIMEOUT,
+            requestTimeout: Duration = ExecutionTimeouts.DEFAULT_RESOLVER_REQUEST_TIMEOUT,
+            downloadThreads: Int = DOWNLOAD_THREADS,
             excludeScopesFromGraph: Collection<String> = emptyList(),
             includeMavenCentral: Boolean = true,
             logger: RunnerLogger
@@ -122,8 +125,14 @@ class AetherContext(
                         )
                     }
                 )
-                .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, connectTimeoutMs)
-                .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, requestTimeoutMs)
+                .setConfigProperty(
+                    ConfigurationProperties.CONNECT_TIMEOUT,
+                    DurationParser.toMillisInt(connectTimeout, "resolverConnectTimeout")
+                )
+                .setConfigProperty(
+                    ConfigurationProperties.REQUEST_TIMEOUT,
+                    DurationParser.toMillisInt(requestTimeout, "resolverRequestTimeout")
+                )
                 .setConfigProperty("aether.connector.basic.threads", downloadThreads)
                 // Disable downloading remote prefix-filter index files (Maven Resolver 2.x).
                 // Without this, Maven Resolver downloads large /.index/prefixes.txt files from

@@ -86,10 +86,10 @@ External process timeouts are configurable:
 
 | Timeout | Default | Applies to |
 |---------|---------|------------|
-| `pluginTimeoutSeconds` | 600 s | Stage 0 `rewriteDryRun` / `rewriteRun` plugin invocations |
-| `processTimeoutSeconds` | 120 s | Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands |
-| `resolverConnectTimeoutMs` | 30000 ms | Maven Resolver TCP connections |
-| `resolverRequestTimeoutMs` | 60000 ms | Maven Resolver socket reads / requests |
+| `pluginTimeout` | `10m` | Stage 0 `rewriteDryRun` / `rewriteRun` plugin invocations |
+| `processTimeout` | `120s` | Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands |
+| `resolverConnectTimeout` | `30s` | Maven Resolver TCP connections |
+| `resolverRequestTimeout` | `60s` | Maven Resolver socket reads / requests |
 
 Stage 0 plugin versions are also configurable via `rewriteGradlePluginVersion`
 and `rewriteMavenPluginVersion`.

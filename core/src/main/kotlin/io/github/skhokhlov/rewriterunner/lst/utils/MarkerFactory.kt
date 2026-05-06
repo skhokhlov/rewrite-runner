@@ -4,6 +4,7 @@ import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import java.nio.file.Path
+import java.time.Duration
 import java.util.UUID
 import kotlin.io.path.exists
 import org.openrewrite.SourceFile
@@ -33,10 +34,10 @@ internal class MarkerFactory(
     private val logger: RunnerLogger,
     private val staticParser: StaticBuildFileParser,
     private val versionDetector: VersionDetector,
-    private val processTimeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS,
+    private val processTimeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT,
     private val processRunner: ProcessRunner = ::runProcess
 ) {
-    private val metadataProbeTimeoutSeconds = minOf(processTimeoutSeconds, 5)
+    private val metadataProbeTimeout = minOf(processTimeout, Duration.ofSeconds(5))
 
     fun buildEnvironment(): BuildEnvironment? = try {
         BuildEnvironment.build { key -> System.getenv(key) }
@@ -103,7 +104,8 @@ internal class MarkerFactory(
             projectDir,
             listOf(mvnCmd, "--version"),
             output,
-            metadataProbeTimeoutSeconds,
+            metadataProbeTimeout,
+            "processTimeout",
             logger
         )
         if (result == 0) {

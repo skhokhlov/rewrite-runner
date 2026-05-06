@@ -5,10 +5,13 @@
 Programmatic entry point. Use `RewriteRunner.builder()` to configure, `.build().run()` to execute.
 
 ```kotlin
+import java.time.Duration
+
 val result = RewriteRunner.builder()
     .projectDir(Paths.get("/path/to/project"))
     .activeRecipe("org.openrewrite.java.format.AutoFormat")
     .recipeArtifact("org.openrewrite.recipe:rewrite-java:LATEST")
+    .processTimeout(Duration.ofSeconds(120))
     .dryRun(true)
     .build()
     .run()
@@ -28,10 +31,10 @@ val result = RewriteRunner.builder()
 | `configFile(Path)` | `Path?` | `<projectDir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` | `rewriterunner.yml` tool config (case-insensitive name match). Pass `null` to use auto-discovery. |
 | `dryRun(Boolean)` | `Boolean` | `false` | Run without writing files to disk |
 | `skipPluginRun(Boolean)` | `Boolean` | `false` | Bypass official Gradle/Maven plugin execution and use the in-process LST pipeline directly |
-| `processTimeoutSeconds(Long)` | `Long?` | from config / `120` | Timeout for build-tool subprocesses in the fallback LST pipeline |
-| `pluginTimeoutSeconds(Long)` | `Long?` | from config / `600` | Timeout for official Gradle/Maven plugin invocations in Stage 0 |
-| `resolverConnectTimeoutMs(Int)` | `Int?` | from config / `30000` | TCP connection timeout for Maven Resolver artifact downloads |
-| `resolverRequestTimeoutMs(Int)` | `Int?` | from config / `60000` | Socket read/request timeout for Maven Resolver artifact downloads |
+| `processTimeout(Duration)` | `Duration?` | from config / `120s` | Timeout for build-tool subprocesses in the fallback LST pipeline |
+| `pluginTimeout(Duration)` | `Duration?` | from config / `10m` | Timeout for official Gradle/Maven plugin invocations in Stage 0 |
+| `resolverConnectTimeout(Duration)` | `Duration?` | from config / `30s` | TCP connection timeout for Maven Resolver artifact downloads |
+| `resolverRequestTimeout(Duration)` | `Duration?` | from config / `60s` | Socket read/request timeout for Maven Resolver artifact downloads |
 | `includeExtensions(List<String>)` | `List` | `[]` | Restrict to these extensions (e.g. `[".java", ".kt"]`); overrides `parse.includeExtensions` from config file |
 | `excludeExtensions(List<String>)` | `List` | `[]` | Skip these extensions; overrides `parse.excludeExtensions` from config file |
 | `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file |
@@ -131,7 +134,7 @@ Use `format(runResult)` when you want formatted output that also supports Stage 
 
 ## ToolConfig YAML
 
-Config file (`rewriterunner.yml`) loaded via `--config` CLI flag or `configFile()` builder method. File name matching is case-insensitive. Auto-discovered from `<projectDir>/rewriterunner.yml` (project-level) then `~/.rewriterunner/rewriterunner.yml` (global fallback) when not explicitly provided. Supports `${ENV_VAR}` interpolation and `~` expansion in all string fields.
+Config file (`rewriterunner.yml`) loaded via `--config` CLI flag or `configFile()` builder method. File name matching is case-insensitive. Auto-discovered from `<projectDir>/rewriterunner.yml` (project-level) then `~/.rewriterunner/rewriterunner.yml` (global fallback) when not explicitly provided. Supports `${ENV_VAR}` interpolation and `~` expansion in all string fields. Duration fields require units such as `30000ms`, `120s`, `10m`, `2h`, or ISO-8601 values like `PT2M`.
 
 ```yaml
 cacheDir: ~/.rewriterunner/cache   # default
@@ -146,12 +149,12 @@ parse:
   excludeExtensions: [".xml"]           # skip these; overridden by CLI flag
   excludePaths: ["generated/", "vendor/"] # glob patterns relative to project root
 
-processTimeoutSeconds: 120
-pluginTimeoutSeconds: 600
+processTimeout: 120s
+pluginTimeout: 10m
 rewriteGradlePluginVersion: 7.32.1
 rewriteMavenPluginVersion: 6.38.0
-resolverConnectTimeoutMs: 30000
-resolverRequestTimeoutMs: 60000
+resolverConnectTimeout: 30s
+resolverRequestTimeout: 60s
 ```
 
 ### ToolConfig fields
@@ -162,12 +165,12 @@ resolverRequestTimeoutMs: 60000
 | `repositories` | `List<RepositoryConfig>` | `[]` | Extra Maven repos for resolution |
 | `parse` | `ParseConfig` | defaults | File inclusion/exclusion config |
 | `includeMavenCentral` | `Boolean` | `true` | Include Maven Central as a remote repository. Set `false` to restrict to only the repositories listed in `repositories`. |
-| `processTimeoutSeconds` | `Long` | `120` | Timeout for Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands. |
-| `pluginTimeoutSeconds` | `Long` | `600` | Timeout for Stage 0 official OpenRewrite plugin invocations. |
+| `processTimeout` | `Duration` | `120s` | Timeout for Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands. |
+| `pluginTimeout` | `Duration` | `10m` | Timeout for Stage 0 official OpenRewrite plugin invocations. |
 | `rewriteGradlePluginVersion` | `String` | `7.32.1` | Version of `org.openrewrite:plugin` used for Stage 0 Gradle plugin execution. |
 | `rewriteMavenPluginVersion` | `String` | `6.38.0` | Version of `org.openrewrite.maven:rewrite-maven-plugin` used for Stage 0 Maven plugin execution. |
-| `resolverConnectTimeoutMs` | `Int` | `30000` | TCP connection timeout for Maven Resolver artifact downloads. |
-| `resolverRequestTimeoutMs` | `Int` | `60000` | Socket read/request timeout for Maven Resolver artifact downloads. |
+| `resolverConnectTimeout` | `Duration` | `30s` | TCP connection timeout for Maven Resolver artifact downloads. |
+| `resolverRequestTimeout` | `Duration` | `60s` | Socket read/request timeout for Maven Resolver artifact downloads. |
 
 ### RepositoryConfig fields
 

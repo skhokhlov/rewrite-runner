@@ -77,20 +77,20 @@ open class LstBuilder(
     private val aetherContext: AetherContext = AetherContext.build(
         localRepoDir = Paths.get(System.getProperty("user.home"), ".m2", "repository"),
         extraRepositories = toolConfig.resolvedRepositories(),
-        connectTimeoutMs = toolConfig.resolverConnectTimeoutMs,
-        requestTimeoutMs = toolConfig.resolverRequestTimeoutMs,
+        connectTimeout = toolConfig.resolverConnectTimeout,
+        requestTimeout = toolConfig.resolverRequestTimeout,
         downloadThreads = toolConfig.downloadThreads,
         includeMavenCentral = toolConfig.includeMavenCentral,
         logger = logger
     ),
     private val projectBuildStage: ProjectBuildStage = ProjectBuildStage(
         logger,
-        toolConfig.processTimeoutSeconds
+        toolConfig.processTimeout
     ),
     private val depResolutionStage: DependencyResolutionStage = DependencyResolutionStage(
         aetherContext,
         logger,
-        toolConfig.processTimeoutSeconds
+        toolConfig.processTimeout
     ),
     private val buildFileParseStage: BuildFileParseStage = BuildFileParseStage(
         aetherContext,
@@ -102,7 +102,7 @@ open class LstBuilder(
     private val staticParser = StaticBuildFileParser(logger)
     private val gradleDslClasspathResolver = GradleDslClasspathResolver(logger, versionDetector)
     private val markerFactory =
-        MarkerFactory(logger, staticParser, versionDetector, toolConfig.processTimeoutSeconds)
+        MarkerFactory(logger, staticParser, versionDetector, toolConfig.processTimeout)
 
     // ─── Thin delegation methods for backward-compatible test access ──────────
 

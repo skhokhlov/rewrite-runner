@@ -254,7 +254,7 @@ class RecipeArtifactResolverTest :
         // ─── Timeout behaviour ────────────────────────────────────────────────────
 
         test(
-            "resolve completes within requestTimeoutMs when remote server accepts but never responds"
+            "resolve completes within resolver request timeout when remote server accepts but never responds"
         ) {
             // Regression test: without an explicit REQUEST_TIMEOUT the Maven Resolver
             // default is 30 minutes, causing the process to hang indefinitely when a
@@ -303,7 +303,7 @@ class RecipeArtifactResolverTest :
             blackHole.close()
             assertTrue(
                 elapsedMs < 10_000,
-                "resolve() must honour requestTimeoutMs and complete in <10 s; took ${elapsedMs}ms"
+                "resolve() must honour resolver request timeout and complete in <10 s; took ${elapsedMs}ms"
             )
         }
 

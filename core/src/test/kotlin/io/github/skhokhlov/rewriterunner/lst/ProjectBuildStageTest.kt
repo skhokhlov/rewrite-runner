@@ -4,6 +4,7 @@ import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.writeText
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -277,7 +278,8 @@ class ProjectBuildStageTest :
             )
             mvnw.setExecutable(true)
 
-            val timedStage = ProjectBuildStage(NoOpRunnerLogger, processTimeoutSeconds = 1)
+            val timedStage =
+                ProjectBuildStage(NoOpRunnerLogger, processTimeout = Duration.ofSeconds(1))
             val start = System.currentTimeMillis()
             val result = timedStage.extractClasspath(projectDir)
             val elapsed = System.currentTimeMillis() - start

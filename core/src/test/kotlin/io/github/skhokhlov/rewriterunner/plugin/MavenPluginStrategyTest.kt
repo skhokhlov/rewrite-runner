@@ -28,7 +28,7 @@ class MavenPluginStrategyTest :
             val strategy =
                 MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     REWRITE_MAVEN_PLUGIN_VERSION
                 )
 
@@ -61,7 +61,7 @@ class MavenPluginStrategyTest :
             val strategy =
                 MavenPluginStrategy(
                     logger = NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     REWRITE_MAVEN_PLUGIN_VERSION
                 )
 
@@ -86,7 +86,7 @@ class MavenPluginStrategyTest :
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? = 1
@@ -112,7 +112,7 @@ class MavenPluginStrategyTest :
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
@@ -181,7 +181,7 @@ class MavenPluginStrategyTest :
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
@@ -262,7 +262,7 @@ class MavenPluginStrategyTest :
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
-                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT_SECONDS,
+                    ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
                     REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {

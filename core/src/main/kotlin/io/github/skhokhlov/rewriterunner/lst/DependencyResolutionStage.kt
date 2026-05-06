@@ -14,6 +14,7 @@ import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.resolution.ArtifactRequest
@@ -62,7 +63,7 @@ import org.eclipse.aether.resolution.ArtifactResolutionException
 open class DependencyResolutionStage(
     private val aetherContext: AetherContext,
     protected val logger: RunnerLogger,
-    private val processTimeoutSeconds: Long = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT_SECONDS
+    private val processTimeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT
 ) {
     private val staticParser = StaticBuildFileParser(logger)
 
@@ -183,7 +184,7 @@ open class DependencyResolutionStage(
             projectDir,
             listOf(mvnCmd, "dependency:tree"),
             captureStdout = output,
-            timeoutSeconds = processTimeoutSeconds,
+            timeout = processTimeout,
             logger = logger
         ) ?: return null
         if (result != 0) {
@@ -278,7 +279,7 @@ open class DependencyResolutionStage(
                 "--no-configuration-cache"
             ) + tasks,
             captureStdout = output,
-            timeoutSeconds = processTimeoutSeconds,
+            timeout = processTimeout,
             logger = logger
         ) ?: return null
 

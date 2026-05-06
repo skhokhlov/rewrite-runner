@@ -7,9 +7,11 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import picocli.CommandLine
@@ -191,29 +193,43 @@ class RunCommandTest :
             CommandLine(cmd).parseArgs(
                 "--active-recipe",
                 "io.github.skhokhlov.rewriterunner.MyRecipe",
-                "--process-timeout-seconds",
-                "45",
-                "--plugin-timeout-seconds",
-                "900",
-                "--resolver-connect-timeout-ms",
-                "10000",
-                "--resolver-request-timeout-ms",
-                "20000"
+                "--process-timeout",
+                "45s",
+                "--plugin-timeout",
+                "15m",
+                "--resolver-connect-timeout",
+                "10000ms",
+                "--resolver-request-timeout",
+                "20s"
             )
-            assertEquals(45L, cmd.processTimeoutSeconds)
-            assertEquals(900L, cmd.pluginTimeoutSeconds)
-            assertEquals(10_000, cmd.resolverConnectTimeoutMs)
-            assertEquals(20_000, cmd.resolverRequestTimeoutMs)
+            assertEquals(Duration.ofSeconds(45), cmd.processTimeout)
+            assertEquals(Duration.ofMinutes(15), cmd.pluginTimeout)
+            assertEquals(Duration.ofMillis(10_000), cmd.resolverConnectTimeout)
+            assertEquals(Duration.ofSeconds(20), cmd.resolverRequestTimeout)
         }
 
         test("--help output mentions timeout options") {
             val baos = ByteArrayOutputStream()
             cli().setOut(PrintWriter(baos)).execute("--help")
             val help = baos.toString()
-            assertTrue(help.contains("--process-timeout-seconds"))
-            assertTrue(help.contains("--plugin-timeout-seconds"))
-            assertTrue(help.contains("--resolver-connect-timeout-ms"))
-            assertTrue(help.contains("--resolver-request-timeout-ms"))
+            assertTrue(help.contains("--process-timeout"))
+            assertTrue(help.contains("--plugin-timeout"))
+            assertTrue(help.contains("--resolver-connect-timeout"))
+            assertTrue(help.contains("--resolver-request-timeout"))
+            assertFalse(help.contains("--process-timeout-seconds"))
+            assertFalse(help.contains("--plugin-timeout-seconds"))
+            assertFalse(help.contains("--resolver-connect-timeout-ms"))
+            assertFalse(help.contains("--resolver-request-timeout-ms"))
+        }
+
+        test("old timeout options are rejected") {
+            val code = cli().execute(
+                "--active-recipe",
+                "io.github.skhokhlov.rewriterunner.MyRecipe",
+                "--process-timeout-seconds",
+                "45"
+            )
+            assertNotEquals(0, code)
         }
 
         test("multiple --recipe-artifact flags are collected into a list") {
