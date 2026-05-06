@@ -1,10 +1,9 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
-import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import java.nio.file.Path
 import java.time.Duration
@@ -12,9 +11,9 @@ import kotlin.io.path.exists
 
 internal class PluginRecipeRunner(
     private val logger: RunnerLogger = NoOpRunnerLogger,
-    timeout: Duration = ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-    rewriteGradlePluginVersion: String = ToolConfig.REWRITE_GRADLE_PLUGIN_VERSION,
-    rewriteMavenPluginVersion: String = ToolConfig.REWRITE_MAVEN_PLUGIN_VERSION,
+    timeout: Duration = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+    rewriteGradlePluginVersion: String = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
+    rewriteMavenPluginVersion: String = ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
     private val gradleStrategy: PluginBuildStrategy =
         GradlePluginStrategy(logger, timeout, rewriteGradlePluginVersion),
     private val mavenStrategy: PluginBuildStrategy =
@@ -31,7 +30,7 @@ internal class PluginRecipeRunner(
         rewriteConfigContent: String?,
         dryRun: Boolean,
         includeMavenCentral: Boolean,
-        repositories: List<RepositoryConfig>
+        artifactRepositories: List<RepositoryConfig>
     ): PluginRunResult {
         val hasGradle = hasBuildGradle(projectDir)
         val hasPom = projectDir.resolve("pom.xml").exists()
@@ -54,7 +53,7 @@ internal class PluginRecipeRunner(
                         rewriteConfigContent = rewriteConfigContent,
                         dryRun = dryRun,
                         includeMavenCentral = includeMavenCentral,
-                        repositories = repositories
+                        artifactRepositories = artifactRepositories
                     )
             ) {
                 is PluginRunResult.Failed -> failures.add(result)
@@ -74,7 +73,7 @@ internal class PluginRecipeRunner(
                         rewriteConfigContent = rewriteConfigContent,
                         dryRun = dryRun,
                         includeMavenCentral = includeMavenCentral,
-                        repositories = repositories
+                        artifactRepositories = artifactRepositories
                     )
             ) {
                 is PluginRunResult.Failed -> failures.add(result)

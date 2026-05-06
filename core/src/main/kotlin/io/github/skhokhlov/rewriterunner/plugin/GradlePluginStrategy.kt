@@ -2,13 +2,11 @@ package io.github.skhokhlov.rewriterunner.plugin
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
-import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
-import kotlin.streams.toList
 
 internal open class GradlePluginStrategy(
     private val logger: RunnerLogger,
@@ -23,7 +21,7 @@ internal open class GradlePluginStrategy(
         rewriteConfigContent: String?,
         dryRun: Boolean,
         includeMavenCentral: Boolean,
-        repositories: List<RepositoryConfig>
+        artifactRepositories: List<RepositoryConfig>
     ): PluginRunResult {
         val effectiveRewriteConfig =
             createRewriteConfigFile(rewriteConfigContent)
@@ -34,7 +32,7 @@ internal open class GradlePluginStrategy(
                 recipeArtifacts = recipeArtifacts,
                 rewriteConfig = effectiveRewriteConfig,
                 includeMavenCentral = includeMavenCentral,
-                repositories = repositories
+                repositories = artifactRepositories
             )
         return try {
             DirectPluginExecutor(projectDir, dryRun, ::execute).run(

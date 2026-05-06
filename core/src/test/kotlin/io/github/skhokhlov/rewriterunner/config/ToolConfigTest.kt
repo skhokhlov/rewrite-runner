@@ -1,6 +1,5 @@
 package io.github.skhokhlov.rewriterunner.config
 
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -26,16 +25,16 @@ class ToolConfigTest :
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(
                 """
-                repositories:
+                artifactRepositories:
                   - url: https://repo.example.com/maven
                   - url: https://mirror.example.com/maven
                 """.trimIndent()
             )
 
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            assertEquals(2, config.repositories.size)
-            assertEquals("https://repo.example.com/maven", config.repositories[0].url)
-            assertEquals("https://mirror.example.com/maven", config.repositories[1].url)
+            assertEquals(2, config.artifactRepositories.size)
+            assertEquals("https://repo.example.com/maven", config.artifactRepositories[0].url)
+            assertEquals("https://mirror.example.com/maven", config.artifactRepositories[1].url)
         }
 
         test("loads cacheDir from yaml") {
@@ -65,13 +64,41 @@ class ToolConfigTest :
 
         test("returns default config when file does not exist") {
             val config = ToolConfig.load(tempDir.resolve("nonexistent.yml"), NoOpRunnerLogger)
-            assertTrue(config.repositories.isEmpty())
+            assertTrue(config.artifactRepositories.isEmpty())
             assertEquals("~/.rewriterunner/cache", config.cacheDir)
         }
 
         test("returns default config when null path passed") {
             val config = ToolConfig.load(null, NoOpRunnerLogger)
-            assertTrue(config.repositories.isEmpty())
+            assertTrue(config.artifactRepositories.isEmpty())
+        }
+
+        test("constructor defaults come from ToolConfigDefaults") {
+            val config = ToolConfig()
+            assertEquals(ToolConfigDefaults.CACHE_DIR, config.cacheDir)
+            assertEquals(ToolConfigDefaults.INCLUDE_MAVEN_CENTRAL, config.includeMavenCentral)
+            assertEquals(
+                ToolConfigDefaults.ARTIFACT_DOWNLOAD_THREADS,
+                config.artifactDownloadThreads
+            )
+            assertEquals(ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT, config.subprocessRunTimeout)
+            assertEquals(ToolConfigDefaults.PLUGIN_RUN_TIMEOUT, config.pluginRunTimeout)
+            assertEquals(
+                ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
+                config.rewriteGradlePluginVersion
+            )
+            assertEquals(
+                ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
+                config.rewriteMavenPluginVersion
+            )
+            assertEquals(
+                ToolConfigDefaults.ARTIFACT_RESOLVER_CONNECT_TIMEOUT,
+                config.artifactResolverConnectTimeout
+            )
+            assertEquals(
+                ToolConfigDefaults.ARTIFACT_RESOLVER_REQUEST_TIMEOUT,
+                config.artifactResolverRequestTimeout
+            )
         }
 
         test("ignores unknown yaml fields without error") {
@@ -93,14 +120,14 @@ class ToolConfigTest :
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(
                 """
-                repositories:
+                artifactRepositories:
                   - url: https://repo.example.com
                     username: ${"$"}{USER}
                     password: secret
                 """.trimIndent()
             )
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            val resolved = config.resolvedRepositories()
+            val resolved = config.resolvedArtifactRepositories()
             // USER env var is usually set on Unix; check it was substituted (not kept as literal)
             assertNotNull(resolved[0].username)
             assertTrue(
@@ -113,13 +140,13 @@ class ToolConfigTest :
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(
                 """
-                repositories:
+                artifactRepositories:
                   - url: https://repo.example.com
                     password: ${"$"}{DEFINITELY_NOT_SET_XYZ_12345}
                 """.trimIndent()
             )
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            val resolved = config.resolvedRepositories()
+            val resolved = config.resolvedArtifactRepositories()
             // When env var is not set, the placeholder is preserved as-is
             assertEquals("\${DEFINITELY_NOT_SET_XYZ_12345}", resolved[0].password)
         }
@@ -151,15 +178,15 @@ class ToolConfigTest :
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(
                 """
-                repositories:
+                artifactRepositories:
                   - url: https://private.repo.com/maven
                     username: alice
                     password: secret123
                 """.trimIndent()
             )
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            assertEquals("alice", config.repositories[0].username)
-            assertEquals("secret123", config.repositories[0].password)
+            assertEquals("alice", config.artifactRepositories[0].username)
+            assertEquals("secret123", config.artifactRepositories[0].password)
         }
 
         // ─── includeMavenCentral ──────────────────────────────────────────────────
@@ -180,14 +207,14 @@ class ToolConfigTest :
 
         test("downloadThreads defaults to 5 when not specified") {
             val config = ToolConfig(logger = NoOpRunnerLogger)
-            assertEquals(5, config.downloadThreads)
+            assertEquals(5, config.artifactDownloadThreads)
         }
 
         test("loads downloadThreads from yaml") {
             val configFile = tempDir.resolve("runner.yml")
-            configFile.writeText("downloadThreads: 8")
+            configFile.writeText("artifactDownloadThreads: 8")
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            assertEquals(8, config.downloadThreads)
+            assertEquals(8, config.artifactDownloadThreads)
         }
 
         // ─── Timeouts ─────────────────────────────────────────────────────────────
@@ -195,20 +222,20 @@ class ToolConfigTest :
         test("timeout settings default to central execution defaults") {
             val config = ToolConfig(logger = NoOpRunnerLogger)
             assertEquals(
-                ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT,
-                config.processTimeout
+                ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT,
+                config.subprocessRunTimeout
             )
             assertEquals(
-                ExecutionTimeouts.DEFAULT_PLUGIN_TIMEOUT,
-                config.pluginTimeout
+                ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                config.pluginRunTimeout
             )
             assertEquals(
-                ExecutionTimeouts.DEFAULT_RESOLVER_CONNECT_TIMEOUT,
-                config.resolverConnectTimeout
+                ToolConfigDefaults.ARTIFACT_RESOLVER_CONNECT_TIMEOUT,
+                config.artifactResolverConnectTimeout
             )
             assertEquals(
-                ExecutionTimeouts.DEFAULT_RESOLVER_REQUEST_TIMEOUT,
-                config.resolverRequestTimeout
+                ToolConfigDefaults.ARTIFACT_RESOLVER_REQUEST_TIMEOUT,
+                config.artifactResolverRequestTimeout
             )
         }
 
@@ -216,80 +243,45 @@ class ToolConfigTest :
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(
                 """
-                processTimeout: 45s
-                pluginTimeout: 15m
-                resolverConnectTimeout: 10000ms
-                resolverRequestTimeout: 20s
+                subprocessRunTimeout: 45s
+                pluginRunTimeout: 15m
+                artifactResolverConnectTimeout: 10000ms
+                artifactResolverRequestTimeout: 20s
                 """.trimIndent()
             )
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            assertEquals(Duration.ofSeconds(45), config.processTimeout)
-            assertEquals(Duration.ofMinutes(15), config.pluginTimeout)
-            assertEquals(Duration.ofMillis(10_000), config.resolverConnectTimeout)
-            assertEquals(Duration.ofSeconds(20), config.resolverRequestTimeout)
+            assertEquals(Duration.ofSeconds(45), config.subprocessRunTimeout)
+            assertEquals(Duration.ofMinutes(15), config.pluginRunTimeout)
+            assertEquals(Duration.ofMillis(10_000), config.artifactResolverConnectTimeout)
+            assertEquals(Duration.ofSeconds(20), config.artifactResolverRequestTimeout)
         }
 
         test("loads ISO-8601 timeout settings from yaml") {
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(
                 """
-                processTimeout: PT2M
-                pluginTimeout: PT10M
-                resolverConnectTimeout: PT30S
-                resolverRequestTimeout: PT1M
+                subprocessRunTimeout: PT2M
+                pluginRunTimeout: PT10M
+                artifactResolverConnectTimeout: PT30S
+                artifactResolverRequestTimeout: PT1M
                 """.trimIndent()
             )
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            assertEquals(Duration.ofMinutes(2), config.processTimeout)
-            assertEquals(Duration.ofMinutes(10), config.pluginTimeout)
-            assertEquals(Duration.ofSeconds(30), config.resolverConnectTimeout)
-            assertEquals(Duration.ofMinutes(1), config.resolverRequestTimeout)
+            assertEquals(Duration.ofMinutes(2), config.subprocessRunTimeout)
+            assertEquals(Duration.ofMinutes(10), config.pluginRunTimeout)
+            assertEquals(Duration.ofSeconds(30), config.artifactResolverConnectTimeout)
+            assertEquals(Duration.ofMinutes(1), config.artifactResolverRequestTimeout)
         }
 
         test("bare numeric timeout values are rejected") {
             val configFile = tempDir.resolve("runner.yml")
-            configFile.writeText("processTimeout: 120")
+            configFile.writeText("subprocessRunTimeout: 120")
 
             val error = assertFailsWith<IllegalArgumentException> {
                 ToolConfig.load(configFile, NoOpRunnerLogger)
             }
-            assertTrue(error.message.orEmpty().contains("processTimeout"))
+            assertTrue(error.message.orEmpty().contains("subprocessRunTimeout"))
             assertTrue(error.message.orEmpty().contains("unit"))
-        }
-
-        test("legacy timeout field names are rejected with migration guidance") {
-            val configFile = tempDir.resolve("runner.yml")
-            configFile.writeText(
-                """
-                processTimeoutSeconds: 45
-                pluginTimeoutSeconds: 900
-                resolverConnectTimeoutMs: 10000
-                resolverRequestTimeoutMs: 20000
-                """.trimIndent()
-            )
-
-            val error = assertFailsWith<IllegalArgumentException> {
-                ToolConfig.load(configFile, NoOpRunnerLogger)
-            }
-            assertTrue(error.message.orEmpty().contains("processTimeoutSeconds"))
-            assertTrue(error.message.orEmpty().contains("use 'processTimeout'"))
-        }
-
-        test("legacy timeout names inside block scalar content are not rejected") {
-            val configFile = tempDir.resolve("runner.yml")
-            configFile.writeText(
-                """
-                processTimeout: 120s
-                notes: |
-                  Example legacy config:
-                  processTimeoutSeconds: 45
-                  pluginTimeoutSeconds: 900
-                """.trimIndent()
-            )
-
-            val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-
-            assertEquals(Duration.ofSeconds(120), config.processTimeout)
         }
 
         // ─── OpenRewrite plugin versions ─────────────────────────────────────────
@@ -297,11 +289,11 @@ class ToolConfigTest :
         test("rewrite plugin versions default to central constants") {
             val config = ToolConfig(logger = NoOpRunnerLogger)
             assertEquals(
-                ToolConfig.REWRITE_GRADLE_PLUGIN_VERSION,
+                ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
                 config.rewriteGradlePluginVersion
             )
             assertEquals(
-                ToolConfig.REWRITE_MAVEN_PLUGIN_VERSION,
+                ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
                 config.rewriteMavenPluginVersion
             )
         }
@@ -324,12 +316,12 @@ class ToolConfigTest :
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(
                 """
-                repositories:
+                artifactRepositories:
                   - url: https://public.repo.com/maven
                 """.trimIndent()
             )
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            assertEquals(null, config.repositories[0].username)
-            assertEquals(null, config.repositories[0].password)
+            assertEquals(null, config.artifactRepositories[0].username)
+            assertEquals(null, config.artifactRepositories[0].password)
         }
     })

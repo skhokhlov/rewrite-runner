@@ -1,8 +1,8 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleConfigData
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleProjectData
@@ -63,7 +63,7 @@ import org.eclipse.aether.resolution.ArtifactResolutionException
 open class DependencyResolutionStage(
     private val aetherContext: AetherContext,
     protected val logger: RunnerLogger,
-    private val processTimeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT
+    private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT
 ) {
     private val staticParser = StaticBuildFileParser(logger)
 

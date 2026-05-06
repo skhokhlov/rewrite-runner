@@ -42,8 +42,8 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 | `--config` | | Path to `rewriterunner.yml` | `<projectDir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` |
 | `--dry-run` | | Run without writing to disk | `false` |
 | `--skip-plugin-run` | | Skip official plugin-first execution and use the LST pipeline directly | `false` |
-| `--process-timeout` | | Build-tool subprocess timeout for the fallback LST pipeline | `120s` |
-| `--plugin-timeout` | | Stage 0 Gradle/Maven plugin timeout | `10m` |
+| `--subprocess-run-timeout` | | Build-tool subprocess timeout for the fallback LST pipeline | `120s` |
+| `--plugin-run-timeout` | | Stage 0 Gradle/Maven plugin timeout | `10m` |
 | `--resolver-connect-timeout` | | Maven Resolver TCP connection timeout | `30s` |
 | `--resolver-request-timeout` | | Maven Resolver socket/request timeout | `60s` |
 | `--include-extensions` | | Comma-separated file types to parse | — |

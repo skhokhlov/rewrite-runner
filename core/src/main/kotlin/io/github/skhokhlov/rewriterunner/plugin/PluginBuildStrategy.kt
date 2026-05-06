@@ -12,6 +12,6 @@ internal interface PluginBuildStrategy {
         rewriteConfigContent: String?,
         dryRun: Boolean,
         includeMavenCentral: Boolean,
-        repositories: List<RepositoryConfig>
+        artifactRepositories: List<RepositoryConfig>
     ): PluginRunResult
 }

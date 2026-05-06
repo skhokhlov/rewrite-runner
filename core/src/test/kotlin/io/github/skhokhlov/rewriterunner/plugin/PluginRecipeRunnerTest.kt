@@ -25,7 +25,7 @@ class PluginRecipeRunnerTest :
                 rewriteConfigContent: String?,
                 dryRun: Boolean,
                 includeMavenCentral: Boolean,
-                repositories: List<RepositoryConfig>
+                artifactRepositories: List<RepositoryConfig>
             ): PluginRunResult = result
         }
 
@@ -45,7 +45,7 @@ class PluginRecipeRunnerTest :
                     rewriteConfigContent = null,
                     dryRun = true,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.Skipped>(result)
@@ -67,7 +67,7 @@ class PluginRecipeRunnerTest :
                     rewriteConfigContent = null,
                     dryRun = true,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertIs<PluginRunResult.NoChanges>(result)
@@ -89,7 +89,7 @@ class PluginRecipeRunnerTest :
                     rewriteConfigContent = null,
                     dryRun = true,
                     includeMavenCentral = true,
-                    repositories = emptyList()
+                    artifactRepositories = emptyList()
                 )
 
             assertEquals(PluginRunResult.Failed("gradle failed ; maven failed"), result)

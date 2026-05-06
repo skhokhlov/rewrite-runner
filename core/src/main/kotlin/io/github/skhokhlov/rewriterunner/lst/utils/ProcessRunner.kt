@@ -1,8 +1,8 @@
 package io.github.skhokhlov.rewriterunner.lst.utils
 
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.DurationParser
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Files
@@ -34,7 +34,7 @@ internal fun runProcess(
     workDir: Path,
     command: List<String>,
     captureStdout: StringBuilder? = null,
-    timeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT,
+    timeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT,
     timeoutName: String = "processTimeout",
     logger: RunnerLogger
 ): Int? {

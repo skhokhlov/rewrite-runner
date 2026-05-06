@@ -1,6 +1,5 @@
 package io.github.skhokhlov.rewriterunner.cli
 
-import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.output.OutputMode
 import io.kotest.core.spec.style.FunSpec
 import java.io.ByteArrayOutputStream
@@ -178,13 +177,13 @@ class RunCommandTest :
             CommandLine(cmd).parseArgs(
                 "--active-recipe",
                 "io.github.skhokhlov.rewriterunner.MyRecipe",
-                "--download-threads",
+                "--artifact-download-threads",
                 "8"
             )
             assertEquals(
                 8,
                 cmd.downloadThreads,
-                "--download-threads 8 should set downloadThreads to 8"
+                "--artifact-download-threads 8 should set downloadThreads to 8"
             )
         }
 
@@ -193,13 +192,13 @@ class RunCommandTest :
             CommandLine(cmd).parseArgs(
                 "--active-recipe",
                 "io.github.skhokhlov.rewriterunner.MyRecipe",
-                "--process-timeout",
+                "--subprocess-run-timeout",
                 "45s",
-                "--plugin-timeout",
+                "--plugin-run-timeout",
                 "15m",
-                "--resolver-connect-timeout",
+                "--artifact-resolver-connect-timeout",
                 "10000ms",
-                "--resolver-request-timeout",
+                "--artifact-resolver-request-timeout",
                 "20s"
             )
             assertEquals(Duration.ofSeconds(45), cmd.processTimeout)
@@ -212,12 +211,12 @@ class RunCommandTest :
             val baos = ByteArrayOutputStream()
             cli().setOut(PrintWriter(baos)).execute("--help")
             val help = baos.toString()
-            assertTrue(help.contains("--process-timeout"))
-            assertTrue(help.contains("--plugin-timeout"))
+            assertTrue(help.contains("--subprocess-run-timeout"))
+            assertTrue(help.contains("--plugin-run-timeout"))
             assertTrue(help.contains("--resolver-connect-timeout"))
             assertTrue(help.contains("--resolver-request-timeout"))
-            assertFalse(help.contains("--process-timeout-seconds"))
-            assertFalse(help.contains("--plugin-timeout-seconds"))
+            assertFalse(help.contains("--subprocess-run-timeout-seconds"))
+            assertFalse(help.contains("--plugin-run-timeout-seconds"))
             assertFalse(help.contains("--resolver-connect-timeout-ms"))
             assertFalse(help.contains("--resolver-request-timeout-ms"))
         }
@@ -226,7 +225,7 @@ class RunCommandTest :
             val code = cli().execute(
                 "--active-recipe",
                 "io.github.skhokhlov.rewriterunner.MyRecipe",
-                "--process-timeout-seconds",
+                "--subprocess-run-timeout-seconds",
                 "45"
             )
             assertNotEquals(0, code)

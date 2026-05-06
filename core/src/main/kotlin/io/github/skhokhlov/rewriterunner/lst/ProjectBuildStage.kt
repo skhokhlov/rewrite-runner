@@ -1,7 +1,7 @@
 package io.github.skhokhlov.rewriterunner.lst
 
-import io.github.skhokhlov.rewriterunner.ExecutionTimeouts
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
@@ -55,7 +55,7 @@ import kotlin.io.path.exists
  */
 open class ProjectBuildStage(
     protected val logger: RunnerLogger,
-    private val processTimeout: Duration = ExecutionTimeouts.DEFAULT_PROCESS_TIMEOUT
+    private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT
 ) {
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.

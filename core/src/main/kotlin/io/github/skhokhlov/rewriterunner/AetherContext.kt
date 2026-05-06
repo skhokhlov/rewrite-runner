@@ -2,7 +2,7 @@ package io.github.skhokhlov.rewriterunner
 
 import io.github.skhokhlov.rewriterunner.config.DurationParser
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
-import io.github.skhokhlov.rewriterunner.config.ToolConfig.Companion.DOWNLOAD_THREADS
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import java.nio.file.Path
 import java.time.Duration
 import org.eclipse.aether.ConfigurationProperties
@@ -74,11 +74,11 @@ class AetherContext(
         fun build(
             localRepoDir: Path,
             extraRepositories: List<RepositoryConfig> = emptyList(),
-            connectTimeout: Duration = ExecutionTimeouts.DEFAULT_RESOLVER_CONNECT_TIMEOUT,
-            requestTimeout: Duration = ExecutionTimeouts.DEFAULT_RESOLVER_REQUEST_TIMEOUT,
-            downloadThreads: Int = DOWNLOAD_THREADS,
+            connectTimeout: Duration = ToolConfigDefaults.ARTIFACT_RESOLVER_CONNECT_TIMEOUT,
+            requestTimeout: Duration = ToolConfigDefaults.ARTIFACT_RESOLVER_REQUEST_TIMEOUT,
+            downloadThreads: Int = ToolConfigDefaults.ARTIFACT_DOWNLOAD_THREADS,
             excludeScopesFromGraph: Collection<String> = emptyList(),
-            includeMavenCentral: Boolean = true,
+            includeMavenCentral: Boolean = ToolConfigDefaults.INCLUDE_MAVEN_CENTRAL,
             logger: RunnerLogger
         ): AetherContext {
             val system = RepositorySystemSupplier().get()
