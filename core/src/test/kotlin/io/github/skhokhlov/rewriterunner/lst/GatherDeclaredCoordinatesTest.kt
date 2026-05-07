@@ -7,6 +7,7 @@ import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -96,6 +97,71 @@ class GatherDeclaredCoordinatesTest :
                 assertTrue(parts[1].isNotBlank(), "artifactId must not be blank in: $coord")
                 assertTrue(parts[2].isNotBlank(), "version must not be blank in: $coord")
             }
+        }
+
+        test("includes child module Maven coordinates for Stage 4 cache scan") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>parent</artifactId>
+                  <version>1.0</version>
+                  <packaging>pom</packaging>
+                  <modules>
+                    <module>api</module>
+                  </modules>
+                </project>
+                """.trimIndent()
+            )
+            val moduleDir = projectDir.resolve("api").also { it.createDirectories() }
+            moduleDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>api</artifactId>
+                  <version>1.0</version>
+                  <dependencies>
+                    <dependency>
+                      <groupId>com.example.stage4</groupId>
+                      <artifactId>child-only-lib</artifactId>
+                      <version>1.0.0</version>
+                    </dependency>
+                  </dependencies>
+                </project>
+                """.trimIndent()
+            )
+            val localJarDir = projectDir
+                .resolve(".m2/repository/com/example/stage4/child-only-lib/1.0.0")
+                .also { it.createDirectories() }
+            val localJar = localJarDir.resolve("child-only-lib-1.0.0.jar")
+                .also { it.writeText("") }
+
+            val noOpDepStage =
+                object :
+                    DependencyResolutionStage(
+                        AetherContext.build(
+                            projectDir.resolve("cache").resolve("repository"),
+                            logger = NoOpRunnerLogger
+                        ),
+                        NoOpRunnerLogger
+                    ) {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
+                }
+
+            val coords = lstBuilder(noOpDepStage).gatherDeclaredCoordinates(projectDir)
+            val jars = LocalRepositoryStage(projectDir, NoOpRunnerLogger).findAvailableJars(coords)
+
+            assertTrue(
+                "com.example.stage4:child-only-lib:1.0.0" in coords,
+                "Stage 4 coordinates should include dependencies declared only in child modules"
+            )
+            assertTrue(
+                localJar in jars,
+                "Stage 4 should find child module dependencies already cached locally"
+            )
         }
 
         test("returns Maven coordinate strings for Gradle project") {

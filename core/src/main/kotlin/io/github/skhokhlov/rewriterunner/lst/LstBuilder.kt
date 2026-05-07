@@ -684,18 +684,12 @@ open class LstBuilder(
     }
 
     /**
-     * Extract declared dependency coordinates from the project's build descriptor without
-     * triggering any network downloads. Returns `groupId:artifactId:version` strings
-     * suitable for [LocalRepositoryStage.findAvailableJars].
+     * Extract declared dependency coordinates using the same static descriptor discovery as
+     * Stage 3, without triggering Maven Resolver downloads. Returns `groupId:artifactId:version`
+     * strings suitable for [LocalRepositoryStage.findAvailableJars].
      */
     internal fun gatherDeclaredCoordinates(projectDir: Path): List<String> = try {
-        when {
-            projectDir.resolve("pom.xml").exists() ->
-                staticParser.parseMavenDependencies(projectDir)
-
-            else ->
-                staticParser.parseGradleDependenciesStatically(projectDir)
-        }
+        buildFileParseStage.gatherAllCoordinates(projectDir)
     } catch (_: Exception) {
         emptyList()
     }
