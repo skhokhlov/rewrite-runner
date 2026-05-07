@@ -158,7 +158,8 @@ open class BuildFileParseStage(
     private fun collectModuleDirs(dir: Path, found: MutableSet<Path>, depth: Int) {
         if (depth >= 3) return
         try {
-            val model = MavenXpp3Reader().read(dir.resolve("pom.xml").toFile().inputStream())
+            val model =
+                dir.resolve("pom.xml").toFile().inputStream().use { MavenXpp3Reader().read(it) }
             for (module in model.modules) {
                 val moduleDir = dir.resolve(module)
                 if (moduleDir.resolve("pom.xml").exists() && found.add(moduleDir)) {

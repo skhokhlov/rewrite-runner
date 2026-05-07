@@ -34,7 +34,7 @@ internal class StaticBuildFileParser(private val logger: RunnerLogger) {
     fun parseMavenDependencies(projectDir: Path): List<String> {
         val pomFile = projectDir.resolve("pom.xml")
         return try {
-            val model = MavenXpp3Reader().read(pomFile.toFile().inputStream())
+            val model = pomFile.toFile().inputStream().use { MavenXpp3Reader().read(it) }
             model.dependencies
                 .filter { it.scope !in listOf("runtime", "system") }
                 .mapNotNull { dep ->

@@ -111,7 +111,8 @@ internal class VersionDetector(private val logger: RunnerLogger) {
      */
     private fun detectMavenKotlinVersion(dir: Path): Pair<String, String>? {
         return try {
-            val model = MavenXpp3Reader().read(dir.resolve("pom.xml").toFile().inputStream())
+            val model =
+                dir.resolve("pom.xml").toFile().inputStream().use { MavenXpp3Reader().read(it) }
             val kotlinPlugin = model.build?.plugins?.find { it.artifactId == "kotlin-maven-plugin" }
             val dom = kotlinPlugin?.configuration as? Xpp3Dom
             val jvmTarget = dom?.getChild("jvmTarget")?.value
@@ -158,7 +159,8 @@ internal class VersionDetector(private val logger: RunnerLogger) {
     private fun detectMavenJavaVersion(projectDir: Path): Pair<String, String>? {
         return try {
             val model =
-                MavenXpp3Reader().read(projectDir.resolve("pom.xml").toFile().inputStream())
+                projectDir.resolve("pom.xml").toFile().inputStream()
+                    .use { MavenXpp3Reader().read(it) }
 
             val compilerPlugin =
                 model.build?.plugins?.find { it.artifactId == "maven-compiler-plugin" }
