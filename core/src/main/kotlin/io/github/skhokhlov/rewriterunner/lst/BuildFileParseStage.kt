@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import java.nio.file.Files
@@ -54,6 +55,7 @@ open class BuildFileParseStage(
     private val aetherContext: AetherContext,
     private val logger: RunnerLogger
 ) {
+    private val descriptorDiscoveryExcludedDirNames = FileCollector.DEFAULT_EXCLUDED_DIRS + "bin"
     private val staticParser = StaticBuildFileParser(logger)
 
     /**
@@ -175,7 +177,8 @@ open class BuildFileParseStage(
     private fun walkForPomDirs(projectDir: Path, found: MutableSet<Path>) {
         try {
             Files.walk(projectDir, 3).use { stream ->
-                stream.filter { path -> path.fileName?.toString() == "pom.xml" }
+                stream.filter { path -> !isInDescriptorDiscoveryExcludedDir(projectDir, path) }
+                    .filter { path -> path.fileName?.toString() == "pom.xml" }
                     .forEach { pomFile -> found.add(pomFile.parent) }
             }
         } catch (e: Exception) {
@@ -194,6 +197,7 @@ open class BuildFileParseStage(
         try {
             Files.walk(projectDir, 3).use { stream ->
                 stream.filter { path ->
+                    if (isInDescriptorDiscoveryExcludedDir(projectDir, path)) return@filter false
                     val name = path.fileName?.toString() ?: return@filter false
                     path.parent != projectDir &&
                         (name == "build.gradle" || name == "build.gradle.kts")
@@ -205,5 +209,12 @@ open class BuildFileParseStage(
             logger.warn("Stage 3: failed to walk Gradle build files in subdirs: ${e.message}")
         }
         return coords
+    }
+
+    private fun isInDescriptorDiscoveryExcludedDir(projectDir: Path, path: Path): Boolean {
+        val relative = projectDir.relativize(path)
+        return relative.any { segment ->
+            segment.fileName?.toString() in descriptorDiscoveryExcludedDirNames
+        }
     }
 }

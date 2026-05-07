@@ -188,6 +188,82 @@ class BuildFileParseStageTest :
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
         }
 
+        test("Maven fallback discovery ignores pom.xml files in build output dirs") {
+            resetTracking()
+            val appDir = projectDir.resolve("app").also { it.createDirectories() }
+            appDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>app</artifactId>
+                    <version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.apache.commons</groupId>
+                            <artifactId>commons-lang3</artifactId>
+                            <version>3.12.0</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """.trimIndent()
+            )
+            val targetDir = appDir.resolve("target").also { it.createDirectories() }
+            targetDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example.generated</groupId>
+                    <artifactId>generated</artifactId>
+                    <version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.google.guava</groupId>
+                            <artifactId>guava</artifactId>
+                            <version>32.0.0-jre</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """.trimIndent()
+            )
+
+            fakeStage().resolveClasspath(projectDir)
+
+            assertTrue(traversalCalled)
+            assertTrue(capturedCoords.any { it.contains("commons-lang3") })
+            assertFalse(
+                capturedCoords.any { it.contains("guava") },
+                "Generated pom.xml under target/ must not contribute coordinates"
+            )
+        }
+
+        test("Maven fallback discovery keeps real pom.xml files at depth three") {
+            resetTracking()
+            val apiDir = projectDir.resolve("services/api").also { it.createDirectories() }
+            apiDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>com.example</groupId>
+                    <artifactId>api</artifactId>
+                    <version>1.0</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.slf4j</groupId>
+                            <artifactId>slf4j-api</artifactId>
+                            <version>2.0.0</version>
+                        </dependency>
+                    </dependencies>
+                </project>
+                """.trimIndent()
+            )
+
+            fakeStage().resolveClasspath(projectDir)
+
+            assertTrue(traversalCalled)
+            assertTrue(capturedCoords.any { it == "org.slf4j:slf4j-api:2.0.0" })
+        }
+
         // ─── Maven: traversal returns JARs ────────────────────────────────────────
 
         test("Maven: resolveWithPomTraversal returns JARs → resolveClasspath returns them") {
@@ -376,6 +452,35 @@ class BuildFileParseStageTest :
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
+        }
+
+        test("Gradle fallback discovery ignores build files in build output dirs") {
+            resetTracking()
+            val appDir = projectDir.resolve("app").also { it.createDirectories() }
+            appDir.resolve("build.gradle").writeText(
+                """
+                dependencies {
+                    implementation 'org.apache.commons:commons-lang3:3.12.0'
+                }
+                """.trimIndent()
+            )
+            val tmpDir = projectDir.resolve("build/tmp").also { it.createDirectories() }
+            tmpDir.resolve("build.gradle").writeText(
+                """
+                dependencies {
+                    implementation 'com.google.guava:guava:32.0.0-jre'
+                }
+                """.trimIndent()
+            )
+
+            fakeStage().resolveClasspath(projectDir)
+
+            assertTrue(traversalCalled)
+            assertTrue(capturedCoords.any { it.contains("commons-lang3") })
+            assertFalse(
+                capturedCoords.any { it.contains("guava") },
+                "Generated build.gradle under build/ must not contribute coordinates"
+            )
         }
 
         // ─── Mixed Maven + Gradle ─────────────────────────────────────────────────
