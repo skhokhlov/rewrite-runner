@@ -6,6 +6,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+private val emptyDiagnostics = ExecutionDiagnostics.EMPTY
+
 class RunResultTest :
     FunSpec({
         val projectDir = Paths.get("/tmp/project")
@@ -15,7 +17,8 @@ class RunResultTest :
                 RunResult(
                     results = emptyList(),
                     changedFiles = emptyList(),
-                    projectDir = projectDir
+                    projectDir = projectDir,
+                    executionDiagnostics = emptyDiagnostics
                 )
             assertFalse(result.hasChanges)
         }
@@ -29,7 +32,8 @@ class RunResultTest :
                 RunResult(
                     results = emptyList(),
                     changedFiles = emptyList(),
-                    projectDir = projectDir
+                    projectDir = projectDir,
+                    executionDiagnostics = emptyDiagnostics
                 )
             assertFalse(result.hasChanges, "Empty results → hasChanges must be false")
             assertEquals(0, result.changeCount, "Empty results → changeCount must be 0")
@@ -40,7 +44,8 @@ class RunResultTest :
                 RunResult(
                     results = emptyList(),
                     changedFiles = emptyList(),
-                    projectDir = projectDir
+                    projectDir = projectDir,
+                    executionDiagnostics = emptyDiagnostics
                 )
             assertEquals(0, result.changeCount)
         }
@@ -51,7 +56,8 @@ class RunResultTest :
                     results = emptyList(),
                     changedFiles = emptyList(),
                     projectDir = projectDir,
-                    rawDiffs = mapOf(Paths.get("Foo.java") to "diff --git a/Foo.java b/Foo.java\n")
+                    rawDiffs = mapOf(Paths.get("Foo.java") to "diff --git a/Foo.java b/Foo.java\n"),
+                    executionDiagnostics = emptyDiagnostics
                 )
             assertTrue(result.hasChanges)
             assertEquals(1, result.changeCount)
@@ -63,7 +69,8 @@ class RunResultTest :
                 RunResult(
                     results = emptyList(),
                     changedFiles = changedFiles,
-                    projectDir = projectDir
+                    projectDir = projectDir,
+                    executionDiagnostics = emptyDiagnostics
                 )
             val r2 = r1.copy()
             assertEquals(r1, r2)
@@ -76,7 +83,8 @@ class RunResultTest :
                 RunResult(
                     results = emptyList(),
                     changedFiles = emptyList(),
-                    projectDir = projectDir
+                    projectDir = projectDir,
+                    executionDiagnostics = emptyDiagnostics
                 )
             val str = result.toString()
             assertTrue(str.contains("RunResult"), "toString should include class name")
@@ -85,7 +93,12 @@ class RunResultTest :
         test("changedFiles is accessible on result") {
             val files = listOf(Paths.get("/tmp/a.java"), Paths.get("/tmp/b.java"))
             val result =
-                RunResult(results = emptyList(), changedFiles = files, projectDir = projectDir)
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = files,
+                    projectDir = projectDir,
+                    executionDiagnostics = emptyDiagnostics
+                )
             assertEquals(2, result.changedFiles.size)
             assertTrue(result.changedFiles.contains(Paths.get("/tmp/a.java")))
         }

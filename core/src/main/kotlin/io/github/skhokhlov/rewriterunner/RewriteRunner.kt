@@ -3,6 +3,7 @@ package io.github.skhokhlov.rewriterunner
 import io.github.skhokhlov.rewriterunner.config.DurationParser
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.lst.LstBuildResult
 import io.github.skhokhlov.rewriterunner.lst.LstBuilder
 import io.github.skhokhlov.rewriterunner.plugin.PluginRecipeRunner
 import io.github.skhokhlov.rewriterunner.plugin.PluginRunResult
@@ -126,7 +127,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                         results = emptyList(),
                         changedFiles = pluginResult.changedFiles,
                         projectDir = config.projectDir,
-                        rawDiffs = pluginResult.diffs
+                        rawDiffs = pluginResult.diffs,
+                        executionDiagnostics = ExecutionDiagnostics.PLUGIN
                     )
                 }
 
@@ -135,7 +137,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                     return RunResult(
                         results = emptyList(),
                         changedFiles = emptyList(),
-                        projectDir = config.projectDir
+                        projectDir = config.projectDir,
+                        executionDiagnostics = ExecutionDiagnostics.PLUGIN
                     )
                 }
 
@@ -252,13 +255,14 @@ class RewriteRunner private constructor(private val config: Builder) {
                     toolConfig.parse
                 }
             val lstStart = System.currentTimeMillis()
-            val sourceFiles =
+            val lstBuildResult: LstBuildResult =
                 lstBuilder.build(
                     projectDir = config.projectDir,
                     parseConfig = effectiveParseConfig,
                     includeExtensionsCli = config.includeExtensions,
                     excludeExtensionsCli = config.excludeExtensions
                 )
+            val sourceFiles = lstBuildResult.sourceFiles
             logger.lifecycle(
                 "      LST built: ${sourceFiles.size} file(s) in ${System.currentTimeMillis() - lstStart}ms"
             )
@@ -314,7 +318,8 @@ class RewriteRunner private constructor(private val config: Builder) {
             RunResult(
                 results = results,
                 changedFiles = writtenFiles,
-                projectDir = config.projectDir
+                projectDir = config.projectDir,
+                executionDiagnostics = lstBuildResult.executionDiagnostics
             )
         }
     }

@@ -64,7 +64,7 @@ class JavaVersionDetectionTest :
         fun buildAndGetJavaVersion(): JavaVersion {
             projectDir.resolve("Hello.java").writeText("class Hello {}")
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
             val javaFile = sources.single { it.sourcePath.toString().endsWith(".java") }
             val marker = javaFile.markers.findFirst(JavaVersion::class.java).orElse(null)
             assertNotNull(
@@ -78,7 +78,10 @@ class JavaVersionDetectionTest :
             val absPath = projectDir.resolve(relativeFilePath)
             Files.createDirectories(absPath.parent)
             absPath.writeText("class ${absPath.toFile().nameWithoutExtension} {}")
-            val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+            val sources = lstBuilder().build(
+                projectDir,
+                includeExtensionsCli = listOf(".java")
+            ).sourceFiles
             val javaFile = sources.single { it.sourcePath.toString() == relativeFilePath }
             val marker = javaFile.markers.findFirst(JavaVersion::class.java).orElse(null)
             assertNotNull(marker, "JavaVersion marker must be present on parsed Java source file")
@@ -810,7 +813,7 @@ class JavaVersionDetectionTest :
             absWorld.writeText("class World {}")
 
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
             val helloMarker =
                 sources
                     .single { it.sourcePath.toString() == "subproject1/src/main/java/Hello.java" }
@@ -856,7 +859,7 @@ class JavaVersionDetectionTest :
             absBeta.writeText("class Beta {}")
 
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
             val alphaMarker =
                 sources
                     .single { it.sourcePath.toString() == "subproject1/src/Alpha.java" }

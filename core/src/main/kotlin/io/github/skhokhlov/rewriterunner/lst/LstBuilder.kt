@@ -1,7 +1,9 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.ExecutionDiagnostics
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
@@ -42,6 +44,12 @@ import org.openrewrite.protobuf.ProtoParser
 import org.openrewrite.toml.TomlParser
 import org.openrewrite.xml.XmlParser
 import org.openrewrite.yaml.YamlParser
+
+/** Result of a single [LstBuilder.build] invocation. */
+data class LstBuildResult(
+    val sourceFiles: List<SourceFile>,
+    val executionDiagnostics: ExecutionDiagnostics
+)
 
 /**
  * Orchestrates the 4-stage LST building pipeline and multi-language file parsing.
@@ -129,7 +137,7 @@ open class LstBuilder(
      * @param excludeExtensionsCli File extensions to skip. Overrides [parseConfig] when non-empty.
      * @param ctx OpenRewrite execution context. Defaults to an [org.openrewrite.InMemoryExecutionContext]
      *   that logs parse warnings without aborting.
-     * @return The list of all parsed [org.openrewrite.SourceFile]s, one per source file found.
+     * @return An [LstBuildResult] containing the parsed source files and execution diagnostics.
      */
     fun build(
         projectDir: Path,
@@ -137,7 +145,7 @@ open class LstBuilder(
         includeExtensionsCli: List<String> = emptyList(),
         excludeExtensionsCli: List<String> = emptyList(),
         ctx: ExecutionContext = InMemoryExecutionContext {}
-    ): List<SourceFile> {
+    ): LstBuildResult {
         val pendingErrors = mutableListOf<Throwable>()
         val parseCtx = object : DelegatingExecutionContext(ctx) {
             private val errorConsumer = Consumer<Throwable> { t ->
@@ -487,7 +495,7 @@ open class LstBuilder(
         logger.info("LST build complete: ${allSources.size} SourceFile(s)")
 
         // ── Attach provenance markers to every source file ────────────────────
-        return allSources.map { sf ->
+        val withMarkers = allSources.map { sf ->
             var markers = sf.markers
             buildEnv?.let { markers = markers.addIfAbsent(it) }
             gitProvenance?.let { markers = markers.addIfAbsent(it) }
@@ -495,6 +503,13 @@ open class LstBuilder(
             buildToolMarker?.let { markers = markers.addIfAbsent(it) }
             if (markers === sf.markers) sf else sf.withMarkers(markers)
         }
+
+        val resolvedJarCount = classpath.count { it.toString().endsWith(".jar") }
+        val diagnostics = ExecutionDiagnostics(
+            stageUsed = resolutionResult.stageUsed,
+            resolvedJarCount = resolvedJarCount
+        )
+        return LstBuildResult(withMarkers, diagnostics)
     }
 
     // ─── Overrideable parser factories (for testing fallback paths) ──────────
@@ -526,6 +541,10 @@ open class LstBuilder(
         )
         .buildscriptClasspath(gradleDslClasspath)
         .build()
+
+    /** Creates the [LocalRepositoryStage] used for Stage 4. Overrideable in tests. */
+    protected open fun createLocalRepositoryStage(projectDir: Path): LocalRepositoryStage =
+        LocalRepositoryStage(projectDir, logger)
 
     // ─── Classpath resolution (4 stages) ─────────────────────────────────────
 
@@ -614,7 +633,11 @@ open class LstBuilder(
                         "rewrite-gradle recipes may not apply. Run with --info for details."
                 )
             }
-            return ClasspathResolutionResult(stage1 + classDirs, gradleData)
+            return ClasspathResolutionResult(
+                classpath = stage1 + classDirs,
+                gradleProjectData = gradleData,
+                stageUsed = UsedExecutionStage.BUILD_TOOL
+            )
         }
 
         logger.warn(
@@ -640,7 +663,8 @@ open class LstBuilder(
             logger.info("Stage 2 succeeded: ${stage2Result.classpath.size} JAR(s)")
             return ClasspathResolutionResult(
                 classpath = stage2Result.classpath + classDirs,
-                gradleProjectData = stage2GradleData
+                gradleProjectData = stage2GradleData,
+                stageUsed = UsedExecutionStage.DEPENDENCY_RESOLUTION
             )
         }
 
@@ -662,13 +686,17 @@ open class LstBuilder(
                 logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
             }
             logger.info("Stage 3 succeeded: ${stage3.size} JAR(s)")
-            return ClasspathResolutionResult(stage3 + classDirs, stage2GradleData)
+            return ClasspathResolutionResult(
+                classpath = stage3 + classDirs,
+                gradleProjectData = stage2GradleData,
+                stageUsed = UsedExecutionStage.DIRECT_PARSE
+            )
         }
 
         logger.warn("Stage 3 failed — falling through to Stage 4")
 
         logger.info("Stage 4: scanning local Maven/Gradle caches")
-        val localRepositoryStage = LocalRepositoryStage(projectDir, logger)
+        val localRepositoryStage = createLocalRepositoryStage(projectDir)
         val declaredCoords = gatherDeclaredCoordinates(projectDir)
         val stage4 = localRepositoryStage.findAvailableJars(declaredCoords)
         val classDirs = projectClassDirs(projectDir)
@@ -680,7 +708,11 @@ open class LstBuilder(
         } else {
             logger.info("Stage 4: using ${stage4.size} locally cached JAR(s)")
         }
-        return ClasspathResolutionResult(stage4 + classDirs, stage2GradleData)
+        return ClasspathResolutionResult(
+            classpath = stage4 + classDirs,
+            gradleProjectData = stage2GradleData,
+            stageUsed = if (stage4.isEmpty()) null else UsedExecutionStage.LOCAL_REPOSITORY
+        )
     }
 
     /**

@@ -63,7 +63,10 @@ class KotlinVersionDetectionTest :
 
         fun buildAndGetKotlinVersion(fileName: String = "Hello.kt"): JavaVersion {
             projectDir.resolve(fileName).writeText("fun main() {}")
-            val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".kt"))
+            val sources = lstBuilder().build(
+                projectDir,
+                includeExtensionsCli = listOf(".kt")
+            ).sourceFiles
             val ktFile = sources.single { it.sourcePath.toString().endsWith(".kt") }
             val marker = ktFile.markers.findFirst(JavaVersion::class.java).orElse(null)
             assertNotNull(marker, "JavaVersion marker must be present on parsed Kotlin source file")
@@ -291,7 +294,10 @@ class KotlinVersionDetectionTest :
             val absPath = projectDir.resolve("subproject1/src/main/kotlin/Hello.kt")
             Files.createDirectories(absPath.parent)
             absPath.writeText("fun main() {}")
-            val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".kt"))
+            val sources = lstBuilder().build(
+                projectDir,
+                includeExtensionsCli = listOf(".kt")
+            ).sourceFiles
             val marker = sources
                 .single { it.sourcePath.toString() == "subproject1/src/main/kotlin/Hello.kt" }
                 .markers.findFirst(JavaVersion::class.java).orElse(null)
@@ -312,7 +318,10 @@ class KotlinVersionDetectionTest :
             val absPath = projectDir.resolve("subproject1/src/main/kotlin/Hello.kt")
             Files.createDirectories(absPath.parent)
             absPath.writeText("fun main() {}")
-            val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".kt"))
+            val sources = lstBuilder().build(
+                projectDir,
+                includeExtensionsCli = listOf(".kt")
+            ).sourceFiles
             val marker = sources
                 .single { it.sourcePath.toString() == "subproject1/src/main/kotlin/Hello.kt" }
                 .markers.findFirst(JavaVersion::class.java).orElse(null)
@@ -331,7 +340,10 @@ class KotlinVersionDetectionTest :
             )
             projectDir.resolve("script.kts").writeText("println(\"hello\")")
 
-            val sources = lstBuilder().build(projectDir, includeExtensionsCli = listOf(".kts"))
+            val sources = lstBuilder().build(
+                projectDir,
+                includeExtensionsCli = listOf(".kts")
+            ).sourceFiles
             val ktsFile = sources.single { it.sourcePath.toString() == "script.kts" }
             val marker = ktsFile.markers.findFirst(JavaVersion::class.java).orElse(null)
             assertNotNull(marker, "JavaVersion marker must be present on .kts file")

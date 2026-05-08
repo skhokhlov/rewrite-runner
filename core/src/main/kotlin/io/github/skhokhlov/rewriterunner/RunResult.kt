@@ -14,12 +14,15 @@ import org.openrewrite.Result
  * @property projectDir The project directory that was analysed, for reference.
  * @property rawDiffs Unified diffs keyed by relative file path. Populated when the
  *   plugin-first path succeeds and no raw OpenRewrite [Result] objects are available.
+ * @property executionDiagnostics Diagnostic info about which execution path produced
+ *   the run. See [ExecutionDiagnostics] and [UsedExecutionStage] for details.
  */
 data class RunResult(
     val results: List<Result>,
     val changedFiles: List<Path>,
     val projectDir: Path,
-    val rawDiffs: Map<Path, String> = emptyMap()
+    val rawDiffs: Map<Path, String> = emptyMap(),
+    val executionDiagnostics: ExecutionDiagnostics
 ) {
     /** `true` when the recipe produced at least one change, regardless of whether
      *  changes were written to disk. */
