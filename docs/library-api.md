@@ -66,6 +66,42 @@ Return type of `RewriteRunner.run()`.
 | `rawDiffs` | `Map<Path, String>` | Unified diffs from the plugin-first path. Empty when the in-process LST path runs. |
 | `hasChanges` | `Boolean` | `true` when the recipe produced at least one change, regardless of `dryRun` |
 | `changeCount` | `Int` | Number of changed source files |
+| `executionDiagnostics` | `ExecutionDiagnostics` | Which pipeline stage produced the run and how many JARs were on the classpath |
+
+## ExecutionDiagnostics
+
+Structured signal about which execution path produced the run. Useful for detecting blind runs (where all JVM type information is missing) and for metrics/telemetry.
+
+```kotlin
+data class ExecutionDiagnostics(
+    val stageUsed: UsedExecutionStage?,
+    val resolvedJarCount: Int,
+)
+```
+
+| Property | Description |
+|----------|-------------|
+| `stageUsed` | The stage that produced the classpath, or `null` when every LST stage produced an empty classpath (recipe ran semantically blind) |
+| `resolvedJarCount` | Number of `.jar` entries on the LST classpath (project class directories excluded). `0` when `stageUsed` is `PLUGIN` or `null` |
+
+### Detecting a blind run
+
+```kotlin
+val result = RewriteRunner.builder()...build().run()
+if (result.executionDiagnostics.stageUsed == null) {
+    error("Classpath resolution failed — recipe ran without type information")
+}
+```
+
+### UsedExecutionStage values
+
+| Value | Description |
+|-------|-------------|
+| `PLUGIN` | Stage 0 — official Gradle/Maven OpenRewrite plugin handled the recipe; classpath not observed |
+| `BUILD_TOOL` | Stage 1 — project's own build tool extracted the compile classpath |
+| `DEPENDENCY_RESOLUTION` | Stage 2 — `mvn dependency:tree` / `gradle dependencies` + Maven Resolver |
+| `DIRECT_PARSE` | Stage 3 — static build-file parse + POM traversal via Maven Resolver |
+| `LOCAL_REPOSITORY` | Stage 4 — local Maven/Gradle cache scan, no network |
 
 Each `org.openrewrite.Result` in `results` exposes:
 - `before` — the source file before the recipe (`null` for newly created files)

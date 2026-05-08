@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.output
 
+import io.github.skhokhlov.rewriterunner.ExecutionDiagnostics
 import io.github.skhokhlov.rewriterunner.RunResult
 import io.kotest.core.spec.style.FunSpec
 import java.io.ByteArrayOutputStream
@@ -251,7 +252,8 @@ class ResultFormatterTest :
                             projectDir = reportDir,
                             rawDiffs = mapOf(
                                 Path.of("Foo.java") to "diff --git a/Foo.java b/Foo.java\n"
-                            )
+                            ),
+                            executionDiagnostics = ExecutionDiagnostics.PLUGIN
                         )
                     )
                 }
@@ -266,7 +268,8 @@ class ResultFormatterTest :
                             results = emptyList(),
                             changedFiles = emptyList(),
                             projectDir = reportDir,
-                            rawDiffs = mapOf(Path.of("Foo.java") to "diff")
+                            rawDiffs = mapOf(Path.of("Foo.java") to "diff"),
+                            executionDiagnostics = ExecutionDiagnostics.PLUGIN
                         )
                     )
                 }
@@ -282,7 +285,8 @@ class ResultFormatterTest :
                         projectDir = reportDir,
                         rawDiffs = mapOf(
                             Path.of("Foo.java") to "diff --git a/Foo.java b/Foo.java\n"
-                        )
+                        ),
+                        executionDiagnostics = ExecutionDiagnostics.PLUGIN
                     )
                 )
             }

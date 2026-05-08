@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner
 
+import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -206,15 +207,21 @@ class RewriteRunnerTest :
             )
             gradlew.setExecutable(true)
 
-            RewriteRunner.builder()
-                .projectDir(projectDir)
-                .activeRecipe("com.example.Recipe")
-                .configFile(configFile)
-                .dryRun(true)
-                .build()
-                .run()
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe("com.example.Recipe")
+                    .configFile(configFile)
+                    .dryRun(true)
+                    .build()
+                    .run()
 
             assertEquals("rewriteDryRun", marker.readText().trim())
+            assertEquals(
+                UsedExecutionStage.PLUGIN,
+                result.executionDiagnostics.stageUsed,
+                "Plugin-first path should report stageUsed == PLUGIN"
+            )
         }
 
         test("plugin-first Maven run uses configured rewrite plugin version").config(

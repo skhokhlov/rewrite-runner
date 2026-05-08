@@ -45,7 +45,7 @@ import kotlin.io.path.exists
  * @param projectDir Root directory of the project, used to locate project-local
  *   cache roots (`.m2/repository`, `.gradle/caches`).
  */
-class LocalRepositoryStage(private val projectDir: Path, val logger: RunnerLogger) {
+open class LocalRepositoryStage(private val projectDir: Path, val logger: RunnerLogger) {
     private val m2Roots: List<Path> = listOf(
         Paths.get(System.getProperty("user.home"), ".m2", "repository"),
         projectDir.resolve(".m2").resolve("repository")
@@ -72,7 +72,7 @@ class LocalRepositoryStage(private val projectDir: Path, val logger: RunnerLogge
      *   Coordinates with no local cache hit are omitted; their types will appear as
      *   `JavaType.Unknown` in the LST.
      */
-    fun findAvailableJars(declaredCoordinates: List<String>): List<Path> {
+    open fun findAvailableJars(declaredCoordinates: List<String>): List<Path> {
         val found = mutableListOf<Path>()
         val notFound = mutableListOf<String>()
 

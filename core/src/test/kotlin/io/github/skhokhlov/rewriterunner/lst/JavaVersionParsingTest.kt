@@ -85,7 +85,7 @@ class JavaVersionParsingTest :
          */
         fun buildAndInspect(fileName: String): JavaVersion {
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
             val javaFile =
                 sources.singleOrNull { it.sourcePath.toString().endsWith(fileName) }
             assertNotNull(
@@ -477,7 +477,7 @@ class JavaVersionParsingTest :
             )
 
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
             val javaFile =
                 sources.singleOrNull { it.sourcePath.toString().endsWith("Shapes17.java") }
             assertNotNull(javaFile, "Shapes17.java must be present in parsed sources")
@@ -512,7 +512,7 @@ class JavaVersionParsingTest :
             )
 
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
             val javaFile =
                 sources.singleOrNull { it.sourcePath.toString().endsWith("Patterns21.java") }
             assertNotNull(javaFile, "Patterns21.java must be present in parsed sources")
@@ -559,7 +559,7 @@ class JavaVersionParsingTest :
             )
 
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java"))
+                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
             val javaFiles = sources.filter { it.sourcePath.toString().endsWith(".java") }
             assertTrue(
                 javaFiles.size == 2,

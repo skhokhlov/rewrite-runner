@@ -151,7 +151,7 @@ class GradleProjectMarkerTest :
                 lstBuilderWithGradleData(throwOnKtsParser = true).build(
                     projectDir,
                     includeExtensionsCli = listOf(".kts")
-                )
+                ).sourceFiles
             assertTrue(sources.isNotEmpty(), "Expected at least one parsed source file")
             assertTrue(
                 sources.any { it.markers.findFirst(GradleProject::class.java).isPresent },
@@ -165,7 +165,7 @@ class GradleProjectMarkerTest :
                 lstBuilderWithGradleData(throwOnGroovyParser = true).build(
                     projectDir,
                     includeExtensionsCli = listOf(".gradle")
-                )
+                ).sourceFiles
             assertTrue(sources.isNotEmpty(), "Expected at least one parsed source file")
             assertTrue(
                 sources.any { it.markers.findFirst(GradleProject::class.java).isPresent },
@@ -183,7 +183,7 @@ class GradleProjectMarkerTest :
                 lstBuilderWithStage1Success(gradleData = minimalGradleData).build(
                     projectDir,
                     includeExtensionsCli = listOf(".kts")
-                )
+                ).sourceFiles
             assertTrue(sources.isNotEmpty(), "Expected at least one parsed source file")
             assertTrue(
                 sources.any { it.markers.findFirst(GradleProject::class.java).isPresent },
@@ -300,7 +300,7 @@ class GradleProjectMarkerTest :
             val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
                 projectDir,
                 includeExtensionsCli = listOf(".kts", ".gradle")
-            )
+            ).sourceFiles
 
             fun markerFor(path: String): GradleProject {
                 val source = sources.singleOrNull { it.sourcePath.toString() == path }
@@ -362,7 +362,7 @@ class GradleProjectMarkerTest :
             val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
                 projectDir,
                 includeExtensionsCli = listOf(".kts")
-            )
+            ).sourceFiles
             val marker = sources
                 .single { it.sourcePath.toString() == "build.gradle.kts" }
                 .markers.findFirst(GradleProject::class.java).orElse(null)
@@ -412,7 +412,7 @@ class GradleProjectMarkerTest :
             val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
                 projectDir,
                 includeExtensionsCli = listOf(".kts")
-            )
+            ).sourceFiles
             val marker = sources
                 .single { it.sourcePath.toString() == "build.gradle.kts" }
                 .markers.findFirst(GradleProject::class.java).orElse(null)
