@@ -17,6 +17,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.openrewrite.ExecutionContext
+import org.openrewrite.Parser
+import org.openrewrite.SourceFile
+import org.openrewrite.maven.MavenParser
 import org.openrewrite.maven.tree.MavenResolutionResult
 
 /**
@@ -529,6 +533,255 @@ class LstBuilderTest :
             assertTrue(
                 sources.none { it.sourcePath.toString() == "pom.xml" },
                 "pom.xml should not be parsed when .xml is not in effective set"
+            )
+        }
+
+        // ─── MavenParser URI failure fallback ────────────────────────────────────
+
+        /**
+         * Builds an [LstBuilder] whose [LstBuilder.buildMavenParser] returns a
+         * [MavenParser] that throws [IllegalArgumentException] (with a
+         * [java.net.URISyntaxException] cause) for any pom whose relative path matches
+         * [throwFor]. Mirrors the [MavenPomDownloader] failure mode where
+         * `URI.create(...)` rejects an illegal artifact path.
+         */
+        fun lstBuilderWithMavenStub(throwFor: Set<String>): LstBuilder {
+            val noOpDepStage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
+                }
+            val noOpBuildFileStage =
+                object : BuildFileParseStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+                }
+            return object : LstBuilder(
+                logger = NoOpRunnerLogger,
+                cacheDir = projectDir.resolve("cache"),
+                toolConfig = toolConfig,
+                projectBuildStage = failingBuildTool,
+                depResolutionStage = noOpDepStage,
+                buildFileParseStage = noOpBuildFileStage
+            ) {
+                override fun buildMavenParser(): MavenParser =
+                    object : MavenParser(emptyList(), emptyMap(), false) {
+                        override fun parseInputs(
+                            sources: Iterable<Parser.Input>,
+                            relativeTo: Path?,
+                            ctx: ExecutionContext
+                        ): java.util.stream.Stream<SourceFile> {
+                            val cwd = relativeTo ?: projectDir
+                            sources.forEach { input ->
+                                val rel = cwd.relativize(input.path).normalize().toString()
+                                if (rel in throwFor) {
+                                    throw IllegalArgumentException(
+                                        "Illegal character in path at index 7: $rel",
+                                        java.net.URISyntaxException("bad", "Illegal character")
+                                    )
+                                }
+                            }
+                            return super.parseInputs(sources, relativeTo, ctx)
+                        }
+                    }
+            }
+        }
+
+        test("pom.xml with URI-failure does not abort the build") {
+            // Good pom in a subdirectory so per-file fallback can still resolve it.
+            val module = projectDir.resolve("module").also { it.createDirectories() }
+            module.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>good</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+            // Bad pom — content itself is valid XML; the stub MavenParser throws on it.
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>bad</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+
+            val result = lstBuilderWithMavenStub(throwFor = setOf("pom.xml")).build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".xml")
+            )
+
+            val poms = result.sourceFiles.filter { it.sourcePath.fileName.toString() == "pom.xml" }
+            assertEquals(2, poms.size, "Both pom.xml files should be in the LST")
+
+            val badPom = poms.first { it.sourcePath.toString() == "pom.xml" }
+            assertFalse(
+                badPom.markers.findFirst(MavenResolutionResult::class.java).isPresent,
+                "Bad pom should be downgraded to XmlParser (no MavenResolutionResult marker)"
+            )
+
+            val goodPom = poms.first {
+                it.sourcePath.toString().endsWith("module/pom.xml") ||
+                    it.sourcePath.toString().endsWith("module${java.io.File.separator}pom.xml")
+            }
+            assertTrue(
+                goodPom.markers.findFirst(MavenResolutionResult::class.java).isPresent,
+                "Good pom should still be parsed by MavenParser"
+            )
+
+            assertEquals(
+                1,
+                result.executionDiagnostics.parseFailures.size,
+                "Exactly one parse failure should be recorded"
+            )
+            val failure = result.executionDiagnostics.parseFailures.first()
+            assertEquals("pom.xml", failure.path)
+            assertEquals("MavenParser", failure.parser)
+            assertTrue(failure.reason.contains("Illegal character"))
+        }
+
+        test("non-URI MavenParser exceptions still bubble up") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>app</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+
+            val noOpDepStage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
+                }
+            val noOpBuildFileStage =
+                object : BuildFileParseStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+                }
+            val builder = object : LstBuilder(
+                logger = NoOpRunnerLogger,
+                cacheDir = projectDir.resolve("cache"),
+                toolConfig = toolConfig,
+                projectBuildStage = failingBuildTool,
+                depResolutionStage = noOpDepStage,
+                buildFileParseStage = noOpBuildFileStage
+            ) {
+                override fun buildMavenParser(): MavenParser =
+                    object : MavenParser(emptyList(), emptyMap(), false) {
+                        override fun parseInputs(
+                            sources: Iterable<Parser.Input>,
+                            relativeTo: Path?,
+                            ctx: ExecutionContext
+                        ): java.util.stream.Stream<SourceFile> =
+                            throw IllegalStateException("unrelated bug")
+                    }
+            }
+
+            val thrown = kotlin.runCatching {
+                builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".xml"))
+            }.exceptionOrNull()
+            assertNotNull(thrown, "An unrelated MavenParser bug must not be swallowed")
+            assertTrue(
+                thrown is IllegalStateException && thrown.message == "unrelated bug",
+                "Expected the original IllegalStateException to bubble up, got: $thrown"
+            )
+        }
+
+        test("IllegalArgumentException without URISyntaxException cause bubbles up") {
+            // Regression guard: an IllegalArgumentException whose cause chain does NOT
+            // include a URISyntaxException must not trigger the XmlParser fallback.
+            // Otherwise unrelated MavenParser bugs would be silently downgraded.
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>app</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+
+            val noOpDepStage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
+                }
+            val noOpBuildFileStage =
+                object : BuildFileParseStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+                }
+            val builder = object : LstBuilder(
+                logger = NoOpRunnerLogger,
+                cacheDir = projectDir.resolve("cache"),
+                toolConfig = toolConfig,
+                projectBuildStage = failingBuildTool,
+                depResolutionStage = noOpDepStage,
+                buildFileParseStage = noOpBuildFileStage
+            ) {
+                override fun buildMavenParser(): MavenParser =
+                    object : MavenParser(emptyList(), emptyMap(), false) {
+                        override fun parseInputs(
+                            sources: Iterable<Parser.Input>,
+                            relativeTo: Path?,
+                            ctx: ExecutionContext
+                        ): java.util.stream.Stream<SourceFile> =
+                            throw IllegalArgumentException("non-URI validation failure")
+                    }
+            }
+
+            val thrown = kotlin.runCatching {
+                builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".xml"))
+            }.exceptionOrNull()
+            assertNotNull(thrown, "Non-URI IllegalArgumentException must not be swallowed")
+            assertTrue(
+                thrown is IllegalArgumentException &&
+                    thrown.message == "non-URI validation failure",
+                "Expected the original IllegalArgumentException to bubble up, got: $thrown"
             )
         }
 
