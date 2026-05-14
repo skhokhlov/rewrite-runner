@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.ExecutionDiagnostics
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
@@ -210,6 +211,7 @@ open class LstBuilder(
 
         // ── Parse each language ───────────────────────────────────────────────
         val allSources = mutableListOf<SourceFile>()
+        val parseFailures = mutableListOf<ParseFailure>()
 
         filesByExt[".java"]?.let { files ->
             logger.info("Parsing ${files.size} Java file(s)")
@@ -418,9 +420,12 @@ open class LstBuilder(
 
             if (pomFiles.isNotEmpty()) {
                 logger.info("Parsing ${pomFiles.size} Maven POM file(s) with MavenParser")
-                val parsed = MavenParser.builder().build()
-                    .parse(pomFiles, projectDir, parseCtx)
-                    .toList()
+                val parsed = parsePomFilesWithFallback(
+                    pomFiles,
+                    projectDir,
+                    parseCtx,
+                    parseFailures
+                )
                 reportParseFailures(pomFiles, parsed, pendingErrors, projectDir)
                 pendingErrors.clear()
                 parsed.forEach { allSources.add(it) }
@@ -507,10 +512,75 @@ open class LstBuilder(
         val resolvedJarCount = classpath.count { it.toString().endsWith(".jar") }
         val diagnostics = ExecutionDiagnostics(
             stageUsed = resolutionResult.stageUsed,
-            resolvedJarCount = resolvedJarCount
+            resolvedJarCount = resolvedJarCount,
+            parseFailures = parseFailures.toList()
         )
         return LstBuildResult(withMarkers, diagnostics)
     }
+
+    /**
+     * Parse `pom.xml` files with [MavenParser], falling back to [XmlParser] when
+     * [MavenParser] throws an `IllegalArgumentException` whose cause is a
+     * [java.net.URISyntaxException] (the failure mode `MavenPomDownloader` produces
+     * via `URI.create(...)` when a coordinate or repository URL contains an illegal
+     * URI character).
+     *
+     * Strategy:
+     * 1. Try the batch with [MavenParser] — all poms together so parent/module
+     *    relationships resolve normally.
+     * 2. On URI failure, retry each pom individually so a single bad pom does not
+     *    poison its siblings.
+     * 3. Any pom that still trips [MavenParser] is reparsed with [XmlParser] so the
+     *    file still shows up in the LST (without `MavenResolutionResult` markers) and
+     *    recorded in [failures].
+     *
+     * Exceptions without a [java.net.URISyntaxException] in their cause chain are
+     * rethrown — the fallback is intentionally narrow so unrelated MavenParser
+     * regressions surface rather than being silently downgraded to XmlParser.
+     */
+    private fun parsePomFilesWithFallback(
+        pomFiles: List<Path>,
+        projectDir: Path,
+        parseCtx: ExecutionContext,
+        failures: MutableList<ParseFailure>
+    ): List<SourceFile> = try {
+        buildMavenParser().parse(pomFiles, projectDir, parseCtx).toList()
+    } catch (e: Throwable) {
+        if (!isUriFailure(e)) throw e
+        logger.warn(
+            "MavenParser failed on the pom batch (${e.message}); " +
+                "retrying each pom.xml individually"
+        )
+        pomFiles.flatMap { pom ->
+            try {
+                buildMavenParser().parse(listOf(pom), projectDir, parseCtx).toList()
+            } catch (single: Throwable) {
+                if (!isUriFailure(single)) throw single
+                val rel = projectDir.relativize(pom).normalize().toString()
+                logger.warn(
+                    "Failed to parse $rel with MavenParser (${single.message}); " +
+                        "falling back to XmlParser"
+                )
+                failures += ParseFailure(
+                    path = rel,
+                    reason = single.message ?: single.javaClass.simpleName,
+                    parser = "MavenParser"
+                )
+                XmlParser().parse(listOf(pom), projectDir, parseCtx).toList()
+            }
+        }
+    }
+
+    /**
+     * True when [t] or any cause in its chain is a [java.net.URISyntaxException].
+     *
+     * `MavenPomDownloader` calls `URI.create(...)`, which wraps `URISyntaxException`
+     * inside `IllegalArgumentException`. Matching on the `URISyntaxException` cause
+     * (rather than any `IllegalArgumentException`) keeps the fallback narrow so
+     * unrelated MavenParser bugs surface instead of being silently downgraded.
+     */
+    private fun isUriFailure(t: Throwable): Boolean =
+        generateSequence(t) { it.cause }.any { it is java.net.URISyntaxException }
 
     // ─── Overrideable parser factories (for testing fallback paths) ──────────
 
@@ -545,6 +615,9 @@ open class LstBuilder(
     /** Creates the [LocalRepositoryStage] used for Stage 4. Overrideable in tests. */
     protected open fun createLocalRepositoryStage(projectDir: Path): LocalRepositoryStage =
         LocalRepositoryStage(projectDir, logger)
+
+    /** Creates the [MavenParser] used for `pom.xml` files. Overrideable in tests. */
+    protected open fun buildMavenParser(): MavenParser = MavenParser.builder().build()
 
     // ─── Classpath resolution (4 stages) ─────────────────────────────────────
 

@@ -20,6 +20,18 @@ enum class UsedExecutionStage {
 }
 
 /**
+ * A non-fatal parse failure recorded during LST building. Surfaced via
+ * [ExecutionDiagnostics.parseFailures] so callers can see which files were degraded
+ * (e.g. a `pom.xml` parsed by `XmlParser` instead of `MavenParser` because the
+ * Maven dependency graph could not be resolved).
+ *
+ * @property path Project-relative source path.
+ * @property reason Short, human-readable cause (usually the exception message).
+ * @property parser The parser that gave up on this file (e.g. `"MavenParser"`).
+ */
+data class ParseFailure(val path: String, val reason: String, val parser: String)
+
+/**
  * Diagnostic info about which execution path produced the run and how its classpath
  * was assembled.
  *
@@ -28,8 +40,15 @@ enum class UsedExecutionStage {
  * @property resolvedJarCount Number of `.jar` entries on the LST classpath (project
  *   class directories excluded). `0` when [stageUsed] is [UsedExecutionStage.PLUGIN]
  *   (the plugin handled resolution internally) or `null`.
+ * @property parseFailures Files that the canonical parser could not handle and that
+ *   were either dropped or downgraded to a more lenient parser. Empty when every
+ *   file parsed successfully.
  */
-data class ExecutionDiagnostics(val stageUsed: UsedExecutionStage?, val resolvedJarCount: Int) {
+data class ExecutionDiagnostics(
+    val stageUsed: UsedExecutionStage?,
+    val resolvedJarCount: Int,
+    val parseFailures: List<ParseFailure> = emptyList()
+) {
     companion object {
         val PLUGIN = ExecutionDiagnostics(UsedExecutionStage.PLUGIN, 0)
         val EMPTY = ExecutionDiagnostics(null, 0)
