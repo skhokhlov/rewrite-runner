@@ -67,31 +67,47 @@ open class BuildFileParseStage(
      * @return Resolved JAR paths, or an empty list when no build files are found
      *   or resolution produces no results.
      */
-    open fun resolveClasspath(projectDir: Path): List<Path> =
-        resolveClasspath(projectDir, mutableListOf())
-
-    /**
-     * Overload that captures malformed Maven coordinates (e.g. illegal URI characters
-     * in a statically parsed coord) into [parseFailures] instead of letting them abort
-     * the entire stage. Each skipped coordinate is recorded with
-     * `parser = "BuildFileParseStage"`.
-     */
-    open fun resolveClasspath(
-        projectDir: Path,
-        parseFailures: MutableList<ParseFailure>
-    ): List<Path> {
+    open fun resolveClasspath(projectDir: Path): List<Path> {
         val coords = gatherAllCoordinates(projectDir)
         if (coords.isEmpty()) {
             logger.info("Stage 3: no coordinates found in build descriptors")
             return emptyList()
         }
-        val good = filterMalformed(coords, parseFailures)
-        if (good.isEmpty()) return emptyList()
-        logger.debug("Stage 3: resolving ${good.size} coordinate(s) via POM traversal")
-        return resolveWithPomTraversal(good).also { result ->
+        // If invoked via the 2-arg overload, the failure sink filters malformed coords
+        // before they reach [resolveWithPomTraversal]. Otherwise behaviour is unchanged.
+        val sink = pendingParseFailures
+        val effective = if (sink != null) filterMalformed(coords, sink) else coords
+        if (effective.isEmpty()) return emptyList()
+        logger.debug("Stage 3: resolving ${effective.size} coordinate(s) via POM traversal")
+        return resolveWithPomTraversal(effective).also { result ->
             if (result.isNotEmpty()) logger.info("Stage 3 succeeded: ${result.size} JAR(s)")
         }
     }
+
+    /**
+     * Failure-sink-aware overload of [resolveClasspath]. Stashes [parseFailures] on the
+     * stage instance for the duration of the call and then delegates to the 1-arg
+     * [resolveClasspath] via virtual dispatch — so subclasses that override only the
+     * historical 1-arg method continue to intercept Stage 3 unchanged.
+     *
+     * Not safe for concurrent invocation on the same stage instance; the stage is not
+     * documented as thread-safe.
+     */
+    open fun resolveClasspath(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): List<Path> {
+        val prior = pendingParseFailures
+        return try {
+            pendingParseFailures = parseFailures
+            resolveClasspath(projectDir)
+        } finally {
+            pendingParseFailures = prior
+        }
+    }
+
+    /** Set by [resolveClasspath] (2-arg) so the 1-arg flow can record coord failures. */
+    private var pendingParseFailures: MutableList<ParseFailure>? = null
 
     private fun filterMalformed(
         coordinates: List<String>,

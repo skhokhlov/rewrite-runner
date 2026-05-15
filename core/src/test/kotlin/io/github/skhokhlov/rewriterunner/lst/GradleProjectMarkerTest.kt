@@ -77,10 +77,7 @@ class GradleProjectMarkerTest :
                 }
             val buildFileStage =
                 object : BuildFileParseStage(aether, NoOpRunnerLogger) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             return object :
                 LstBuilder(
@@ -136,10 +133,7 @@ class GradleProjectMarkerTest :
                 }
             val buildFileStage =
                 object : BuildFileParseStage(aether, NoOpRunnerLogger) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             return LstBuilder(
                 logger = logger,

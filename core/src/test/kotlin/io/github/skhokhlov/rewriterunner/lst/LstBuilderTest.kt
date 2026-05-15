@@ -61,10 +61,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): ClasspathResolutionResult = ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
                 }
             val noOpBuildFileStage =
                 object : BuildFileParseStage(
@@ -74,10 +72,7 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             return LstBuilder(
                 logger = logger,
@@ -143,10 +138,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ) = ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(projectDir: Path) =
+                        ClasspathResolutionResult(emptyList())
                 }
             val builder =
                 LstBuilder(
@@ -179,10 +172,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ) = ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(projectDir: Path) =
+                        ClasspathResolutionResult(emptyList())
                 }
             val builder =
                 LstBuilder(
@@ -567,10 +558,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): ClasspathResolutionResult = ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
                 }
             val noOpBuildFileStage =
                 object : BuildFileParseStage(
@@ -580,10 +569,7 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             return object : LstBuilder(
                 logger = NoOpRunnerLogger,
@@ -695,10 +681,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): ClasspathResolutionResult = ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
                 }
             val noOpBuildFileStage =
                 object : BuildFileParseStage(
@@ -708,10 +692,7 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             val builder = object : LstBuilder(
                 logger = NoOpRunnerLogger,
@@ -765,10 +746,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): ClasspathResolutionResult = ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
                 }
             val noOpBuildFileStage =
                 object : BuildFileParseStage(
@@ -778,10 +757,7 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             val builder = object : LstBuilder(
                 logger = NoOpRunnerLogger,
@@ -847,10 +823,7 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): ClasspathResolutionResult {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
                         stage2Called = true
                         return ClasspathResolutionResult(emptyList())
                     }
@@ -879,10 +852,7 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): ClasspathResolutionResult {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
                         stage2Called = true
                         return ClasspathResolutionResult(emptyList())
                     }
@@ -910,10 +880,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): ClasspathResolutionResult = ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
                 }
             val trackingBuildFileStage =
                 object : BuildFileParseStage(
@@ -923,10 +891,7 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): List<Path> {
+                    override fun resolveClasspath(projectDir: Path): List<Path> {
                         stage3Called = true
                         return emptyList()
                     }
@@ -1466,10 +1431,8 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): ClasspathResolutionResult = ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                        ClasspathResolutionResult(emptyList())
                 }
             val noOpBuildFileStage =
                 object : BuildFileParseStage(
@@ -1479,10 +1442,7 @@ class LstBuilderTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(
-                        projectDir: Path,
-                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ): List<Path> = emptyList()
+                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             val builderWithFakeStage4 =
                 object : LstBuilder(
@@ -1535,10 +1495,8 @@ class LstBuilderTest :
             ),
             NoOpRunnerLogger
         ) {
-            override fun resolveClasspath(
-                projectDir: Path,
-                parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-            ): ClasspathResolutionResult = ClasspathResolutionResult(emptyList())
+            override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                ClasspathResolutionResult(emptyList())
         }
 
         fun noOpBuildFileStage(): BuildFileParseStage = object : BuildFileParseStage(
@@ -1548,10 +1506,7 @@ class LstBuilderTest :
             ),
             NoOpRunnerLogger
         ) {
-            override fun resolveClasspath(
-                projectDir: Path,
-                parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-            ): List<Path> = emptyList()
+            override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
         }
 
         /**
