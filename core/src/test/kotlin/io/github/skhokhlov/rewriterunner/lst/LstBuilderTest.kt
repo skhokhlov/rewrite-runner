@@ -18,10 +18,14 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.openrewrite.ExecutionContext
+import org.openrewrite.ParseExceptionResult
 import org.openrewrite.Parser
 import org.openrewrite.SourceFile
+import org.openrewrite.java.internal.JavaTypeCache
+import org.openrewrite.marker.Markers
 import org.openrewrite.maven.MavenParser
 import org.openrewrite.maven.tree.MavenResolutionResult
+import org.openrewrite.tree.ParseError
 
 /**
  * Integration tests for [LstBuilder.build]: parser routing, 3-stage classpath pipeline,
@@ -1475,6 +1479,395 @@ class LstBuilderTest :
                 1,
                 lstBuildResult.executionDiagnostics.resolvedJarCount,
                 "Stage 4 with 1 JAR → resolvedJarCount should be 1"
+            )
+        }
+
+        // ─── Generic parser-level failure collection ─────────────────────────────
+
+        /**
+         * Builds a no-op DependencyResolutionStage with an in-tree cache. Used by helpers
+         * below that construct anonymous [LstBuilder] subclasses.
+         */
+        fun noOpDepStage(): DependencyResolutionStage = object : DependencyResolutionStage(
+            AetherContext.build(
+                projectDir.resolve("cache").resolve("repository"),
+                logger = NoOpRunnerLogger
+            ),
+            NoOpRunnerLogger
+        ) {
+            override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+                ClasspathResolutionResult(emptyList())
+        }
+
+        fun noOpBuildFileStage(): BuildFileParseStage = object : BuildFileParseStage(
+            AetherContext.build(
+                projectDir.resolve("cache").resolve("repository"),
+                logger = NoOpRunnerLogger
+            ),
+            NoOpRunnerLogger
+        ) {
+            override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+        }
+
+        /**
+         * Builds a [Parser] whose [Parser.parseInputs] returns whatever [behavior] produces.
+         * The stub is generic — used to stand in for JavaParser / XmlParser etc. in tests.
+         */
+        fun stubParser(behavior: (List<Parser.Input>, Path?) -> List<SourceFile>): Parser =
+            object : Parser {
+                override fun parseInputs(
+                    sources: Iterable<Parser.Input>,
+                    relativeTo: Path?,
+                    ctx: ExecutionContext
+                ): java.util.stream.Stream<SourceFile> {
+                    val inputs = sources.toList()
+                    return behavior(inputs, relativeTo).stream()
+                }
+
+                override fun accept(path: Path): Boolean = true
+
+                override fun sourcePathFromSourceText(prefix: Path, sourceCode: String): Path =
+                    prefix.resolve("Synthetic.java")
+            }
+
+        /** Builds an [LstBuilder] whose Java parser factory returns [stub]. */
+        fun lstBuilderWithJavaStub(stub: Parser): LstBuilder = object : LstBuilder(
+            logger = NoOpRunnerLogger,
+            cacheDir = projectDir.resolve("cache"),
+            toolConfig = toolConfig,
+            projectBuildStage = failingBuildTool,
+            depResolutionStage = noOpDepStage(),
+            buildFileParseStage = noOpBuildFileStage()
+        ) {
+            override fun buildJavaParser(classpath: List<Path>, typeCache: JavaTypeCache): Parser =
+                stub
+        }
+
+        test("ParseError SourceFile in parser output is recorded as a ParseFailure") {
+            projectDir.resolve("Broken.java").writeText("class Broken { /* unterminated")
+
+            val builder = lstBuilderWithJavaStub(
+                stubParser { inputs, relativeTo ->
+                    val input = inputs.single()
+                    val rel = (relativeTo ?: projectDir).relativize(input.path).normalize()
+                    val markers = Markers.EMPTY.addIfAbsent(
+                        ParseExceptionResult(
+                            java.util.UUID.randomUUID(),
+                            "JavaParser",
+                            "ParseException",
+                            "unterminated comment",
+                            null
+                        )
+                    )
+                    listOf(
+                        ParseError(
+                            java.util.UUID.randomUUID(),
+                            markers,
+                            rel,
+                            null,
+                            null,
+                            false,
+                            null,
+                            "class Broken { /* unterminated",
+                            null
+                        )
+                    )
+                }
+            )
+
+            val result = builder.build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".java")
+            )
+
+            val failures = result.executionDiagnostics.parseFailures
+            assertEquals(1, failures.size, "Exactly one ParseFailure should be recorded")
+            val failure = failures.single()
+            assertEquals("Broken.java", failure.path)
+            assertEquals("JavaParser", failure.parser)
+            assertTrue(
+                failure.reason.contains("unterminated", ignoreCase = true),
+                "Reason should reflect the ParseExceptionResult message, got: ${failure.reason}"
+            )
+            // ParseError SourceFile still lives in the LST so callers can inspect it.
+            assertTrue(
+                result.sourceFiles.any { it is ParseError },
+                "ParseError SourceFile should remain in the LST"
+            )
+        }
+
+        test("silently dropped Java input is recorded as a ParseFailure") {
+            projectDir.resolve("Kept.java").writeText("class Kept {}")
+            projectDir.resolve("Dropped.java").writeText("class Dropped {}")
+
+            val builder = lstBuilderWithJavaStub(
+                stubParser { inputs, _ ->
+                    // Drop "Dropped.java" entirely; return only "Kept.java" as a ParseError stub
+                    // so we have a valid SourceFile for the kept input.
+                    inputs
+                        .filter { it.path.fileName.toString() == "Kept.java" }
+                        .map { input ->
+                            ParseError(
+                                java.util.UUID.randomUUID(),
+                                Markers.EMPTY,
+                                projectDir.relativize(input.path).normalize(),
+                                null,
+                                null,
+                                false,
+                                null,
+                                "class Kept {}",
+                                null
+                            ) as SourceFile
+                        }
+                }
+            )
+
+            val result = builder.build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".java")
+            )
+
+            val dropFailures =
+                result.executionDiagnostics.parseFailures.filter { it.path == "Dropped.java" }
+            assertEquals(1, dropFailures.size, "Dropped.java should be recorded once")
+            assertEquals("JavaParser", dropFailures.single().parser)
+            assertTrue(
+                dropFailures.single().reason.contains("dropped", ignoreCase = true),
+                "Drop reason should mention 'dropped', got: ${dropFailures.single().reason}"
+            )
+        }
+
+        test("thrown exception from a parser is recorded and the build continues") {
+            projectDir.resolve("Boom.java").writeText("class Boom {}")
+            projectDir.resolve("config.yaml").writeText("key: value")
+
+            val builder = lstBuilderWithJavaStub(
+                stubParser { _, _ -> throw IllegalStateException("boom") }
+            )
+
+            val result = builder.build(projectDir = projectDir)
+
+            val javaFailures =
+                result.executionDiagnostics.parseFailures.filter { it.parser == "JavaParser" }
+            assertEquals(
+                1,
+                javaFailures.size,
+                "One ParseFailure per .java input should be recorded when the parser throws"
+            )
+            assertEquals("Boom.java", javaFailures.single().path)
+            assertTrue(
+                javaFailures.single().reason.contains("boom"),
+                "Reason should contain the exception message, got: ${javaFailures.single().reason}"
+            )
+            // The YAML file must still be parsed — the JavaParser throw must not abort the build.
+            assertTrue(
+                result.sourceFiles.any { it.sourcePath.toString().endsWith("config.yaml") },
+                "config.yaml should still be parsed when JavaParser throws"
+            )
+        }
+
+        test("Gradle DSL parser failure records a GradleParser ParseFailure and falls back") {
+            projectDir.resolve("build.gradle.kts").writeText(
+                """
+                plugins { id("java") }
+                """.trimIndent()
+            )
+
+            val builder = object : LstBuilder(
+                logger = NoOpRunnerLogger,
+                cacheDir = projectDir.resolve("cache"),
+                toolConfig = toolConfig,
+                projectBuildStage = failingBuildTool,
+                depResolutionStage = noOpDepStage(),
+                buildFileParseStage = noOpBuildFileStage()
+            ) {
+                override fun buildGradleKtsParser(
+                    classpath: List<Path>,
+                    gradleDslClasspath: List<Path>,
+                    typeCache: JavaTypeCache
+                ): org.openrewrite.gradle.GradleParser =
+                    throw IllegalStateException("gradle ktS parser boom")
+            }
+
+            val result = builder.build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".kts")
+            )
+
+            val gradleFailures =
+                result.executionDiagnostics.parseFailures.filter { it.parser == "GradleParser" }
+            assertEquals(
+                1,
+                gradleFailures.size,
+                "GradleParser failure should be recorded exactly once"
+            )
+            assertEquals("build.gradle.kts", gradleFailures.single().path)
+            // The fallback KotlinParser should still produce a SourceFile for the script.
+            assertTrue(
+                result.sourceFiles.any {
+                    it.sourcePath.toString().endsWith("build.gradle.kts")
+                },
+                "Fallback parser should still place build.gradle.kts in the LST"
+            )
+        }
+
+        test("ParseError in MavenParser output is recorded even when no exception is thrown") {
+            // Regression test for the case where MavenParser returns a ParseError SourceFile
+            // (or silently drops a pom) without throwing. The Maven path used to skip the
+            // failure scan and miss these cases.
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>silent</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+
+            val builder =
+                object : LstBuilder(
+                    logger = NoOpRunnerLogger,
+                    cacheDir = projectDir.resolve("cache"),
+                    toolConfig = toolConfig,
+                    projectBuildStage = failingBuildTool,
+                    depResolutionStage = noOpDepStage(),
+                    buildFileParseStage = noOpBuildFileStage()
+                ) {
+                    override fun buildMavenParser(): MavenParser =
+                        object : MavenParser(emptyList(), emptyMap(), false) {
+                            override fun parseInputs(
+                                sources: Iterable<Parser.Input>,
+                                relativeTo: Path?,
+                                ctx: ExecutionContext
+                            ): java.util.stream.Stream<SourceFile> {
+                                // Return a ParseError instead of an Xml.Document, no throw.
+                                val cwd = relativeTo ?: projectDir
+                                return sources
+                                    .toList()
+                                    .map { input ->
+                                        val rel = cwd.relativize(input.path).normalize()
+                                        val markers = Markers.EMPTY.addIfAbsent(
+                                            ParseExceptionResult(
+                                                java.util.UUID.randomUUID(),
+                                                "MavenParser",
+                                                "ParseException",
+                                                "malformed pom marker",
+                                                null
+                                            )
+                                        )
+                                        ParseError(
+                                            java.util.UUID.randomUUID(),
+                                            markers,
+                                            rel,
+                                            null,
+                                            null,
+                                            false,
+                                            null,
+                                            "<project/>",
+                                            null
+                                        ) as SourceFile
+                                    }
+                                    .stream()
+                            }
+                        }
+                }
+
+            val result = builder.build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".xml")
+            )
+
+            val mavenFailures =
+                result.executionDiagnostics.parseFailures.filter { it.parser == "MavenParser" }
+            assertEquals(
+                1,
+                mavenFailures.size,
+                "MavenParser ParseError output should be recorded as a ParseFailure"
+            )
+            assertEquals("pom.xml", mavenFailures.single().path)
+            assertTrue(
+                mavenFailures.single().reason.contains("malformed pom marker"),
+                "Reason should reflect the ParseExceptionResult message"
+            )
+        }
+
+        test("fatal Errors propagate instead of being recorded as ParseFailure") {
+            // OutOfMemoryError / StackOverflowError signal an invalid JVM state.
+            // Continuing the build would emit misleading results.
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+
+            val builder = lstBuilderWithJavaStub(
+                stubParser { _, _ -> throw OutOfMemoryError("simulated") }
+            )
+
+            val thrown = kotlin.runCatching {
+                builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+            }.exceptionOrNull()
+
+            assertNotNull(thrown, "Fatal Error must not be swallowed by parseAndRecord")
+            assertTrue(
+                thrown is OutOfMemoryError && thrown.message == "simulated",
+                "Expected OutOfMemoryError to propagate, got: $thrown"
+            )
+        }
+
+        test("pom that also fails XmlParser produces two ParseFailure entries") {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>bad</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+
+            val builder = object : LstBuilder(
+                logger = NoOpRunnerLogger,
+                cacheDir = projectDir.resolve("cache"),
+                toolConfig = toolConfig,
+                projectBuildStage = failingBuildTool,
+                depResolutionStage = noOpDepStage(),
+                buildFileParseStage = noOpBuildFileStage()
+            ) {
+                override fun buildMavenParser(): MavenParser =
+                    object : MavenParser(emptyList(), emptyMap(), false) {
+                        override fun parseInputs(
+                            sources: Iterable<Parser.Input>,
+                            relativeTo: Path?,
+                            ctx: ExecutionContext
+                        ): java.util.stream.Stream<SourceFile> = throw IllegalArgumentException(
+                            "Illegal character in path at index 7: pom.xml",
+                            java.net.URISyntaxException("bad", "Illegal character")
+                        )
+                    }
+
+                override fun buildXmlParser(): Parser =
+                    stubParser { _, _ -> throw IllegalStateException("xml parser boom") }
+            }
+
+            val result = builder.build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".xml")
+            )
+
+            val pomFailures =
+                result.executionDiagnostics.parseFailures.filter { it.path == "pom.xml" }
+            assertEquals(
+                2,
+                pomFailures.size,
+                "Both MavenParser and XmlParser failures should be recorded for the same pom"
+            )
+            assertTrue(
+                pomFailures.any { it.parser == "MavenParser" },
+                "MavenParser failure should be present"
+            )
+            assertTrue(
+                pomFailures.any { it.parser == "XmlParser" },
+                "XmlParser fallback failure should be present"
             )
         }
     })

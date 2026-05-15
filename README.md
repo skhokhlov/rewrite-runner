@@ -168,7 +168,21 @@ result.results.forEach { r ->
 
 // changedFiles: paths written to disk (empty in dry-run mode)
 result.changedFiles.forEach { path -> println("Written: $path") }
+
+// Per-file parse failures (no need to scrape logs)
+result.executionDiagnostics.parseFailures.forEach { failure ->
+    println("${failure.parser} could not handle ${failure.path}: ${failure.reason}")
+}
 ```
+
+Per-file parse failures are collected into `executionDiagnostics.parseFailures`
+rather than aborting the build; callers can surface or ignore them. The one
+intentional exception: a non-URI `MavenParser` throw aborts the LST build by
+design (silently downgrading it to `XmlParser` would hide regressions and produce
+misleading recipe results). URI-class `MavenParser` failures still fall back to
+`XmlParser` and are recorded normally. Fatal `Error`s (e.g. `OutOfMemoryError`)
+always propagate. See [`docs/library-api.md`](docs/library-api.md#parse-failures)
+for the full shape.
 
 ### Formatted output (ResultFormatter)
 
@@ -353,9 +367,21 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
       "isNewFile": false,
       "isDeletedFile": false
     }
+  ],
+  "parseFailures": [
+    {
+      "path": "src/main/java/Broken.java",
+      "reason": "unterminated comment",
+      "parser": "JavaParser"
+    }
   ]
 }
 ```
+
+`parseFailures` is empty when every file parsed cleanly. Each entry names the canonical
+parser (`JavaParser`, `MavenParser`, `XmlParser`, …) that gave up on the file along with
+a short reason. A file can appear more than once if multiple parsers tried and failed on
+it (the Maven POM → XML fallback path is the typical case).
 
 ## Recipe Artifacts
 

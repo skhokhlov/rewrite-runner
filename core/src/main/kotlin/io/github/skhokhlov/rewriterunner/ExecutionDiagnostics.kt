@@ -21,13 +21,21 @@ enum class UsedExecutionStage {
 
 /**
  * A non-fatal parse failure recorded during LST building. Surfaced via
- * [ExecutionDiagnostics.parseFailures] so callers can see which files were degraded
- * (e.g. a `pom.xml` parsed by `XmlParser` instead of `MavenParser` because the
- * Maven dependency graph could not be resolved).
+ * [ExecutionDiagnostics.parseFailures] so callers can see which files the parsers
+ * could not handle without having to scrape the logs.
  *
- * @property path Project-relative source path.
- * @property reason Short, human-readable cause (usually the exception message).
- * @property parser The parser that gave up on this file (e.g. `"MavenParser"`).
+ * The same file path may appear in more than one [ParseFailure] when several parsers
+ * have tried and failed on it — for example a `pom.xml` that trips `MavenParser` and
+ * also `XmlParser` produces one entry per parser.
+ *
+ * @property path Project-relative source path (or the file name when no path is
+ *   available, as with a malformed Maven coordinate string).
+ * @property reason Short, human-readable cause — typically the exception message
+ *   from the parser, the `ParseExceptionResult` marker attached to a [org.openrewrite.tree.ParseError],
+ *   or the literal text `"silently dropped by <parser>"` when a parser returned fewer
+ *   files than it was given.
+ * @property parser The canonical parser name (e.g. `"JavaParser"`, `"MavenParser"`,
+ *   `"XmlParser"`) that gave up on this file.
  */
 data class ParseFailure(val path: String, val reason: String, val parser: String)
 
@@ -40,9 +48,27 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  * @property resolvedJarCount Number of `.jar` entries on the LST classpath (project
  *   class directories excluded). `0` when [stageUsed] is [UsedExecutionStage.PLUGIN]
  *   (the plugin handled resolution internally) or `null`.
- * @property parseFailures Files that the canonical parser could not handle and that
- *   were either dropped or downgraded to a more lenient parser. Empty when every
- *   file parsed successfully.
+ * @property parseFailures Per-file parse failures collected across every parser the
+ *   LST pipeline ran. Three signals end up here:
+ *
+ *   - **[org.openrewrite.tree.ParseError] SourceFiles** in the parser output — the
+ *     parser produced a stub instead of a real LST node. The `ParseError` itself
+ *     still appears in [LstBuildResult.sourceFiles], so callers can inspect it.
+ *   - **Silently dropped files** — the parser was given a file but returned nothing
+ *     for it. The reason is `"silently dropped by <parser>"`.
+ *   - **Thrown exceptions** from `parser.parse(...)` — caught so the build does not
+ *     abort. One entry is recorded for every file in the batch that threw.
+ *
+ *   Empty when every file parsed cleanly. With one deliberate exception, the build
+ *   does not abort on per-file parse failures: the recipe still runs against whatever
+ *   was successfully parsed.
+ *
+ *   **Exception — MavenParser non-URI failures are fatal by design.** A
+ *   `MavenParser` throw whose cause chain does not contain a `URISyntaxException`
+ *   is rethrown rather than recorded, so unrelated MavenParser regressions surface
+ *   instead of being silently downgraded. Only URI-class MavenParser failures fall
+ *   back to `XmlParser` (and are recorded here); every other parser's batch throws
+ *   are caught and recorded.
  */
 data class ExecutionDiagnostics(
     val stageUsed: UsedExecutionStage?,

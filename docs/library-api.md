@@ -76,13 +76,17 @@ Structured signal about which execution path produced the run. Useful for detect
 data class ExecutionDiagnostics(
     val stageUsed: UsedExecutionStage?,
     val resolvedJarCount: Int,
+    val parseFailures: List<ParseFailure> = emptyList(),
 )
+
+data class ParseFailure(val path: String, val reason: String, val parser: String)
 ```
 
 | Property | Description |
 |----------|-------------|
 | `stageUsed` | The stage that produced the classpath, or `null` when every LST stage produced an empty classpath (recipe ran semantically blind) |
 | `resolvedJarCount` | Number of `.jar` entries on the LST classpath (project class directories excluded). `0` when `stageUsed` is `PLUGIN` or `null` |
+| `parseFailures` | Per-file parse failures across every parser the LST pipeline ran (see [Parse failures](#parse-failures) below). Empty when every file parsed cleanly. |
 
 ### Detecting a blind run
 
@@ -102,6 +106,62 @@ if (result.executionDiagnostics.stageUsed == null) {
 | `DEPENDENCY_RESOLUTION` | Stage 2 — `mvn dependency:tree` / `gradle dependencies` + Maven Resolver |
 | `DIRECT_PARSE` | Stage 3 — static build-file parse + POM traversal via Maven Resolver |
 | `LOCAL_REPOSITORY` | Stage 4 — local Maven/Gradle cache scan, no network |
+
+### Parse failures
+
+The LST pipeline never aborts on per-file parse failures. Instead, every signal of
+trouble — from any parser the pipeline ran — is collected into
+`executionDiagnostics.parseFailures` so callers can decide whether to log, ignore, or
+fail their own build.
+
+Three signals end up here:
+
+1. **`org.openrewrite.tree.ParseError` SourceFiles** in the parser output — the parser
+   produced a stub instead of a real LST node. The stub still appears in the LST so it
+   can be inspected; the `ParseFailure` carries the message from the attached
+   `ParseExceptionResult` marker.
+2. **Silently dropped files** — the parser was given a file but returned nothing for
+   it. The reason is the literal string `"silently dropped by <parser>"`.
+3. **Thrown exceptions from `parser.parse(...)`** — caught and recorded one
+   `ParseFailure` per file in the batch that threw. The exception does **not** abort
+   the LST build. Fatal `Error`s (`OutOfMemoryError`, `StackOverflowError`, …) are
+   **not** caught; they propagate so the run fails fast on an invalid JVM state.
+
+The Maven POM path is special:
+
+- When `MavenParser` throws an `IllegalArgumentException` whose cause chain contains
+  a `URISyntaxException` (the `MavenPomDownloader` URI-failure mode), the pom is
+  retried individually and any pom that still fails falls back to `XmlParser`. The
+  `MavenParser` failure is recorded, and any failure of the `XmlParser` fallback is
+  recorded too — so a single pom can produce two entries with the same `path` and
+  different `parser` values.
+- Any other `MavenParser` throw — i.e. a non-URI exception — is **rethrown** and
+  aborts the LST build. This is deliberate: it keeps unrelated `MavenParser`
+  regressions visible instead of silently downgrading them to `XmlParser`. Recipe
+  results would otherwise be misleading. If you need to keep going past such a
+  failure, the caller is responsible for catching and recovering.
+
+```kotlin
+val result = RewriteRunner.builder()...build().run()
+
+result.executionDiagnostics.parseFailures.forEach { failure ->
+    println("${failure.parser} could not handle ${failure.path}: ${failure.reason}")
+}
+
+// Group by parser to spot systematic failures
+val byParser = result.executionDiagnostics.parseFailures.groupBy { it.parser }
+byParser.forEach { (parser, failures) ->
+    println("$parser failed on ${failures.size} file(s)")
+}
+```
+
+Canonical `parser` values today: `JavaParser`, `KotlinParser`, `GroovyParser`,
+`GradleParser`, `YamlParser`, `JsonParser`, `MavenParser`, `XmlParser`,
+`PropertiesParser`, `TomlParser`, `HclParser`, `ProtoParser`, `DockerParser`.
+
+In `--output report` mode the same data is serialized as a top-level `parseFailures`
+array in `openrewrite-report.json` (see [README](../README.md#output-modes) for the
+JSON schema).
 
 Each `org.openrewrite.Result` in `results` exposes:
 - `before` — the source file before the recipe (`null` for newly created files)

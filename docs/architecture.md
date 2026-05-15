@@ -116,6 +116,37 @@ and `rewriteMavenPluginVersion`.
 | `.proto` | `ProtoParser` | — |
 | `.dockerfile` / `.containerfile` / `Dockerfile*` / `Containerfile*` | `DockerParser` | — (matched by extension **and** by filename prefix) |
 
+## Parse Failure Handling
+
+`LstBuilder` wraps every parser invocation in a `parseAndRecord` helper. The build
+does not abort on a per-file parse failure — the following are recorded into
+`ExecutionDiagnostics.parseFailures` and execution continues with whatever was
+successfully parsed:
+
+- A `org.openrewrite.tree.ParseError` returned in a parser's output (the ParseError
+  stub stays in the LST so callers can still inspect it).
+- A file that the parser silently dropped from its output.
+- A thrown `Exception` from `parser.parse(...)` — one entry is recorded for every
+  file in the batch that threw. Fatal `Error`s (`OutOfMemoryError`,
+  `StackOverflowError`, …) are deliberately **not** caught; they propagate so the
+  run fails fast on an invalid JVM state.
+
+Two paths preserve their existing fallback behaviour on top of recording:
+
+- **Maven POMs** — only `MavenParser` throws whose cause chain contains a
+  `URISyntaxException` fall back to `XmlParser`. Both attempts record their own
+  `ParseFailure` if they fail. **Any other `MavenParser` exception is rethrown**
+  and aborts the LST build by design: silently downgrading an unrelated
+  `MavenParser` regression to `XmlParser` would hide the failure and produce
+  misleading recipe results. This contract is locked in by
+  `LstBuilderTest`'s `non-URI MavenParser exceptions still bubble up` test.
+- **Gradle DSL** — `GradleParser` failures on `.gradle` / `*.gradle.kts` fall back to
+  `GroovyParser` / `KotlinParser`; the `GradleParser` failure is recorded before the
+  fallback runs, and the fallback parser's failures (if any) are also recorded.
+
+See [`library-api.md`](library-api.md#parse-failures) for the consumer-facing shape
+and the canonical `parser` names.
+
 ## Gradle DSL Classpath
 
 Resolved from the Gradle installation:
