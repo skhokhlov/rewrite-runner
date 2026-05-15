@@ -124,12 +124,22 @@ Three signals end up here:
    it. The reason is the literal string `"silently dropped by <parser>"`.
 3. **Thrown exceptions from `parser.parse(...)`** — caught and recorded one
    `ParseFailure` per file in the batch that threw. The exception does **not** abort
-   the LST build.
+   the LST build. Fatal `Error`s (`OutOfMemoryError`, `StackOverflowError`, …) are
+   **not** caught; they propagate so the run fails fast on an invalid JVM state.
 
-The Maven POM path is special: when `MavenParser` fails on a pom and falls back to
-`XmlParser`, the original `MavenParser` failure is recorded, and any failure of the
-`XmlParser` fallback is recorded too — so a single pom can produce two entries with
-the same `path` and different `parser` values.
+The Maven POM path is special:
+
+- When `MavenParser` throws an `IllegalArgumentException` whose cause chain contains
+  a `URISyntaxException` (the `MavenPomDownloader` URI-failure mode), the pom is
+  retried individually and any pom that still fails falls back to `XmlParser`. The
+  `MavenParser` failure is recorded, and any failure of the `XmlParser` fallback is
+  recorded too — so a single pom can produce two entries with the same `path` and
+  different `parser` values.
+- Any other `MavenParser` throw — i.e. a non-URI exception — is **rethrown** and
+  aborts the LST build. This is deliberate: it keeps unrelated `MavenParser`
+  regressions visible instead of silently downgrading them to `XmlParser`. Recipe
+  results would otherwise be misleading. If you need to keep going past such a
+  failure, the caller is responsible for catching and recovering.
 
 ```kotlin
 val result = RewriteRunner.builder()...build().run()

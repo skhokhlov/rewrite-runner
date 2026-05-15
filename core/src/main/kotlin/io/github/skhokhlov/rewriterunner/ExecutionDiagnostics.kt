@@ -59,8 +59,16 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  *   - **Thrown exceptions** from `parser.parse(...)` — caught so the build does not
  *     abort. One entry is recorded for every file in the batch that threw.
  *
- *   Empty when every file parsed cleanly. The build never aborts on per-file parse
- *   failures: the recipe still runs against whatever was successfully parsed.
+ *   Empty when every file parsed cleanly. With one deliberate exception, the build
+ *   does not abort on per-file parse failures: the recipe still runs against whatever
+ *   was successfully parsed.
+ *
+ *   **Exception — MavenParser non-URI failures are fatal by design.** A
+ *   `MavenParser` throw whose cause chain does not contain a `URISyntaxException`
+ *   is rethrown rather than recorded, so unrelated MavenParser regressions surface
+ *   instead of being silently downgraded. Only URI-class MavenParser failures fall
+ *   back to `XmlParser` (and are recorded here); every other parser's batch throws
+ *   are caught and recorded.
  */
 data class ExecutionDiagnostics(
     val stageUsed: UsedExecutionStage?,

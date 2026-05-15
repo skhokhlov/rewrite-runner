@@ -175,9 +175,14 @@ result.executionDiagnostics.parseFailures.forEach { failure ->
 }
 ```
 
-The build never aborts when a single file fails to parse — every per-file failure is
-collected into `executionDiagnostics.parseFailures` so callers can surface or ignore
-them. See [`docs/library-api.md`](docs/library-api.md#parse-failures) for the full shape.
+Per-file parse failures are collected into `executionDiagnostics.parseFailures`
+rather than aborting the build; callers can surface or ignore them. The one
+intentional exception: a non-URI `MavenParser` throw aborts the LST build by
+design (silently downgrading it to `XmlParser` would hide regressions and produce
+misleading recipe results). URI-class `MavenParser` failures still fall back to
+`XmlParser` and are recorded normally. Fatal `Error`s (e.g. `OutOfMemoryError`)
+always propagate. See [`docs/library-api.md`](docs/library-api.md#parse-failures)
+for the full shape.
 
 ### Formatted output (ResultFormatter)
 
