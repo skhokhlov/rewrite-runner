@@ -1,5 +1,7 @@
 package io.github.skhokhlov.rewriterunner.output
 
+import io.github.skhokhlov.rewriterunner.ExecutionDiagnostics
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunResult
 import java.io.OutputStream
 import java.io.PrintStream
@@ -80,19 +82,39 @@ class ResultFormatter(
     /**
      * Write formatted output for a full [RunResult], including plugin-first raw diffs
      * when no OpenRewrite [Result] objects were produced in-process.
+     *
+     * In [OutputMode.REPORT] mode the emitted JSON additionally carries the
+     * [ExecutionDiagnostics.parseFailures] collected during the LST build, so library
+     * consumers can see which files the parsers could not handle.
      */
     fun format(runResult: RunResult) {
         // In-process recipe results and plugin-first raw diffs are mutually exclusive
         // for normal runner output. Prefer Result objects if a future path supplies both.
         if (runResult.results.isNotEmpty() || runResult.rawDiffs.isEmpty()) {
-            format(runResult.results, runResult.projectDir)
+            when (outputMode) {
+                OutputMode.DIFF -> printDiffs(runResult.results)
+
+                OutputMode.FILES -> printFiles(runResult.results)
+
+                OutputMode.REPORT -> writeReport(
+                    runResult.results,
+                    runResult.projectDir,
+                    runResult.executionDiagnostics
+                )
+            }
             return
         }
 
         when (outputMode) {
             OutputMode.DIFF -> printRawDiffs(runResult.rawDiffs)
+
             OutputMode.FILES -> printRawFiles(runResult.rawDiffs.keys)
-            OutputMode.REPORT -> writeRawReport(runResult.rawDiffs, runResult.projectDir)
+
+            OutputMode.REPORT -> writeRawReport(
+                runResult.rawDiffs,
+                runResult.projectDir,
+                runResult.executionDiagnostics
+            )
         }
     }
 
@@ -142,7 +164,11 @@ class ResultFormatter(
 
     // ─── report ───────────────────────────────────────────────────────────────
 
-    private fun writeReport(results: List<Result>, reportDir: Path) {
+    private fun writeReport(
+        results: List<Result>,
+        reportDir: Path,
+        diagnostics: ExecutionDiagnostics? = null
+    ) {
         val reportFile = reportDir.resolve("openrewrite-report.json").toFile()
         val report = mapOf(
             "totalChanged" to results.size,
@@ -153,13 +179,18 @@ class ResultFormatter(
                     "isDeletedFile" to (r.after == null),
                     "diff" to r.diff()
                 )
-            }
+            },
+            "parseFailures" to parseFailuresJson(diagnostics)
         )
         json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
         out.println("Report written to: ${reportFile.absolutePath}")
     }
 
-    private fun writeRawReport(rawDiffs: Map<Path, String>, reportDir: Path) {
+    private fun writeRawReport(
+        rawDiffs: Map<Path, String>,
+        reportDir: Path,
+        diagnostics: ExecutionDiagnostics? = null
+    ) {
         val reportFile = reportDir.resolve("openrewrite-report.json").toFile()
         val report = mapOf(
             "totalChanged" to rawDiffs.size,
@@ -170,9 +201,15 @@ class ResultFormatter(
                     "isDeletedFile" to diff.contains("\n+++ /dev/null\n"),
                     "diff" to diff
                 )
-            }
+            },
+            "parseFailures" to parseFailuresJson(diagnostics)
         )
         json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
         out.println("Report written to: ${reportFile.absolutePath}")
     }
+
+    private fun parseFailuresJson(diagnostics: ExecutionDiagnostics?): List<Map<String, String>> =
+        (diagnostics?.parseFailures ?: emptyList()).map { f: ParseFailure ->
+            mapOf("path" to f.path, "reason" to f.reason, "parser" to f.parser)
+        }
 }

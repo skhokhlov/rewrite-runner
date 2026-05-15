@@ -49,6 +49,12 @@ import kotlin.io.path.exists
  * This class is thread-safe for concurrent [run] calls only when each call operates on a
  * different [Builder.projectDir]. Sharing the same project directory across concurrent
  * runs is not supported.
+ *
+ * Diagnostics — including per-file parse failures from every parser the LST pipeline
+ * ran — are exposed on [RunResult.executionDiagnostics]. Inspect
+ * [ExecutionDiagnostics.parseFailures] to see which files OpenRewrite could not handle;
+ * the build does not abort on per-file failures, so the recipe still runs against
+ * whatever was successfully parsed.
  */
 class RewriteRunner private constructor(private val config: Builder) {
 

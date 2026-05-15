@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.output
 
 import io.github.skhokhlov.rewriterunner.ExecutionDiagnostics
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunResult
 import io.kotest.core.spec.style.FunSpec
 import java.io.ByteArrayOutputStream
@@ -294,5 +295,63 @@ class ResultFormatterTest :
                 json.readTree(reportDir.resolve("openrewrite-report.json").readText())
             assertEquals(1, tree["totalChanged"].asInt())
             assertEquals("Foo.java", tree["results"][0]["filePath"].asText())
+        }
+
+        // ─── parseFailures in REPORT JSON ─────────────────────────────────────────
+
+        test("REPORT mode includes parseFailures from executionDiagnostics") {
+            val runResult =
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = emptyList(),
+                    projectDir = reportDir,
+                    executionDiagnostics =
+                        ExecutionDiagnostics(
+                            stageUsed = null,
+                            resolvedJarCount = 0,
+                            parseFailures = listOf(
+                                ParseFailure(
+                                    path = "src/Broken.java",
+                                    reason = "unterminated comment",
+                                    parser = "JavaParser"
+                                )
+                            )
+                        )
+                )
+
+            captureOutput { pw ->
+                ResultFormatter(OutputMode.REPORT, pw).format(runResult)
+            }
+
+            val tree =
+                json.readTree(reportDir.resolve("openrewrite-report.json").readText())
+            assertTrue(
+                tree.has("parseFailures"),
+                "REPORT JSON should expose a parseFailures array"
+            )
+            assertEquals(1, tree["parseFailures"].size())
+            val entry = tree["parseFailures"][0]
+            assertEquals("src/Broken.java", entry["path"].asText())
+            assertEquals("unterminated comment", entry["reason"].asText())
+            assertEquals("JavaParser", entry["parser"].asText())
+        }
+
+        test("REPORT mode emits empty parseFailures array when none recorded") {
+            val runResult =
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = emptyList(),
+                    projectDir = reportDir,
+                    executionDiagnostics = ExecutionDiagnostics(null, 0)
+                )
+
+            captureOutput { pw ->
+                ResultFormatter(OutputMode.REPORT, pw).format(runResult)
+            }
+
+            val tree =
+                json.readTree(reportDir.resolve("openrewrite-report.json").readText())
+            assertTrue(tree.has("parseFailures"))
+            assertEquals(0, tree["parseFailures"].size())
         }
     })
