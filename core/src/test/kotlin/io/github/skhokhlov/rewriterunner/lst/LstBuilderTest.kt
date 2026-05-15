@@ -1711,6 +1711,108 @@ class LstBuilderTest :
             )
         }
 
+        test("ParseError in MavenParser output is recorded even when no exception is thrown") {
+            // Regression test for the case where MavenParser returns a ParseError SourceFile
+            // (or silently drops a pom) without throwing. The Maven path used to skip the
+            // failure scan and miss these cases.
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>silent</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+
+            val builder =
+                object : LstBuilder(
+                    logger = NoOpRunnerLogger,
+                    cacheDir = projectDir.resolve("cache"),
+                    toolConfig = toolConfig,
+                    projectBuildStage = failingBuildTool,
+                    depResolutionStage = noOpDepStage(),
+                    buildFileParseStage = noOpBuildFileStage()
+                ) {
+                    override fun buildMavenParser(): MavenParser =
+                        object : MavenParser(emptyList(), emptyMap(), false) {
+                            override fun parseInputs(
+                                sources: Iterable<Parser.Input>,
+                                relativeTo: Path?,
+                                ctx: ExecutionContext
+                            ): java.util.stream.Stream<SourceFile> {
+                                // Return a ParseError instead of an Xml.Document, no throw.
+                                val cwd = relativeTo ?: projectDir
+                                return sources
+                                    .toList()
+                                    .map { input ->
+                                        val rel = cwd.relativize(input.path).normalize()
+                                        val markers = Markers.EMPTY.addIfAbsent(
+                                            ParseExceptionResult(
+                                                java.util.UUID.randomUUID(),
+                                                "MavenParser",
+                                                "ParseException",
+                                                "malformed pom marker",
+                                                null
+                                            )
+                                        )
+                                        ParseError(
+                                            java.util.UUID.randomUUID(),
+                                            markers,
+                                            rel,
+                                            null,
+                                            null,
+                                            false,
+                                            null,
+                                            "<project/>",
+                                            null
+                                        ) as SourceFile
+                                    }
+                                    .stream()
+                            }
+                        }
+                }
+
+            val result = builder.build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".xml")
+            )
+
+            val mavenFailures =
+                result.executionDiagnostics.parseFailures.filter { it.parser == "MavenParser" }
+            assertEquals(
+                1,
+                mavenFailures.size,
+                "MavenParser ParseError output should be recorded as a ParseFailure"
+            )
+            assertEquals("pom.xml", mavenFailures.single().path)
+            assertTrue(
+                mavenFailures.single().reason.contains("malformed pom marker"),
+                "Reason should reflect the ParseExceptionResult message"
+            )
+        }
+
+        test("fatal Errors propagate instead of being recorded as ParseFailure") {
+            // OutOfMemoryError / StackOverflowError signal an invalid JVM state.
+            // Continuing the build would emit misleading results.
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+
+            val builder = lstBuilderWithJavaStub(
+                stubParser { _, _ -> throw OutOfMemoryError("simulated") }
+            )
+
+            val thrown = kotlin.runCatching {
+                builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+            }.exceptionOrNull()
+
+            assertNotNull(thrown, "Fatal Error must not be swallowed by parseAndRecord")
+            assertTrue(
+                thrown is OutOfMemoryError && thrown.message == "simulated",
+                "Expected OutOfMemoryError to propagate, got: $thrown"
+            )
+        }
+
         test("pom that also fails XmlParser produces two ParseFailure entries") {
             projectDir.resolve("pom.xml").writeText(
                 """

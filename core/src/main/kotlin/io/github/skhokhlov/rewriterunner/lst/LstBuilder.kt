@@ -567,7 +567,11 @@ open class LstBuilder(
         parseCtx: ExecutionContext,
         failures: MutableList<ParseFailure>
     ): List<SourceFile> = try {
-        buildMavenParser().parse(pomFiles, projectDir, parseCtx).toList()
+        val parsed = buildMavenParser().parse(pomFiles, projectDir, parseCtx).toList()
+        // Scan the batch output for ParseError SourceFiles and silently dropped poms —
+        // MavenParser may signal per-file trouble without throwing.
+        recordParseFailures("MavenParser", pomFiles, parsed, projectDir, failures)
+        parsed
     } catch (e: Throwable) {
         if (!isUriFailure(e)) throw e
         logger.warn(
@@ -576,7 +580,17 @@ open class LstBuilder(
         )
         pomFiles.flatMap { pom ->
             try {
-                buildMavenParser().parse(listOf(pom), projectDir, parseCtx).toList()
+                val parsedOne =
+                    buildMavenParser().parse(listOf(pom), projectDir, parseCtx).toList()
+                // Per-pom retry can still produce ParseError / drops without throwing.
+                recordParseFailures(
+                    "MavenParser",
+                    listOf(pom),
+                    parsedOne,
+                    projectDir,
+                    failures
+                )
+                parsedOne
             } catch (single: Throwable) {
                 if (!isUriFailure(single)) throw single
                 val rel = projectDir.relativize(pom).normalize().toString()
@@ -863,10 +877,13 @@ open class LstBuilder(
         failures: MutableList<ParseFailure>,
         parse: () -> List<SourceFile>
     ): List<SourceFile> {
+        // Catch [Exception] only — fatal [Error]s (OOM, StackOverflow, …) signal an
+        // invalid JVM state and must propagate so the run fails fast rather than
+        // emitting misleading partial results.
         val parsed = try {
             parse()
-        } catch (t: Throwable) {
-            recordBatchFailure(parserName, inputFiles, projectDir, failures, t)
+        } catch (e: Exception) {
+            recordBatchFailure(parserName, inputFiles, projectDir, failures, e)
             return emptyList()
         }
         recordParseFailures(parserName, inputFiles, parsed, projectDir, failures)
