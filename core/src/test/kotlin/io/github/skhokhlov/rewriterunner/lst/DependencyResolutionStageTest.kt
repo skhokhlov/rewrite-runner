@@ -4,6 +4,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -1238,5 +1239,92 @@ class DependencyResolutionStageTest :
                 result.gradleProjectData,
                 "Maven project should have null gradleProjectData"
             )
+        }
+
+        // ─── Malformed Maven coordinate handling ─────────────────────────────────
+
+        /**
+         * Test harness: exposes the 2-arg [resolveArtifactsDirectly] as a public method and
+         * stubs the 1-arg Aether-calling overload. Keeps the test offline and captures the
+         * coordinates that survive the filter.
+         */
+        abstract class TestStage(ctx: AetherContext) :
+            DependencyResolutionStage(ctx, NoOpRunnerLogger) {
+            var capturedCoords: List<String> = emptyList()
+            var aetherCalls: Int = 0
+
+            override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
+                aetherCalls += 1
+                capturedCoords = coordinates
+                return stubResult(coordinates)
+            }
+
+            abstract fun stubResult(coordinates: List<String>): List<Path>
+
+            fun callResolveArtifactsDirectly(
+                coordinates: List<String>,
+                parseFailures: MutableList<ParseFailure>
+            ): List<Path> = resolveArtifactsDirectly(coordinates, parseFailures)
+        }
+
+        test("resolveArtifactsDirectly skips malformed coordinates and resolves the rest") {
+            val stub =
+                object : TestStage(
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    )
+                ) {
+                    override fun stubResult(coordinates: List<String>): List<Path> =
+                        listOf(Path.of("/fake/good-lib-1.0.jar"))
+                }
+
+            val failures = mutableListOf<ParseFailure>()
+            val resolved =
+                stub.callResolveArtifactsDirectly(
+                    listOf("com.example:good:1.0", "com.example:bad name:1.0"),
+                    failures
+                )
+
+            assertEquals(
+                listOf("com.example:good:1.0"),
+                stub.capturedCoords,
+                "Only the good coordinate should reach the resolver"
+            )
+            assertEquals(1, resolved.size, "Good coordinate should produce one resolved JAR")
+            assertEquals(1, failures.size, "Bad coordinate should be recorded as a ParseFailure")
+            assertEquals("com.example:bad name:1.0", failures.single().path)
+            assertEquals("DependencyResolutionStage", failures.single().parser)
+            assertTrue(
+                failures.single().reason.contains("illegal", ignoreCase = true) ||
+                    failures.single().reason.contains("Maven coordinate", ignoreCase = true)
+            )
+        }
+
+        test("resolveArtifactsDirectly returns empty list when every coordinate is malformed") {
+            val stub =
+                object : TestStage(
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    )
+                ) {
+                    override fun stubResult(coordinates: List<String>): List<Path> = emptyList()
+                }
+
+            val failures = mutableListOf<ParseFailure>()
+            val resolved =
+                stub.callResolveArtifactsDirectly(
+                    listOf("com.example:bad name:1.0", "com.example:also bad:2.0"),
+                    failures
+                )
+
+            assertTrue(resolved.isEmpty(), "All-malformed input should yield empty classpath")
+            assertEquals(
+                0,
+                stub.aetherCalls,
+                "Aether must not be called when every coordinate is bad"
+            )
+            assertEquals(2, failures.size, "Each malformed coordinate should record a failure")
         }
     })

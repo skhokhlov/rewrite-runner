@@ -165,8 +165,13 @@ open class LstBuilder(
             fileCollector.resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
         logger.info("Parsing extensions: $effectiveExtensions")
 
+        // ── Per-build parse-failure accumulator ───────────────────────────────
+        // Declared before classpath resolution so Stage 2/3 can record malformed
+        // Maven coordinate failures alongside per-file parse failures.
+        val parseFailures = mutableListOf<ParseFailure>()
+
         // ── 4-stage classpath resolution ──────────────────────────────────────
-        val resolutionResult = resolveClasspath(projectDir)
+        val resolutionResult = resolveClasspath(projectDir, parseFailures)
         val classpath = resolutionResult.classpath
 
         // ── Shared type cache — all JVM parsers share one instance ────────────
@@ -214,7 +219,6 @@ open class LstBuilder(
 
         // ── Parse each language ───────────────────────────────────────────────
         val allSources = mutableListOf<SourceFile>()
-        val parseFailures = mutableListOf<ParseFailure>()
 
         filesByExt[".java"]?.let { files ->
             logger.info("Parsing ${files.size} Java file(s)")
@@ -733,7 +737,10 @@ open class LstBuilder(
         return discovered.toList()
     }
 
-    private fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
+    private fun resolveClasspath(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): ClasspathResolutionResult {
         logger.info("Stage 1: attempting build-tool classpath extraction")
         val stage1 = projectBuildStage.extractClasspath(projectDir)
         if (stage1 != null) {
@@ -769,7 +776,7 @@ open class LstBuilder(
 
         logger.info("Stage 2: resolving dependencies via Maven Resolver")
         val stage2Result = try {
-            depResolutionStage.resolveClasspath(projectDir)
+            depResolutionStage.resolveClasspath(projectDir, parseFailures)
         } catch (e: Exception) {
             logger.warn("Stage 2 threw an exception: ${e.message}")
             ClasspathResolutionResult(emptyList())
@@ -797,7 +804,7 @@ open class LstBuilder(
 
         logger.info("Stage 3: resolving via static build file parse + POM traversal")
         val stage3 = try {
-            buildFileParseStage.resolveClasspath(projectDir)
+            buildFileParseStage.resolveClasspath(projectDir, parseFailures)
         } catch (e: Exception) {
             logger.warn("Stage 3 threw: ${e.message}")
             emptyList()

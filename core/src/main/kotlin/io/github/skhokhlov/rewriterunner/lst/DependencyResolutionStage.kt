@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.MavenCoordinates
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
@@ -100,7 +102,19 @@ open class DependencyResolutionStage(
      *   for constructing [GradleProject] markers. Returns an empty classpath (never throws) when
      *   no subprocess succeeds or resolution fails completely.
      */
-    open fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
+    open fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
+        resolveClasspath(projectDir, mutableListOf())
+
+    /**
+     * Overload that captures malformed Maven coordinates (e.g. illegal URI characters in
+     * a parsed coord) into [parseFailures] instead of letting them abort resolution.
+     *
+     * @see resolveArtifactsDirectly
+     */
+    open fun resolveClasspath(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): ClasspathResolutionResult {
         val coords = mutableListOf<String>()
         var gradleProjectData: Map<String, GradleProjectData>? = null
 
@@ -133,7 +147,7 @@ open class DependencyResolutionStage(
             return ClasspathResolutionResult(emptyList(), gradleProjectData)
         }
 
-        val classpath = resolveArtifactsDirectly(coords.distinct())
+        val classpath = resolveArtifactsDirectly(coords.distinct(), parseFailures)
         return ClasspathResolutionResult(classpath, gradleProjectData)
     }
 
@@ -141,10 +155,15 @@ open class DependencyResolutionStage(
      * Resolves a fully-traversed coordinate list directly via [ArtifactRequest], skipping
      * POM downloads. Used when [runGradleDependenciesTask] returns the complete transitive
      * graph, so there is no need to re-traverse it through Maven Resolver.
+     *
+     * **Note:** This 1-arg form does **not** filter malformed coordinates. The 2-arg
+     * overload performs filtering and then delegates here. Tests historically override
+     * this method to stub out the Aether call.
      */
     protected open fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
         logger.info(
-            "Resolving ${coordinates.size} fully-resolved coordinates directly (skipping POM traversal)"
+            "Resolving ${coordinates.size} fully-resolved coordinates directly " +
+                "(skipping POM traversal)"
         )
         val requests = coordinates.map {
             ArtifactRequest(DefaultArtifact(it), aetherContext.remoteRepos, null)
@@ -155,6 +174,31 @@ open class DependencyResolutionStage(
         } catch (e: ArtifactResolutionException) {
             handlePartialResolution(e.results.mapNotNull { it.artifact?.path }, e.message)
         }
+    }
+
+    /**
+     * Filter [coordinates] through [MavenCoordinates.tryParse] before delegating to the
+     * 1-arg [resolveArtifactsDirectly], so malformed coords (e.g. illegal URI chars from
+     * a corrupted `mvn dependency:tree` line) no longer abort the entire stage. Each
+     * skipped coord is appended to [parseFailures] with
+     * `parser = "DependencyResolutionStage"`.
+     */
+    protected open fun resolveArtifactsDirectly(
+        coordinates: List<String>,
+        parseFailures: MutableList<ParseFailure>
+    ): List<Path> {
+        val (good, bad) = coordinates.partition { MavenCoordinates.tryParse(it) != null }
+        bad.forEach { coord ->
+            logger.warn(
+                "Stage 2: skipping malformed Maven coordinate '$coord' (illegal URI character)"
+            )
+            parseFailures += ParseFailure(
+                path = coord,
+                reason = "illegal Maven coordinate",
+                parser = "DependencyResolutionStage"
+            )
+        }
+        return if (good.isEmpty()) emptyList() else resolveArtifactsDirectly(good)
     }
 
     private fun handlePartialResolution(partial: List<Path>, errorMessage: String?): List<Path> {

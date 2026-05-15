@@ -49,8 +49,10 @@ class KotlinVersionDetectionTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        ClasspathResolutionResult(emptyList())
+                    override fun resolveClasspath(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult = ClasspathResolutionResult(emptyList())
                 }
             return LstBuilder(
                 cacheDir = projectDir.resolve("cache"),

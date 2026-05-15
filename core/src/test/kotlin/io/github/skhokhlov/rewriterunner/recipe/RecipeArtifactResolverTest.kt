@@ -122,6 +122,83 @@ class RecipeArtifactResolverTest :
             assertFailsWith<IllegalArgumentException> { resolver.resolve("") }
         }
 
+        test("resolve throws IllegalArgumentException for coordinate with illegal URI character") {
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
+            val ex = assertFailsWith<IllegalArgumentException> {
+                resolver.resolve("com.example:bad name:1.0")
+            }
+            val message = ex.message.orEmpty()
+            assertTrue(
+                message.contains("com.example:bad name:1.0"),
+                "Message must name the offending coordinate, got: $message"
+            )
+            assertTrue(
+                message.contains("Invalid Maven coordinate", ignoreCase = true) ||
+                    message.contains("illegal", ignoreCase = true),
+                "Message must explain why the coordinate was rejected, got: $message"
+            )
+        }
+
+        test("resolveAll throws IllegalArgumentException listing every bad coordinate") {
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
+            val ex = assertFailsWith<IllegalArgumentException> {
+                resolver.resolveAll(
+                    listOf(
+                        "com.example:lib:1.0",
+                        "com.example:bad name:1.0",
+                        "com.example:also bad:2.0"
+                    )
+                )
+            }
+            val message = ex.message.orEmpty()
+            assertTrue(
+                message.contains("com.example:bad name:1.0"),
+                "Message must list the first bad coordinate, got: $message"
+            )
+            assertTrue(
+                message.contains("com.example:also bad:2.0"),
+                "Message must list every bad coordinate, got: $message"
+            )
+        }
+
+        test(
+            "resolveAll throws IllegalArgumentException for a single malformed coord (no network)"
+        ) {
+            // The IAE precondition must fire before any Aether call. Verified by using a
+            // resolver with no Maven Central and an empty local cache: a DependencyResolutionException
+            // here (which is what would surface from Aether on a real network attempt)
+            // would be a different exception type.
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        includeMavenCentral = false,
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                )
+            assertFailsWith<IllegalArgumentException> {
+                resolver.resolveAll(listOf("com.example:bad name:1.0"))
+            }
+        }
+
+        test("resolveAll returns empty list for empty input (regression)") {
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                )
+            assertTrue(resolver.resolveAll(emptyList()).isEmpty())
+        }
+
         // ─── Session initialization ───────────────────────────────────────────────
 
         test(

@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.MavenCoordinates
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
@@ -42,8 +43,13 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
     fun resolveAll(coordinates: List<String>): List<Path> {
         if (coordinates.isEmpty()) return emptyList()
 
-        val deps =
-            coordinates.map { Dependency(DefaultArtifact(resolveCoordinate(it)), "runtime") }
+        // Fail fast on malformed Maven coordinates so the user gets a clean
+        // IllegalArgumentException naming the offending coords rather than a
+        // URI.create stack trace from inside Aether.
+        val resolvedCoords = coordinates.map(::resolveCoordinate)
+        validateCoordinates(resolvedCoords)
+
+        val deps = resolvedCoords.map { Dependency(DefaultArtifact(it), "runtime") }
         val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
         val depRequest = DependencyRequest(collectRequest, runtimeScopeFilter)
 
@@ -84,6 +90,7 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
      */
     fun resolve(coordinate: String): List<Path> {
         val resolvedCoord = resolveCoordinate(coordinate)
+        validateCoordinates(listOf(resolvedCoord))
 
         val dep = Dependency(DefaultArtifact(resolvedCoord), "runtime")
         val collectRequest = CollectRequest(dep, context.remoteRepos)
@@ -112,6 +119,23 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
 
         logger.info("      $resolvedCoord → ${paths.size} JAR(s)")
         return paths
+    }
+
+    /**
+     * Throw a single [IllegalArgumentException] listing every entry in [resolvedCoords]
+     * that [MavenCoordinates.tryParse] rejects (e.g. illegal URI characters). Recipe
+     * loading happens before [io.github.skhokhlov.rewriterunner.RunResult] exists, so
+     * we cannot surface failures via [io.github.skhokhlov.rewriterunner.ExecutionDiagnostics];
+     * fail-fast with a clean message is the user-facing contract.
+     */
+    private fun validateCoordinates(resolvedCoords: List<String>) {
+        val bad = resolvedCoords.filter { MavenCoordinates.tryParse(it) == null }
+        if (bad.isEmpty()) return
+        val list = bad.joinToString(", ") { "'$it'" }
+        throw IllegalArgumentException(
+            "Invalid Maven coordinate(s) $list: contains characters illegal in a URI " +
+                "(see DefaultArtifact)"
+        )
     }
 
     private fun resolveCoordinate(coordinate: String): String {

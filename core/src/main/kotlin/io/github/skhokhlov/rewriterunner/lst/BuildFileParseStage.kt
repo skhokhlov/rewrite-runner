@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.MavenCoordinates
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
@@ -65,23 +67,62 @@ open class BuildFileParseStage(
      * @return Resolved JAR paths, or an empty list when no build files are found
      *   or resolution produces no results.
      */
-    open fun resolveClasspath(projectDir: Path): List<Path> {
+    open fun resolveClasspath(projectDir: Path): List<Path> =
+        resolveClasspath(projectDir, mutableListOf())
+
+    /**
+     * Overload that captures malformed Maven coordinates (e.g. illegal URI characters
+     * in a statically parsed coord) into [parseFailures] instead of letting them abort
+     * the entire stage. Each skipped coordinate is recorded with
+     * `parser = "BuildFileParseStage"`.
+     */
+    open fun resolveClasspath(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): List<Path> {
         val coords = gatherAllCoordinates(projectDir)
         if (coords.isEmpty()) {
             logger.info("Stage 3: no coordinates found in build descriptors")
             return emptyList()
         }
-        logger.debug("Stage 3: resolving ${coords.size} coordinate(s) via POM traversal")
-        return resolveWithPomTraversal(coords).also { result ->
+        val good = filterMalformed(coords, parseFailures)
+        if (good.isEmpty()) return emptyList()
+        logger.debug("Stage 3: resolving ${good.size} coordinate(s) via POM traversal")
+        return resolveWithPomTraversal(good).also { result ->
             if (result.isNotEmpty()) logger.info("Stage 3 succeeded: ${result.size} JAR(s)")
         }
+    }
+
+    private fun filterMalformed(
+        coordinates: List<String>,
+        parseFailures: MutableList<ParseFailure>
+    ): List<String> {
+        val good = mutableListOf<String>()
+        coordinates.forEach { coord ->
+            if (MavenCoordinates.tryParse(coord) != null) {
+                good += coord
+            } else {
+                logger.warn(
+                    "Stage 3: skipping malformed Maven coordinate '$coord' (illegal URI character)"
+                )
+                parseFailures += ParseFailure(
+                    path = coord,
+                    reason = "illegal Maven coordinate",
+                    parser = "BuildFileParseStage"
+                )
+            }
+        }
+        return good
     }
 
     /**
      * Collects `groupId:artifactId:version` coordinates from all build files found
      * under [projectDir] (Maven + Gradle), deduplicated.
+     *
+     * Open for tests so the malformed-coordinate filter in [resolveClasspath] can be
+     * exercised without crafting build files that bypass the static parser's regex.
      */
-    internal fun gatherAllCoordinates(projectDir: Path): List<String> {
+    internal open fun gatherAllCoordinates(projectDir: Path): List<String> {
         val coords = mutableListOf<String>()
 
         // Maven: find all pom.xml files (root + modules + subdirs)

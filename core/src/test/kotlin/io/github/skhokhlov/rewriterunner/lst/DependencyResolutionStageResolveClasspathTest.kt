@@ -43,8 +43,10 @@ class DependencyResolutionStageResolveClasspathTest :
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        super.resolveClasspath(projectDir)
+                    override fun resolveClasspath(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult = super.resolveClasspath(projectDir, parseFailures)
                 }
             // Empty directory: no pom.xml, no build.gradle
             val result = stage.resolveClasspath(projectDir)
