@@ -4,6 +4,7 @@ plugins {
     id("kotlin-convention")
     id("publishing-convention")
     id("dokka-convention")
+    id("sbom-convention")
     id("com.gradleup.shadow")
 }
 
