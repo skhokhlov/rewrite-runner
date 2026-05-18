@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.MavenCoordinates
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
@@ -133,18 +135,57 @@ open class DependencyResolutionStage(
             return ClasspathResolutionResult(emptyList(), gradleProjectData)
         }
 
-        val classpath = resolveArtifactsDirectly(coords.distinct())
+        // If [resolveClasspath] was invoked through the 2-arg overload, route through the
+        // filter-aware [resolveArtifactsDirectly] overload so malformed coords are recorded.
+        // Otherwise preserve historical behaviour: pass coords as-is to the 1-arg overload
+        // (which existing subclasses may override to stub Aether).
+        val sink = pendingParseFailures
+        val classpath = if (sink != null) {
+            resolveArtifactsDirectly(coords.distinct(), sink)
+        } else {
+            resolveArtifactsDirectly(coords.distinct())
+        }
         return ClasspathResolutionResult(classpath, gradleProjectData)
     }
+
+    /**
+     * Failure-sink-aware overload of [resolveClasspath]. Stashes [parseFailures] on the
+     * stage instance for the duration of the call and then delegates to the 1-arg
+     * [resolveClasspath] via virtual dispatch — so subclasses that override only the
+     * historical 1-arg method continue to intercept Stage 2 unchanged.
+     *
+     * Not safe for concurrent invocation on the same stage instance; the stage is not
+     * documented as thread-safe.
+     */
+    open fun resolveClasspath(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): ClasspathResolutionResult {
+        val prior = pendingParseFailures
+        return try {
+            pendingParseFailures = parseFailures
+            resolveClasspath(projectDir)
+        } finally {
+            pendingParseFailures = prior
+        }
+    }
+
+    /** Set by [resolveClasspath] (2-arg) so the 1-arg flow can record coord failures. */
+    private var pendingParseFailures: MutableList<ParseFailure>? = null
 
     /**
      * Resolves a fully-traversed coordinate list directly via [ArtifactRequest], skipping
      * POM downloads. Used when [runGradleDependenciesTask] returns the complete transitive
      * graph, so there is no need to re-traverse it through Maven Resolver.
+     *
+     * **Note:** This 1-arg form does **not** filter malformed coordinates. The 2-arg
+     * overload performs filtering and then delegates here. Tests historically override
+     * this method to stub out the Aether call.
      */
     protected open fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
         logger.info(
-            "Resolving ${coordinates.size} fully-resolved coordinates directly (skipping POM traversal)"
+            "Resolving ${coordinates.size} fully-resolved coordinates directly " +
+                "(skipping POM traversal)"
         )
         val requests = coordinates.map {
             ArtifactRequest(DefaultArtifact(it), aetherContext.remoteRepos, null)
@@ -155,6 +196,31 @@ open class DependencyResolutionStage(
         } catch (e: ArtifactResolutionException) {
             handlePartialResolution(e.results.mapNotNull { it.artifact?.path }, e.message)
         }
+    }
+
+    /**
+     * Filter [coordinates] through [MavenCoordinates.tryParse] before delegating to the
+     * 1-arg [resolveArtifactsDirectly], so malformed coords (e.g. illegal URI chars from
+     * a corrupted `mvn dependency:tree` line) no longer abort the entire stage. Each
+     * skipped coord is appended to [parseFailures] with
+     * `parser = "DependencyResolutionStage"`.
+     */
+    protected open fun resolveArtifactsDirectly(
+        coordinates: List<String>,
+        parseFailures: MutableList<ParseFailure>
+    ): List<Path> {
+        val (good, bad) = coordinates.partition { MavenCoordinates.tryParse(it) != null }
+        bad.forEach { coord ->
+            logger.warn(
+                "Stage 2: skipping malformed Maven coordinate '$coord' (illegal URI character)"
+            )
+            parseFailures += ParseFailure(
+                path = coord,
+                reason = "illegal Maven coordinate",
+                parser = "DependencyResolutionStage"
+            )
+        }
+        return if (good.isEmpty()) emptyList() else resolveArtifactsDirectly(good)
     }
 
     private fun handlePartialResolution(partial: List<Path>, errorMessage: String?): List<Path> {

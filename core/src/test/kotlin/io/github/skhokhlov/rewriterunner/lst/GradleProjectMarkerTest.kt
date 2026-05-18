@@ -70,8 +70,10 @@ class GradleProjectMarkerTest :
                 )
             val depStage =
                 object : DependencyResolutionStage(aether, NoOpRunnerLogger) {
-                    override fun resolveClasspath(projectDir: Path) =
-                        ClasspathResolutionResult(emptyList(), minimalGradleData)
+                    override fun resolveClasspath(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ) = ClasspathResolutionResult(emptyList(), minimalGradleData)
                 }
             val buildFileStage =
                 object : BuildFileParseStage(aether, NoOpRunnerLogger) {

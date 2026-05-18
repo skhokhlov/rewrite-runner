@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.MavenCoordinates
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
@@ -71,17 +73,72 @@ open class BuildFileParseStage(
             logger.info("Stage 3: no coordinates found in build descriptors")
             return emptyList()
         }
-        logger.debug("Stage 3: resolving ${coords.size} coordinate(s) via POM traversal")
-        return resolveWithPomTraversal(coords).also { result ->
+        // If invoked via the 2-arg overload, the failure sink filters malformed coords
+        // before they reach [resolveWithPomTraversal]. Otherwise behaviour is unchanged.
+        val sink = pendingParseFailures
+        val effective = if (sink != null) filterMalformed(coords, sink) else coords
+        if (effective.isEmpty()) return emptyList()
+        logger.debug("Stage 3: resolving ${effective.size} coordinate(s) via POM traversal")
+        return resolveWithPomTraversal(effective).also { result ->
             if (result.isNotEmpty()) logger.info("Stage 3 succeeded: ${result.size} JAR(s)")
         }
     }
 
     /**
+     * Failure-sink-aware overload of [resolveClasspath]. Stashes [parseFailures] on the
+     * stage instance for the duration of the call and then delegates to the 1-arg
+     * [resolveClasspath] via virtual dispatch — so subclasses that override only the
+     * historical 1-arg method continue to intercept Stage 3 unchanged.
+     *
+     * Not safe for concurrent invocation on the same stage instance; the stage is not
+     * documented as thread-safe.
+     */
+    open fun resolveClasspath(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): List<Path> {
+        val prior = pendingParseFailures
+        return try {
+            pendingParseFailures = parseFailures
+            resolveClasspath(projectDir)
+        } finally {
+            pendingParseFailures = prior
+        }
+    }
+
+    /** Set by [resolveClasspath] (2-arg) so the 1-arg flow can record coord failures. */
+    private var pendingParseFailures: MutableList<ParseFailure>? = null
+
+    private fun filterMalformed(
+        coordinates: List<String>,
+        parseFailures: MutableList<ParseFailure>
+    ): List<String> {
+        val good = mutableListOf<String>()
+        coordinates.forEach { coord ->
+            if (MavenCoordinates.tryParse(coord) != null) {
+                good += coord
+            } else {
+                logger.warn(
+                    "Stage 3: skipping malformed Maven coordinate '$coord' (illegal URI character)"
+                )
+                parseFailures += ParseFailure(
+                    path = coord,
+                    reason = "illegal Maven coordinate",
+                    parser = "BuildFileParseStage"
+                )
+            }
+        }
+        return good
+    }
+
+    /**
      * Collects `groupId:artifactId:version` coordinates from all build files found
      * under [projectDir] (Maven + Gradle), deduplicated.
+     *
+     * Open for tests so the malformed-coordinate filter in [resolveClasspath] can be
+     * exercised without crafting build files that bypass the static parser's regex.
      */
-    internal fun gatherAllCoordinates(projectDir: Path): List<String> {
+    internal open fun gatherAllCoordinates(projectDir: Path): List<String> {
         val coords = mutableListOf<String>()
 
         // Maven: find all pom.xml files (root + modules + subdirs)

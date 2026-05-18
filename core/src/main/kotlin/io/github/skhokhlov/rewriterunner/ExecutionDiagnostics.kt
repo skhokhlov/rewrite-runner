@@ -28,14 +28,17 @@ enum class UsedExecutionStage {
  * have tried and failed on it — for example a `pom.xml` that trips `MavenParser` and
  * also `XmlParser` produces one entry per parser.
  *
- * @property path Project-relative source path (or the file name when no path is
- *   available, as with a malformed Maven coordinate string).
+ * @property path Project-relative source path, or — for non-file failures recorded by
+ *   the classpath-resolution stages — the malformed Maven coordinate string itself.
  * @property reason Short, human-readable cause — typically the exception message
  *   from the parser, the `ParseExceptionResult` marker attached to a [org.openrewrite.tree.ParseError],
- *   or the literal text `"silently dropped by <parser>"` when a parser returned fewer
- *   files than it was given.
- * @property parser The canonical parser name (e.g. `"JavaParser"`, `"MavenParser"`,
- *   `"XmlParser"`) that gave up on this file.
+ *   the literal text `"silently dropped by <parser>"` when a parser returned fewer
+ *   files than it was given, or `"illegal Maven coordinate"` for coordinate-string
+ *   failures from the classpath-resolution stages.
+ * @property parser The producer that gave up on this entry. Either a canonical parser
+ *   name (e.g. `"JavaParser"`, `"MavenParser"`, `"XmlParser"`) or — for malformed Maven
+ *   coordinate strings encountered while assembling the LST classpath — the stage name
+ *   (`"DependencyResolutionStage"`, `"BuildFileParseStage"`).
  */
 data class ParseFailure(val path: String, val reason: String, val parser: String)
 
@@ -48,8 +51,8 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  * @property resolvedJarCount Number of `.jar` entries on the LST classpath (project
  *   class directories excluded). `0` when [stageUsed] is [UsedExecutionStage.PLUGIN]
  *   (the plugin handled resolution internally) or `null`.
- * @property parseFailures Per-file parse failures collected across every parser the
- *   LST pipeline ran. Three signals end up here:
+ * @property parseFailures Non-fatal failures collected across every parser the LST
+ *   pipeline ran *and* the classpath-resolution stages. The signals end up here:
  *
  *   - **[org.openrewrite.tree.ParseError] SourceFiles** in the parser output — the
  *     parser produced a stub instead of a real LST node. The `ParseError` itself
@@ -58,6 +61,10 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  *     for it. The reason is `"silently dropped by <parser>"`.
  *   - **Thrown exceptions** from `parser.parse(...)` — caught so the build does not
  *     abort. One entry is recorded for every file in the batch that threw.
+ *   - **Malformed Maven coordinate strings** encountered while resolving the LST
+ *     classpath via Stage 2 / Stage 3. The `path` field holds the offending
+ *     coordinate, the `reason` is `"illegal Maven coordinate"`, and the `parser`
+ *     is the stage name (`"DependencyResolutionStage"` or `"BuildFileParseStage"`).
  *
  *   Empty when every file parsed cleanly. With one deliberate exception, the build
  *   does not abort on per-file parse failures: the recipe still runs against whatever

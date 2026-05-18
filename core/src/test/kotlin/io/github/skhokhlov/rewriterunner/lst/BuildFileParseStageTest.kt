@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -599,5 +600,77 @@ class BuildFileParseStageTest :
             val result = fakeStage().resolveClasspath(projectDir)
 
             assertTrue(result.isEmpty())
+        }
+
+        // ─── Malformed Maven coordinate handling ─────────────────────────────────
+
+        /**
+         * Variant of [fakeStage] that overrides `gatherAllCoordinates` to inject crafted
+         * coordinate strings — bypassing the static parser, whose regex would otherwise
+         * filter out an obviously malformed coord before [resolveClasspath]'s filter
+         * could see it.
+         */
+        fun fakeStageWithCoords(
+            coords: List<String>,
+            traversalResult: List<Path> = emptyList()
+        ): BuildFileParseStage = object : BuildFileParseStage(
+            AetherContext.build(cacheDir.resolve("repo"), logger = NoOpRunnerLogger),
+            NoOpRunnerLogger
+        ) {
+            override fun gatherAllCoordinates(projectDir: Path): List<String> = coords
+
+            override fun resolveWithPomTraversal(coordinates: List<String>): List<Path> {
+                traversalCalled = true
+                capturedCoords = coordinates
+                return traversalResult
+            }
+        }
+
+        test("resolveClasspath skips malformed coordinates and records ParseFailure") {
+            resetTracking()
+            val failures = mutableListOf<ParseFailure>()
+            val stage = fakeStageWithCoords(
+                coords = listOf(
+                    "org.apache.commons:commons-lang3:3.12.0",
+                    "com.example:bad name:1.0"
+                ),
+                traversalResult = listOf(Path.of("/fake/commons-lang3.jar"))
+            )
+
+            val result = stage.resolveClasspath(projectDir, failures)
+
+            assertTrue(traversalCalled, "POM traversal should still run for the good coordinate")
+            assertEquals(
+                listOf("org.apache.commons:commons-lang3:3.12.0"),
+                capturedCoords,
+                "Only the good coordinate should reach the traversal call"
+            )
+            assertEquals(
+                listOf("com.example:bad name:1.0"),
+                failures.map { it.path },
+                "Malformed coordinate should be recorded once"
+            )
+            assertEquals("BuildFileParseStage", failures.single().parser)
+            assertEquals(1, result.size, "Good coordinate should still resolve")
+        }
+
+        test(
+            "resolveClasspath returns empty without calling traversal when every coordinate is malformed"
+        ) {
+            resetTracking()
+            val failures = mutableListOf<ParseFailure>()
+            val stage = fakeStageWithCoords(
+                coords = listOf("com.example:bad name:1.0", "com.example:also bad:2.0")
+            )
+
+            val result = stage.resolveClasspath(projectDir, failures)
+
+            assertFalse(
+                traversalCalled,
+                "POM traversal should be skipped when every coordinate is malformed"
+            )
+            assertTrue(result.isEmpty())
+            assertEquals(2, failures.size, "Each malformed coordinate should be recorded")
+            assertTrue(failures.all { it.parser == "BuildFileParseStage" })
         }
     })

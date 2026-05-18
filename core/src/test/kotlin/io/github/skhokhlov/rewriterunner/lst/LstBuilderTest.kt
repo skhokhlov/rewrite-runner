@@ -1870,4 +1870,70 @@ class LstBuilderTest :
                 "XmlParser fallback failure should be present"
             )
         }
+
+        test("malformed Maven coords from stages bubble up as parseFailures") {
+            // Stage 2 stub records two malformed coordinates via the new failure-sink
+            // overload. Stage 3 is no-op. The integration test confirms that LstBuilder
+            // threads its parseFailures accumulator into both stages.
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+
+            val depStageStub =
+                object : DependencyResolutionStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult {
+                        parseFailures +=
+                            io.github.skhokhlov.rewriterunner.ParseFailure(
+                                path = "com.example:bad name:1.0",
+                                reason = "illegal Maven coordinate",
+                                parser = "DependencyResolutionStage"
+                            )
+                        parseFailures +=
+                            io.github.skhokhlov.rewriterunner.ParseFailure(
+                                path = "com.example:also bad:2.0",
+                                reason = "illegal Maven coordinate",
+                                parser = "DependencyResolutionStage"
+                            )
+                        return ClasspathResolutionResult(emptyList())
+                    }
+                }
+
+            val builder =
+                LstBuilder(
+                    logger = NoOpRunnerLogger,
+                    cacheDir = projectDir.resolve("cache"),
+                    toolConfig = toolConfig,
+                    projectBuildStage = failingBuildTool,
+                    depResolutionStage = depStageStub,
+                    buildFileParseStage = noOpBuildFileStage()
+                )
+
+            val result = builder.build(
+                projectDir = projectDir,
+                includeExtensionsCli = listOf(".java")
+            )
+
+            val coordFailures =
+                result.executionDiagnostics.parseFailures.filter {
+                    it.parser == "DependencyResolutionStage"
+                }
+            assertEquals(
+                2,
+                coordFailures.size,
+                "Both malformed coordinates from Stage 2 should appear in ExecutionDiagnostics"
+            )
+            assertTrue(
+                coordFailures.any { it.path == "com.example:bad name:1.0" }
+            )
+            assertTrue(
+                coordFailures.any { it.path == "com.example:also bad:2.0" }
+            )
+        }
     })

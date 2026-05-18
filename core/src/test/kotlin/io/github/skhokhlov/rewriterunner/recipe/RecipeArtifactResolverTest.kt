@@ -13,7 +13,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.jar.JarOutputStream
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -104,22 +103,191 @@ class RecipeArtifactResolverTest :
 
         // ─── Coordinate validation ────────────────────────────────────────────────
 
-        test("resolve throws IllegalArgumentException for single-segment coordinate") {
+        test("resolve returns empty list and warns for single-segment coordinate") {
+            val logger = CapturingLogger()
             val resolver =
                 RecipeArtifactResolver(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
-                    NoOpRunnerLogger
+                    logger
                 )
-            assertFailsWith<IllegalArgumentException> { resolver.resolve("groupIdOnly") }
+            assertTrue(resolver.resolve("groupIdOnly").isEmpty())
+            assertTrue(
+                logger.entries.any { it.level == "WARN" && it.message.contains("groupIdOnly") },
+                "Skipped coordinate should be logged at WARN; got: ${logger.entries}"
+            )
         }
 
-        test("resolve throws IllegalArgumentException for empty coordinate") {
+        test("resolve returns empty list and warns for empty coordinate") {
+            val logger = CapturingLogger()
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    logger
+                )
+            assertTrue(resolver.resolve("").isEmpty())
+            assertTrue(
+                logger.entries.any { it.level == "WARN" },
+                "Skipped coordinate should be logged at WARN; got: ${logger.entries}"
+            )
+        }
+
+        test("resolve returns empty list and warns for coordinate with illegal URI character") {
+            val logger = CapturingLogger()
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    logger
+                )
+            assertTrue(resolver.resolve("com.example:bad name:1.0").isEmpty())
+            val warnings = logger.entries.filter { it.level == "WARN" }.map { it.message }
+            assertTrue(
+                warnings.any { it.contains("com.example:bad name:1.0") },
+                "Skipped coordinate should be named in the WARN line; got: $warnings"
+            )
+        }
+
+        test("resolveAll skips malformed coordinates and resolves valid ones") {
+            val group = "recipe.skip"
+            val artifactId = "valid-recipe"
+            val version = "1.0.0"
+            val fakeRemote = cacheDir.resolve("fake-remote")
+            val artifactDir =
+                fakeRemote
+                    .resolve(group.replace('.', '/'))
+                    .resolve(artifactId)
+                    .resolve(version)
+            Files.createDirectories(artifactDir)
+            artifactDir.resolve("$artifactId-$version.pom").toFile().writeText(
+                """<?xml version="1.0"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>$group</groupId>
+  <artifactId>$artifactId</artifactId>
+  <version>$version</version>
+</project>"""
+            )
+            JarOutputStream(
+                artifactDir.resolve("$artifactId-$version.jar").toFile().outputStream()
+            ).close()
+
+            val system = RepositorySystemSupplier().get()
+            val localCache = cacheDir.resolve("local-cache")
+            Files.createDirectories(localCache)
+            val session =
+                system
+                    .createSessionBuilder()
+                    .withLocalRepositories(LocalRepository(localCache))
+                    .setSystemProperties(System.getProperties())
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 5_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 5_000)
+                    .setConfigProperty(
+                        "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
+                        false
+                    )
+                    .setIgnoreArtifactDescriptorRepositories(true)
+                    .build()
+            val fakeRemoteRepo =
+                listOf(
+                    RemoteRepository.Builder(
+                        "fake-central",
+                        "default",
+                        fakeRemote.toUri().toString()
+                    ).build()
+                )
+            val logger = CapturingLogger()
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext(system, session, fakeRemoteRepo),
+                    logger
+                )
+
+            val paths =
+                resolver.resolveAll(
+                    listOf(
+                        "$group:$artifactId:$version",
+                        "com.example:bad name:1.0",
+                        "notacoord"
+                    )
+                )
+
+            assertTrue(
+                paths.any { it.fileName.toString() == "$artifactId-$version.jar" },
+                "Valid recipe artifact should still resolve; got: $paths"
+            )
+            val warnings = logger.entries.filter { it.level == "WARN" }.map { it.message }
+            assertTrue(
+                warnings.any { it.contains("com.example:bad name:1.0") },
+                "Skipped malformed coordinate should be logged; warnings: $warnings"
+            )
+            assertTrue(
+                warnings.any { it.contains("notacoord") },
+                "Skipped single-segment coordinate should be logged; warnings: $warnings"
+            )
+        }
+
+        test("resolveAll returns empty when every coordinate is malformed") {
+            val logger = CapturingLogger()
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        includeMavenCentral = false,
+                        logger = NoOpRunnerLogger
+                    ),
+                    logger
+                )
+
+            val paths = resolver.resolveAll(listOf("com.example:bad name:1.0", "notacoord"))
+
+            assertTrue(paths.isEmpty())
+            val warnings = logger.entries.filter { it.level == "WARN" }.map { it.message }
+            assertTrue(
+                warnings.any { it.contains("com.example:bad name:1.0") },
+                "Skipped malformed coordinate should be logged; warnings: $warnings"
+            )
+            assertTrue(
+                warnings.any { it.contains("notacoord") },
+                "Skipped single-segment coordinate should be logged; warnings: $warnings"
+            )
+        }
+
+        test("resolveAll skips malformed coords without triggering LATEST resolution for them") {
+            // Regression guard: a malformed coord must be filtered out *before* any Aether
+            // call, including the version-range lookup `resolveCoordinate` performs for
+            // a "LATEST" version. Otherwise a bad coord paired with a versionless one would
+            // hit `resolveVersionRange` and surface an unrelated IllegalStateException.
+            //
+            // We assert the skip path directly: with the malformed coord on its own and no
+            // Maven Central, `resolveAll` returns empty and warns. If `resolveCoordinate`
+            // were invoked on the bad coord, it would throw IAE from `DefaultArtifact`.
+            val logger = CapturingLogger()
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        includeMavenCentral = false,
+                        logger = NoOpRunnerLogger
+                    ),
+                    logger
+                )
+
+            val paths = resolver.resolveAll(listOf("com.example:bad name:1.0"))
+
+            assertTrue(paths.isEmpty())
+            val warnings = logger.entries.filter { it.level == "WARN" }.map { it.message }
+            assertTrue(
+                warnings.any { it.contains("com.example:bad name:1.0") },
+                "Skipped malformed coordinate should be logged; warnings: $warnings"
+            )
+        }
+
+        test("resolveAll returns empty list for empty input (regression)") {
             val resolver =
                 RecipeArtifactResolver(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
                 )
-            assertFailsWith<IllegalArgumentException> { resolver.resolve("") }
+            assertTrue(resolver.resolveAll(emptyList()).isEmpty())
         }
 
         // ─── Session initialization ───────────────────────────────────────────────

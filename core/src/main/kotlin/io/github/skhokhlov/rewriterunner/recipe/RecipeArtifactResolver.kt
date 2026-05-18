@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.recipe
 
 import io.github.skhokhlov.rewriterunner.AetherContext
+import io.github.skhokhlov.rewriterunner.MavenCoordinates
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
@@ -38,12 +39,31 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
      * that may share common transitive dependencies at different versions.
      *
      * LATEST version is resolved per-coordinate before the combined resolution.
+     *
+     * Malformed coordinates (illegal URI characters, fewer than two colon-separated
+     * segments) are logged at WARN and skipped — the resolver continues with the
+     * remaining well-formed entries rather than aborting the run. Returns an empty
+     * list when every coordinate was malformed or the input was empty.
      */
     fun resolveAll(coordinates: List<String>): List<Path> {
         if (coordinates.isEmpty()) return emptyList()
 
-        val deps =
-            coordinates.map { Dependency(DefaultArtifact(resolveCoordinate(it)), "runtime") }
+        // Skip malformed coordinates rather than aborting the run. The filter must
+        // happen BEFORE any Aether work — LATEST resolution inside [resolveCoordinate]
+        // performs a version-range request that can hit the network, so we exclude bad
+        // coordinates from the resolver call entirely.
+        val good = coordinates.filter { coord ->
+            if (isWellFormedCoordinate(coord)) {
+                true
+            } else {
+                warnSkipped(coord)
+                false
+            }
+        }
+        if (good.isEmpty()) return emptyList()
+
+        val resolvedCoords = good.map(::resolveCoordinate)
+        val deps = resolvedCoords.map { Dependency(DefaultArtifact(it), "runtime") }
         val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
         val depRequest = DependencyRequest(collectRequest, runtimeScopeFilter)
 
@@ -81,8 +101,17 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
      * When dependency collection encounters errors (e.g. an optional transitive dep points
      * to a private-repo artifact unavailable on Maven Central), the method logs a warning
      * and returns whichever JARs were successfully resolved, rather than throwing.
+     *
+     * If [coordinate] itself is malformed (illegal URI characters, fewer than two
+     * colon-separated segments), the method logs at WARN and returns an empty list
+     * instead of throwing — a single bad `--recipe-artifact` flag must not abort the
+     * whole run.
      */
     fun resolve(coordinate: String): List<Path> {
+        if (!isWellFormedCoordinate(coordinate)) {
+            warnSkipped(coordinate)
+            return emptyList()
+        }
         val resolvedCoord = resolveCoordinate(coordinate)
 
         val dep = Dependency(DefaultArtifact(resolvedCoord), "runtime")
@@ -112,6 +141,26 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
 
         logger.info("      $resolvedCoord → ${paths.size} JAR(s)")
         return paths
+    }
+
+    /**
+     * Versionless coords (`groupId:artifactId`) are valid input — [resolveCoordinate]
+     * expands them to LATEST. Probe with a synthetic version so we can validate syntax
+     * without performing the actual version-range lookup.
+     */
+    private fun isWellFormedCoordinate(raw: String): Boolean {
+        val parts = raw.split(":")
+        if (parts.size < 2) return false
+        val probe = if (parts.size >= 3) raw else "$raw:1"
+        return MavenCoordinates.tryParse(probe) != null
+    }
+
+    private fun warnSkipped(coordinate: String) {
+        logger.warn(
+            "Skipping malformed recipe artifact coordinate '$coordinate' " +
+                "(needs 'groupId:artifactId[:version]' with no characters illegal in a URI; " +
+                "see DefaultArtifact)."
+        )
     }
 
     private fun resolveCoordinate(coordinate: String): String {
