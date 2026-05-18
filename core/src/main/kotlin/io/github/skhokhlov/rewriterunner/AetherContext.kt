@@ -36,7 +36,7 @@ import org.eclipse.aether.util.repository.AuthenticationBuilder
  *   [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage]. Reuses artifacts already cached by
  *   the project's own build without re-downloading them.
  *
- * Create instances via the [build] factory, passing the desired [localRepoDir] explicitly.
+ * Create instances via the [build] factory, passing the desired `localRepoDir` explicitly.
  *
  * @param system  The Maven Resolver [RepositorySystem].
  * @param session The Maven Resolver session (includes local repository, timeout config, etc.).

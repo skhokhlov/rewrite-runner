@@ -56,7 +56,8 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  *
  *   - **[org.openrewrite.tree.ParseError] SourceFiles** in the parser output — the
  *     parser produced a stub instead of a real LST node. The `ParseError` itself
- *     still appears in [LstBuildResult.sourceFiles], so callers can inspect it.
+ *     still appears in [io.github.skhokhlov.rewriterunner.lst.LstBuildResult.sourceFiles],
+ *     so callers can inspect it.
  *   - **Silently dropped files** — the parser was given a file but returned nothing
  *     for it. The reason is `"silently dropped by <parser>"`.
  *   - **Thrown exceptions** from `parser.parse(...)` — caught so the build does not
