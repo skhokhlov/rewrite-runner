@@ -378,10 +378,16 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
 }
 ```
 
-`parseFailures` is empty when every file parsed cleanly. Each entry names the canonical
-parser (`JavaParser`, `MavenParser`, `XmlParser`, …) that gave up on the file along with
-a short reason. A file can appear more than once if multiple parsers tried and failed on
-it (the Maven POM → XML fallback path is the typical case).
+`parseFailures` is empty when every file parsed cleanly. Each entry names the producer
+that gave up on the entry along with a short reason. Two kinds of producers appear:
+
+- A canonical parser (`JavaParser`, `MavenParser`, `XmlParser`, …) — `path` is the
+  project-relative source file. A file can appear more than once if multiple parsers
+  tried and failed on it (the Maven POM → XML fallback path is the typical case).
+- A classpath-resolution stage (`DependencyResolutionStage`, `BuildFileParseStage`) —
+  `path` is the rejected Maven coordinate string itself (not a file path), and `reason`
+  is `"illegal Maven coordinate"`. Malformed coordinates encountered while assembling
+  the LST classpath are skipped rather than aborting the build.
 
 ## Recipe Artifacts
 
