@@ -190,6 +190,38 @@ class RecipeArtifactResolverTest :
             }
         }
 
+        test(
+            "resolveAll validates malformed coords before LATEST resolution of versionless coords"
+        ) {
+            // Regression test for P2 review on PR 161: a versionless coord paired with a
+            // malformed coord must surface as IAE *before* any Aether work, including the
+            // version-range lookup `resolveCoordinate` performs for "LATEST". With no Maven
+            // Central and an empty local cache, the only way this assertion can pass is for
+            // the syntax check to run on the raw input list — otherwise the versionless
+            // coord trips `resolveVersionRange` and produces an unrelated exception type.
+            val resolver =
+                RecipeArtifactResolver(
+                    AetherContext.build(
+                        cacheDir.resolve("repository"),
+                        includeMavenCentral = false,
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                )
+            val ex = assertFailsWith<IllegalArgumentException> {
+                resolver.resolveAll(
+                    listOf(
+                        "com.example.nonexistent:versionless-needs-latest",
+                        "com.example:bad name:1.0"
+                    )
+                )
+            }
+            assertTrue(
+                ex.message.orEmpty().contains("com.example:bad name:1.0"),
+                "Message must name the offending coordinate, got: ${ex.message}"
+            )
+        }
+
         test("resolveAll returns empty list for empty input (regression)") {
             val resolver =
                 RecipeArtifactResolver(

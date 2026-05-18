@@ -43,12 +43,12 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
     fun resolveAll(coordinates: List<String>): List<Path> {
         if (coordinates.isEmpty()) return emptyList()
 
-        // Fail fast on malformed Maven coordinates so the user gets a clean
-        // IllegalArgumentException naming the offending coords rather than a
-        // URI.create stack trace from inside Aether.
-        val resolvedCoords = coordinates.map(::resolveCoordinate)
-        validateCoordinates(resolvedCoords)
+        // Fail fast on malformed Maven coordinates BEFORE any Aether work. LATEST
+        // resolution inside [resolveCoordinate] performs a version-range request that
+        // can hit the network, so the syntax check must run on the raw user input.
+        validateRawCoordinates(coordinates)
 
+        val resolvedCoords = coordinates.map(::resolveCoordinate)
         val deps = resolvedCoords.map { Dependency(DefaultArtifact(it), "runtime") }
         val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
         val depRequest = DependencyRequest(collectRequest, runtimeScopeFilter)
@@ -89,8 +89,8 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
      * and returns whichever JARs were successfully resolved, rather than throwing.
      */
     fun resolve(coordinate: String): List<Path> {
+        validateRawCoordinates(listOf(coordinate))
         val resolvedCoord = resolveCoordinate(coordinate)
-        validateCoordinates(listOf(resolvedCoord))
 
         val dep = Dependency(DefaultArtifact(resolvedCoord), "runtime")
         val collectRequest = CollectRequest(dep, context.remoteRepos)
@@ -122,20 +122,34 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
     }
 
     /**
-     * Throw a single [IllegalArgumentException] listing every entry in [resolvedCoords]
-     * that [MavenCoordinates.tryParse] rejects (e.g. illegal URI characters). Recipe
-     * loading happens before [io.github.skhokhlov.rewriterunner.RunResult] exists, so
-     * we cannot surface failures via [io.github.skhokhlov.rewriterunner.ExecutionDiagnostics];
+     * Throw a single [IllegalArgumentException] listing every entry in [rawCoords] that
+     * is not a well-formed Maven coordinate (e.g. illegal URI characters, fewer than two
+     * colon-separated segments). Runs on the *raw* user input so it short-circuits before
+     * [resolveCoordinate] can trigger a `LATEST` version-range request via Aether — recipe
+     * loading happens before [io.github.skhokhlov.rewriterunner.RunResult] exists, so we
+     * cannot surface failures via [io.github.skhokhlov.rewriterunner.ExecutionDiagnostics];
      * fail-fast with a clean message is the user-facing contract.
      */
-    private fun validateCoordinates(resolvedCoords: List<String>) {
-        val bad = resolvedCoords.filter { MavenCoordinates.tryParse(it) == null }
+    private fun validateRawCoordinates(rawCoords: List<String>) {
+        val bad = rawCoords.filter { !isWellFormedCoordinate(it) }
         if (bad.isEmpty()) return
         val list = bad.joinToString(", ") { "'$it'" }
         throw IllegalArgumentException(
             "Invalid Maven coordinate(s) $list: contains characters illegal in a URI " +
                 "(see DefaultArtifact)"
         )
+    }
+
+    /**
+     * Versionless coords (`groupId:artifactId`) are valid input — [resolveCoordinate]
+     * expands them to LATEST. Probe with a synthetic version so we can validate syntax
+     * without performing the actual version-range lookup.
+     */
+    private fun isWellFormedCoordinate(raw: String): Boolean {
+        val parts = raw.split(":")
+        if (parts.size < 2) return false
+        val probe = if (parts.size >= 3) raw else "$raw:1"
+        return MavenCoordinates.tryParse(probe) != null
     }
 
     private fun resolveCoordinate(coordinate: String): String {
