@@ -166,12 +166,13 @@ parsed out of `mvn dependency:tree` or a `build.gradle` file). The corresponding
 `path` field carries the rejected coordinate string itself, not a file path —
 classpath resolution does not point at a single source file.
 
-Recipe artifact resolution rejects malformed coordinates earlier than the LST
-pipeline: `RewriteRunner.builder().recipeArtifacts(...)` validates each entry
-up-front and throws `IllegalArgumentException` listing every offending coordinate
-before any Aether call. That failure path runs before `RunResult` exists, so it
-cannot surface through `parseFailures` — catch the exception at the call site
-instead.
+Recipe artifact resolution skips malformed coordinates rather than aborting the
+run: `RewriteRunner.builder().recipeArtifacts(...)` filters each entry up-front,
+logs the offender at WARN, and resolves the remaining well-formed coordinates.
+A single bad `--recipe-artifact` (or programmatic entry) therefore cannot fail
+the whole execution. If every coordinate was malformed, the recipe classpath ends
+up empty and any subsequent failure (e.g. "recipe not found") surfaces as the
+usual `IllegalArgumentException` from `run()`.
 
 In `--output report` mode the same data is serialized as a top-level `parseFailures`
 array in `openrewrite-report.json` (see [README](../README.md#output-modes) for the

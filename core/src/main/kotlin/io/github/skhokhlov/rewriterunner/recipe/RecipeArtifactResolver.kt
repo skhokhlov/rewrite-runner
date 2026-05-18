@@ -39,16 +39,30 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
      * that may share common transitive dependencies at different versions.
      *
      * LATEST version is resolved per-coordinate before the combined resolution.
+     *
+     * Malformed coordinates (illegal URI characters, fewer than two colon-separated
+     * segments) are logged at WARN and skipped — the resolver continues with the
+     * remaining well-formed entries rather than aborting the run. Returns an empty
+     * list when every coordinate was malformed or the input was empty.
      */
     fun resolveAll(coordinates: List<String>): List<Path> {
         if (coordinates.isEmpty()) return emptyList()
 
-        // Fail fast on malformed Maven coordinates BEFORE any Aether work. LATEST
-        // resolution inside [resolveCoordinate] performs a version-range request that
-        // can hit the network, so the syntax check must run on the raw user input.
-        validateRawCoordinates(coordinates)
+        // Skip malformed coordinates rather than aborting the run. The filter must
+        // happen BEFORE any Aether work — LATEST resolution inside [resolveCoordinate]
+        // performs a version-range request that can hit the network, so we exclude bad
+        // coordinates from the resolver call entirely.
+        val good = coordinates.filter { coord ->
+            if (isWellFormedCoordinate(coord)) {
+                true
+            } else {
+                warnSkipped(coord)
+                false
+            }
+        }
+        if (good.isEmpty()) return emptyList()
 
-        val resolvedCoords = coordinates.map(::resolveCoordinate)
+        val resolvedCoords = good.map(::resolveCoordinate)
         val deps = resolvedCoords.map { Dependency(DefaultArtifact(it), "runtime") }
         val collectRequest = CollectRequest(deps, emptyList(), context.remoteRepos)
         val depRequest = DependencyRequest(collectRequest, runtimeScopeFilter)
@@ -87,9 +101,17 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
      * When dependency collection encounters errors (e.g. an optional transitive dep points
      * to a private-repo artifact unavailable on Maven Central), the method logs a warning
      * and returns whichever JARs were successfully resolved, rather than throwing.
+     *
+     * If [coordinate] itself is malformed (illegal URI characters, fewer than two
+     * colon-separated segments), the method logs at WARN and returns an empty list
+     * instead of throwing — a single bad `--recipe-artifact` flag must not abort the
+     * whole run.
      */
     fun resolve(coordinate: String): List<Path> {
-        validateRawCoordinates(listOf(coordinate))
+        if (!isWellFormedCoordinate(coordinate)) {
+            warnSkipped(coordinate)
+            return emptyList()
+        }
         val resolvedCoord = resolveCoordinate(coordinate)
 
         val dep = Dependency(DefaultArtifact(resolvedCoord), "runtime")
@@ -122,25 +144,6 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
     }
 
     /**
-     * Throw a single [IllegalArgumentException] listing every entry in [rawCoords] that
-     * is not a well-formed Maven coordinate (e.g. illegal URI characters, fewer than two
-     * colon-separated segments). Runs on the *raw* user input so it short-circuits before
-     * [resolveCoordinate] can trigger a `LATEST` version-range request via Aether — recipe
-     * loading happens before [io.github.skhokhlov.rewriterunner.RunResult] exists, so we
-     * cannot surface failures via [io.github.skhokhlov.rewriterunner.ExecutionDiagnostics];
-     * fail-fast with a clean message is the user-facing contract.
-     */
-    private fun validateRawCoordinates(rawCoords: List<String>) {
-        val bad = rawCoords.filter { !isWellFormedCoordinate(it) }
-        if (bad.isEmpty()) return
-        val list = bad.joinToString(", ") { "'$it'" }
-        throw IllegalArgumentException(
-            "Invalid Maven coordinate(s) $list: contains characters illegal in a URI " +
-                "(see DefaultArtifact)"
-        )
-    }
-
-    /**
      * Versionless coords (`groupId:artifactId`) are valid input — [resolveCoordinate]
      * expands them to LATEST. Probe with a synthetic version so we can validate syntax
      * without performing the actual version-range lookup.
@@ -150,6 +153,14 @@ open class RecipeArtifactResolver(private val context: AetherContext, val logger
         if (parts.size < 2) return false
         val probe = if (parts.size >= 3) raw else "$raw:1"
         return MavenCoordinates.tryParse(probe) != null
+    }
+
+    private fun warnSkipped(coordinate: String) {
+        logger.warn(
+            "Skipping malformed recipe artifact coordinate '$coordinate' " +
+                "(needs 'groupId:artifactId[:version]' with no characters illegal in a URI; " +
+                "see DefaultArtifact)."
+        )
     }
 
     private fun resolveCoordinate(coordinate: String): String {
