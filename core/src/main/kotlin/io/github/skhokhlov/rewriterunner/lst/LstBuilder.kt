@@ -118,11 +118,11 @@ open class LstBuilder(
 
     // ─── Thin delegation methods for backward-compatible test access ──────────
 
-    /** Exposed for [GradleVersionParsingTest] — delegates to [VersionDetector]. */
+    /** Exposed for `GradleVersionParsingTest` — delegates to [VersionDetector]. */
     internal fun parseGradleVersionFromWrapper(wrapperProps: Path): String? =
         versionDetector.parseGradleVersionFromWrapper(wrapperProps)
 
-    /** Exposed for [LstBuilderTest] Gradle DSL tests — delegates to [GradleDslClasspathResolver]. */
+    /** Exposed for `LstBuilderTest` Gradle DSL tests — delegates to [GradleDslClasspathResolver]. */
     internal fun resolveGradleDslClasspath(projectDir: Path): List<Path> =
         gradleDslClasspathResolver.resolveGradleDslClasspath(projectDir)
 

@@ -99,7 +99,7 @@ open class DependencyResolutionStage(
      *
      * @return [io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult] containing the resolved JAR paths and, for Gradle
      *   projects where the `gradle dependencies` task succeeded, per-project configuration data
-     *   for constructing [GradleProject] markers. Returns an empty classpath (never throws) when
+     *   for constructing [org.openrewrite.gradle.marker.GradleProject] markers. Returns an empty classpath (never throws) when
      *   no subprocess succeeds or resolution fails completely.
      */
     open fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {

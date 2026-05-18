@@ -19,8 +19,8 @@ import kotlin.io.path.exists
  *
  * **How it works:**
  * Given a list of `groupId:artifactId:version` coordinates (extracted from the build
- * descriptor by [DependencyResolutionStage.parseMavenDependencies] /
- * [DependencyResolutionStage.parseGradleDependencies]), Stage 3 looks up each
+ * descriptor by [io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser.parseMavenDependencies] /
+ * [io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser.parseGradleDependenciesStatically]), Stage 4 looks up each
  * coordinate in local repository caches using the standard Maven path layout
  * (`<group>/<artifact>/<version>/<artifact>-<version>.jar`):
  *
@@ -66,8 +66,10 @@ open class LocalRepositoryStage(private val projectDir: Path, val logger: Runner
      * as a single warning listing all missing artifacts.
      *
      * @param declaredCoordinates List of `groupId:artifactId:version` strings to look
-     *   up (typically the output of [DependencyResolutionStage.parseMavenDependencies]
-     *   or [DependencyResolutionStage.parseGradleDependencies]).
+     *   up (typically the output of
+     *   [io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser.parseMavenDependencies]
+     *   or
+     *   [io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser.parseGradleDependenciesStatically]).
      * @return Paths of locally cached JARs, one per successfully located coordinate.
      *   Coordinates with no local cache hit are omitted; their types will appear as
      *   `JavaType.Unknown` in the LST.

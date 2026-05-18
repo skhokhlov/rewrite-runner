@@ -527,7 +527,7 @@ class RewriteRunner private constructor(private val config: Builder) {
 
         /**
          * Set the logger used for progress and diagnostic output.
-         * Defaults to [NoOpRunnerLogger] (silent). Use [io.github.skhokhlov.rewriterunner.cli.LogbackRunnerLogger]
+         * Defaults to [NoOpRunnerLogger] (silent). Use `LogbackRunnerLogger`
          * in the CLI, or provide a custom implementation for library use.
          */
         fun logger(logger: RunnerLogger): Builder = apply { this.logger = logger }
