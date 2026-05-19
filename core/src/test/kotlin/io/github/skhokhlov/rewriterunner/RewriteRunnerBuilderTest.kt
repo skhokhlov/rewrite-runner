@@ -147,24 +147,14 @@ class RewriteRunnerBuilderTest :
             assertEquals(Duration.ofSeconds(20), builder.artifactResolverRequestTimeout)
         }
 
-        test("builder stores includeExtensions") {
-            val extensions = listOf(".java", ".kt")
+        test("builder stores excludePaths") {
+            val paths = listOf("**/generated/**", "**/*.md")
             val builder =
                 RewriteRunner.builder()
                     .projectDir(tempDir)
                     .activeRecipe("org.openrewrite.FindSourceFiles")
-                    .includeExtensions(extensions)
-            assertEquals(extensions, builder.includeExtensions)
-        }
-
-        test("builder stores excludeExtensions") {
-            val extensions = listOf(".xml", ".yml")
-            val builder =
-                RewriteRunner.builder()
-                    .projectDir(tempDir)
-                    .activeRecipe("org.openrewrite.FindSourceFiles")
-                    .excludeExtensions(extensions)
-            assertEquals(extensions, builder.excludeExtensions)
+                    .excludePaths(paths)
+            assertEquals(paths, builder.excludePaths)
         }
 
         // ── Default values ───────────────────────────────────────────────────────
@@ -207,14 +197,9 @@ class RewriteRunnerBuilderTest :
             assertTrue(builder.recipeArtifacts.isEmpty())
         }
 
-        test("includeExtensions defaults to empty") {
+        test("excludePaths defaults to empty") {
             val builder = RewriteRunner.builder()
-            assertTrue(builder.includeExtensions.isEmpty())
-        }
-
-        test("excludeExtensions defaults to empty") {
-            val builder = RewriteRunner.builder()
-            assertTrue(builder.excludeExtensions.isEmpty())
+            assertTrue(builder.excludePaths.isEmpty())
         }
 
         // ── Run-time behaviour ───────────────────────────────────────────────────

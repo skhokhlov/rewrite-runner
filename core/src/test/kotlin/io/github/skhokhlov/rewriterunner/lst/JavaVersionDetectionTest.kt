@@ -64,7 +64,7 @@ class JavaVersionDetectionTest :
         fun buildAndGetJavaVersion(): JavaVersion {
             projectDir.resolve("Hello.java").writeText("class Hello {}")
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
+                lstBuilder().build(projectDir).sourceFiles
             val javaFile = sources.single { it.sourcePath.toString().endsWith(".java") }
             val marker = javaFile.markers.findFirst(JavaVersion::class.java).orElse(null)
             assertNotNull(
@@ -79,8 +79,7 @@ class JavaVersionDetectionTest :
             Files.createDirectories(absPath.parent)
             absPath.writeText("class ${absPath.toFile().nameWithoutExtension} {}")
             val sources = lstBuilder().build(
-                projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir
             ).sourceFiles
             val javaFile = sources.single { it.sourcePath.toString() == relativeFilePath }
             val marker = javaFile.markers.findFirst(JavaVersion::class.java).orElse(null)
@@ -813,7 +812,7 @@ class JavaVersionDetectionTest :
             absWorld.writeText("class World {}")
 
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
+                lstBuilder().build(projectDir).sourceFiles
             val helloMarker =
                 sources
                     .single { it.sourcePath.toString() == "subproject1/src/main/java/Hello.java" }
@@ -859,7 +858,7 @@ class JavaVersionDetectionTest :
             absBeta.writeText("class Beta {}")
 
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
+                lstBuilder().build(projectDir).sourceFiles
             val alphaMarker =
                 sources
                     .single { it.sourcePath.toString() == "subproject1/src/Alpha.java" }

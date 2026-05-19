@@ -4,7 +4,6 @@ import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
-import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.kotest.core.spec.style.FunSpec
@@ -84,112 +83,21 @@ class LstBuilderTest :
             )
         }
 
-        // ─── Extension filtering (integration smoke tests) ────────────────────────
-        // Full unit tests for FileCollector.resolveExtensions / collectFiles live in
-        // FileCollectorTest.
+        // ─── Path-glob exclusion (integration smoke tests) ────────────────────────
+        // Full unit tests for FileCollector.collectFiles live in FileCollectorTest.
 
-        test("includeExtensions CLI flag restricts parsed file types") {
+        test("excludePaths skips files matching the glob") {
             projectDir.resolve("Hello.java").writeText("class Hello {}")
-            projectDir.resolve("config.yaml").writeText("key: value")
+            projectDir.resolve("notes.md").writeText("# notes")
 
             val sources = lstBuilder().build(
                 projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                excludePaths = listOf("**/*.md")
             ).sourceFiles
-
-            assertEquals(1, sources.size, "Only .java file should be parsed")
-            assertTrue(sources.first().sourcePath.toString().endsWith(".java"))
-        }
-
-        test("excludeExtensions CLI flag removes specific types from defaults") {
-            projectDir.resolve("Hello.java").writeText("class Hello {}")
-            projectDir.resolve("config.xml").writeText("<root/>")
-            projectDir.resolve("app.properties").writeText("key=value")
-
-            val sources =
-                lstBuilder().build(
-                    projectDir = projectDir,
-                    excludeExtensionsCli = listOf(".xml", ".properties")
-                ).sourceFiles
 
             val paths = sources.map { it.sourcePath.toString() }
-            assertTrue(paths.none { it.endsWith(".xml") }, "XML files should be excluded")
-            assertTrue(
-                paths.none { it.endsWith(".properties") },
-                "Properties files should be excluded"
-            )
-            assertTrue(paths.any { it.endsWith(".java") }, "Java files should still be included")
-        }
-
-        test("includeExtensions in config file is respected when no CLI flag given") {
-            projectDir.resolve("Hello.java").writeText("class Hello {}")
-            projectDir.resolve("config.yaml").writeText("key: value")
-
-            val config =
-                ToolConfig(
-                    parse = ParseConfig(includeExtensions = listOf(".yaml")),
-                    logger = NoOpRunnerLogger
-                )
-            val noOpDepStage =
-                object : DependencyResolutionStage(
-                    AetherContext.build(
-                        projectDir.resolve("cache").resolve("repository"),
-                        logger = NoOpRunnerLogger
-                    ),
-                    NoOpRunnerLogger
-                ) {
-                    override fun resolveClasspath(projectDir: Path) =
-                        ClasspathResolutionResult(emptyList())
-                }
-            val builder =
-                LstBuilder(
-                    logger = NoOpRunnerLogger,
-                    cacheDir = projectDir.resolve("cache"),
-                    toolConfig = config,
-                    projectBuildStage = failingBuildTool,
-                    depResolutionStage = noOpDepStage
-                )
-
-            val sources = builder.build(projectDir = projectDir).sourceFiles
-            assertEquals(1, sources.size)
-            assertTrue(sources.first().sourcePath.toString().endsWith(".yaml"))
-        }
-
-        test("CLI includeExtensions overrides config file") {
-            projectDir.resolve("Hello.java").writeText("class Hello {}")
-            projectDir.resolve("config.yaml").writeText("key: value")
-
-            val config =
-                ToolConfig(
-                    parse = ParseConfig(includeExtensions = listOf(".yaml")),
-                    logger = NoOpRunnerLogger
-                )
-            val noOpDepStage =
-                object : DependencyResolutionStage(
-                    AetherContext.build(
-                        projectDir.resolve("cache").resolve("repository"),
-                        logger = NoOpRunnerLogger
-                    ),
-                    NoOpRunnerLogger
-                ) {
-                    override fun resolveClasspath(projectDir: Path) =
-                        ClasspathResolutionResult(emptyList())
-                }
-            val builder =
-                LstBuilder(
-                    logger = NoOpRunnerLogger,
-                    cacheDir = projectDir.resolve("cache"),
-                    toolConfig = config,
-                    projectBuildStage = failingBuildTool,
-                    depResolutionStage = noOpDepStage
-                )
-
-            val sources = builder.build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
-            ).sourceFiles
-            assertEquals(1, sources.size)
-            assertTrue(sources.first().sourcePath.toString().endsWith(".java"))
+            assertTrue(paths.any { it.endsWith(".java") }, "Java file should remain")
+            assertTrue(paths.none { it.endsWith(".md") }, "Markdown file should be excluded")
         }
 
         // ─── Multi-language parsing ───────────────────────────────────────────────
@@ -242,8 +150,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".kts")
+                    projectDir = projectDir
                 ).sourceFiles
 
             val paths = sources.map { it.sourcePath.toString() }
@@ -261,8 +168,7 @@ class LstBuilderTest :
             projectDir.resolve("build.gradle").writeText("// gradle groovy dsl")
 
             val sources = lstBuilder().build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".groovy", ".gradle")
+                projectDir = projectDir
             ).sourceFiles
 
             val paths = sources.map { it.sourcePath.toString() }
@@ -276,8 +182,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".yml")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size)
         }
@@ -291,8 +196,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".toml")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "TOML file should be parsed")
             assertTrue(sources.first().sourcePath.toString().endsWith(".toml"))
@@ -305,8 +209,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".hcl")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "HCL file should be parsed")
         }
@@ -318,8 +221,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".tf")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "Terraform (.tf) file should be parsed")
         }
@@ -329,8 +231,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".tfvars")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "Terraform variable (.tfvars) file should be parsed")
         }
@@ -346,8 +247,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".hcl", ".tf", ".tfvars")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(3, sources.size, "All three HCL-family extensions should be parsed")
         }
@@ -359,8 +259,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".proto")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "Protobuf file should be parsed")
         }
@@ -372,8 +271,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".dockerfile")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, ".dockerfile extension should be parsed")
         }
@@ -385,8 +283,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".containerfile")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, ".containerfile extension should be parsed")
         }
@@ -396,8 +293,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".dockerfile")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "Dockerfile (no extension) should be parsed by name")
             assertEquals("Dockerfile", sources.first().sourcePath.toString())
@@ -408,8 +304,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".dockerfile")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "Dockerfile.dev should be parsed by name prefix")
         }
@@ -421,26 +316,9 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".dockerfile")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "Containerfile (no extension) should be parsed by name")
-        }
-
-        test("Dockerfile is NOT parsed when dockerfile extension is not in effective set") {
-            projectDir.resolve("Dockerfile").writeText("FROM ubuntu:22.04\n")
-            projectDir.resolve("app.properties").writeText("key=value")
-
-            val sources =
-                lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".properties")
-                ).sourceFiles
-            val paths = sources.map { it.sourcePath.toString() }
-            assertTrue(
-                paths.none { it == "Dockerfile" },
-                "Dockerfile should not be parsed when .dockerfile is excluded"
-            )
         }
 
         // ─── Maven POM parser ─────────────────────────────────────────────────────
@@ -459,8 +337,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".xml")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "pom.xml should be parsed")
             val pom = sources.first()
@@ -478,8 +355,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".xml")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(1, sources.size, "config.xml should be parsed")
             assertFalse(
@@ -500,8 +376,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".xml")
+                    projectDir = projectDir
                 ).sourceFiles
             assertEquals(3, sources.size, "All 3 xml files should be parsed")
             val paths = sources.map { it.sourcePath.toString() }
@@ -520,7 +395,7 @@ class LstBuilderTest :
             )
         }
 
-        test("pom.xml is NOT parsed when xml extension is excluded") {
+        test("pom.xml is NOT parsed when excluded via excludePaths glob") {
             projectDir.resolve("pom.xml").writeText(
                 "<project><modelVersion>4.0.0</modelVersion>" +
                     "<groupId>com.example</groupId>" +
@@ -532,11 +407,11 @@ class LstBuilderTest :
             val sources =
                 lstBuilder().build(
                     projectDir = projectDir,
-                    includeExtensionsCli = listOf(".properties")
+                    excludePaths = listOf("pom.xml")
                 ).sourceFiles
             assertTrue(
                 sources.none { it.sourcePath.toString() == "pom.xml" },
-                "pom.xml should not be parsed when .xml is not in effective set"
+                "pom.xml should be excluded when matched by excludePaths"
             )
         }
 
@@ -628,8 +503,7 @@ class LstBuilderTest :
             )
 
             val result = lstBuilderWithMavenStub(throwFor = setOf("pom.xml")).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".xml")
+                projectDir = projectDir
             )
 
             val poms = result.sourceFiles.filter { it.sourcePath.fileName.toString() == "pom.xml" }
@@ -714,7 +588,7 @@ class LstBuilderTest :
             }
 
             val thrown = kotlin.runCatching {
-                builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".xml"))
+                builder.build(projectDir = projectDir)
             }.exceptionOrNull()
             assertNotNull(thrown, "An unrelated MavenParser bug must not be swallowed")
             assertTrue(
@@ -779,7 +653,7 @@ class LstBuilderTest :
             }
 
             val thrown = kotlin.runCatching {
-                builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".xml"))
+                builder.build(projectDir = projectDir)
             }.exceptionOrNull()
             assertNotNull(thrown, "Non-URI IllegalArgumentException must not be swallowed")
             assertTrue(
@@ -793,6 +667,7 @@ class LstBuilderTest :
 
         test("stage 1 is attempted first") {
             var stage1Called = false
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
             val trackingBuildTool =
                 object : ProjectBuildStage(NoOpRunnerLogger) {
                     override fun extractClasspath(projectDir: Path): List<Path>? {
@@ -801,8 +676,7 @@ class LstBuilderTest :
                     }
                 }
             lstBuilder(buildTool = trackingBuildTool).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
             assertTrue(stage1Called, "Stage 1 (build tool) should always be attempted first")
         }
@@ -837,12 +711,13 @@ class LstBuilderTest :
                 depResolutionStage = trackingDepStage,
                 logger = NoOpRunnerLogger
             )
-                .build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+                .build(projectDir = projectDir)
 
             assertTrue(!stage2Called, "Stage 2 should NOT be called when Stage 1 succeeds")
         }
 
         test("stage 2 is attempted when stage 1 returns null") {
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
             var stage2Called = false
             val trackingDepStage =
                 object : DependencyResolutionStage(
@@ -865,12 +740,13 @@ class LstBuilderTest :
                 depResolutionStage = trackingDepStage,
                 logger = NoOpRunnerLogger
             )
-                .build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+                .build(projectDir = projectDir)
 
             assertTrue(stage2Called, "Stage 2 should be attempted when Stage 1 fails")
         }
 
         test("stage 3 is attempted when stage 1 and stage 2 fail") {
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
             var stage3Called = false
             val noOpDepStage =
                 object : DependencyResolutionStage(
@@ -905,7 +781,7 @@ class LstBuilderTest :
                 buildFileParseStage = trackingBuildFileStage,
                 logger = NoOpRunnerLogger
             )
-                .build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+                .build(projectDir = projectDir)
 
             assertTrue(stage3Called, "Stage 3 should be attempted when Stages 1 and 2 fail")
         }
@@ -915,8 +791,7 @@ class LstBuilderTest :
 
             val sources =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".java")
+                    projectDir = projectDir
                 ).sourceFiles
 
             assertEquals(
@@ -944,8 +819,7 @@ class LstBuilderTest :
 
             projectDir.resolve("Hello.java").writeText("class Hello {}")
             lstBuilder(buildTool = trackingBuildTool2).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
 
             assertTrue(
@@ -972,8 +846,7 @@ class LstBuilderTest :
 
             projectDir.resolve("Hello.java").writeText("class Hello {}")
             lstBuilder(buildTool = trackingBuildTool2).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
 
             assertTrue(
@@ -995,8 +868,7 @@ class LstBuilderTest :
             projectDir.resolve("Hello.java").writeText("class Hello {}")
             val sources =
                 lstBuilder(buildTool = failingCompileTool).build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".java")
+                    projectDir = projectDir
                 ).sourceFiles
 
             assertEquals(
@@ -1022,8 +894,7 @@ class LstBuilderTest :
             projectDir.resolve("Hello.java").writeText("class Hello {}")
             val sources =
                 lstBuilder(buildTool = compilingBuildTool).build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".java")
+                    projectDir = projectDir
                 ).sourceFiles
 
             assertEquals(
@@ -1047,8 +918,7 @@ class LstBuilderTest :
                 }
 
             lstBuilder(buildTool = nullReturningBuildTool).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
 
             assertTrue(
@@ -1144,8 +1014,7 @@ class LstBuilderTest :
                 }
 
             lstBuilder(logger = capturingLogger).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
 
             assertTrue(
@@ -1166,13 +1035,101 @@ class LstBuilderTest :
                 }
 
             lstBuilder(logger = capturingLogger).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".yaml")
+                projectDir = projectDir
             )
 
             assertFalse(
                 warnings.any { it.contains("Classpath resolution failed across all 4 stages") },
                 "Classpath-failure warning should not be emitted for non-JVM projects"
+            )
+        }
+
+        test("skips classpath stages 1-4 when no JVM sources collected") {
+            // Project contains only YAML — no JVM source survives the file walk, so the four
+            // classpath stages must be skipped entirely. Each stage's overrideable method
+            // would record an invocation if called.
+            projectDir.resolve("config.yaml").writeText("key: value")
+
+            var stage1Calls = 0
+            var stage2Calls = 0
+            var stage3Calls = 0
+            var stage4Calls = 0
+
+            val trackingBuildTool =
+                object : ProjectBuildStage(NoOpRunnerLogger) {
+                    override fun extractClasspath(projectDir: Path): List<Path>? {
+                        stage1Calls++
+                        return null
+                    }
+                }
+            val trackingDepStage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
+                        stage2Calls++
+                        return ClasspathResolutionResult(emptyList())
+                    }
+                }
+            val trackingBuildFileStage =
+                object : BuildFileParseStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveClasspath(projectDir: Path): List<Path> {
+                        stage3Calls++
+                        return emptyList()
+                    }
+                }
+            val infoMessages = mutableListOf<String>()
+            val capturingLogger =
+                object : RunnerLogger by NoOpRunnerLogger {
+                    override fun info(message: String) {
+                        infoMessages.add(message)
+                    }
+                }
+            val builder =
+                object : LstBuilder(
+                    logger = capturingLogger,
+                    cacheDir = projectDir.resolve("cache"),
+                    toolConfig = toolConfig,
+                    projectBuildStage = trackingBuildTool,
+                    depResolutionStage = trackingDepStage,
+                    buildFileParseStage = trackingBuildFileStage
+                ) {
+                    override fun createLocalRepositoryStage(
+                        projectDir: Path
+                    ): LocalRepositoryStage =
+                        object : LocalRepositoryStage(projectDir, NoOpRunnerLogger) {
+                            override fun findAvailableJars(
+                                declaredCoordinates: List<String>
+                            ): List<Path> {
+                                stage4Calls++
+                                return emptyList()
+                            }
+                        }
+                }
+
+            builder.build(projectDir = projectDir)
+
+            assertEquals(0, stage1Calls, "Stage 1 must not be invoked when no JVM sources")
+            assertEquals(0, stage2Calls, "Stage 2 must not be invoked when no JVM sources")
+            assertEquals(0, stage3Calls, "Stage 3 must not be invoked when no JVM sources")
+            assertEquals(0, stage4Calls, "Stage 4 must not be invoked when no JVM sources")
+            assertTrue(
+                infoMessages.any {
+                    it.contains(
+                        "No JVM source files in scope — skipping classpath resolution stages."
+                    )
+                },
+                "Expected the stage-skip info log message; got: $infoMessages"
             )
         }
 
@@ -1193,8 +1150,7 @@ class LstBuilderTest :
                 }
 
             lstBuilder(buildTool = successfulBuildTool, logger = capturingLogger).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
 
             assertFalse(
@@ -1309,8 +1265,7 @@ class LstBuilderTest :
                 }
 
             lstBuilder(logger = capturingLogger).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".xml")
+                projectDir = projectDir
             )
 
             assertTrue(
@@ -1331,8 +1286,7 @@ class LstBuilderTest :
                 }
 
             lstBuilder(logger = capturingLogger).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".xml")
+                projectDir = projectDir
             )
 
             val parseWarning = warnings.firstOrNull { it.startsWith("Parse warning:") }
@@ -1357,8 +1311,7 @@ class LstBuilderTest :
                 }
 
             val sources = lstBuilder(logger = capturingLogger).build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".xml")
+                projectDir = projectDir
             ).sourceFiles
 
             // If the XML parser drops the broken file, reportParseFailures should warn about it
@@ -1384,8 +1337,7 @@ class LstBuilderTest :
 
             val lstBuildResult =
                 lstBuilder(buildTool = successBuildTool).build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".java")
+                    projectDir = projectDir
                 )
 
             assertEquals(
@@ -1406,8 +1358,7 @@ class LstBuilderTest :
 
             val lstBuildResult =
                 lstBuilder().build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".java")
+                    projectDir = projectDir
                 )
 
             assertNull(
@@ -1466,8 +1417,7 @@ class LstBuilderTest :
             projectDir.resolve("Hello.java").writeText("class Hello {}")
             val lstBuildResult =
                 builderWithFakeStage4.build(
-                    projectDir = projectDir,
-                    includeExtensionsCli = listOf(".java")
+                    projectDir = projectDir
                 )
 
             assertEquals(
@@ -1576,8 +1526,7 @@ class LstBuilderTest :
             )
 
             val result = builder.build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
 
             val failures = result.executionDiagnostics.parseFailures
@@ -1623,8 +1572,7 @@ class LstBuilderTest :
             )
 
             val result = builder.build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
 
             val dropFailures =
@@ -1690,8 +1638,7 @@ class LstBuilderTest :
             }
 
             val result = builder.build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".kts")
+                projectDir = projectDir
             )
 
             val gradleFailures =
@@ -1775,8 +1722,7 @@ class LstBuilderTest :
                 }
 
             val result = builder.build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".xml")
+                projectDir = projectDir
             )
 
             val mavenFailures =
@@ -1803,7 +1749,7 @@ class LstBuilderTest :
             )
 
             val thrown = kotlin.runCatching {
-                builder.build(projectDir = projectDir, includeExtensionsCli = listOf(".java"))
+                builder.build(projectDir = projectDir)
             }.exceptionOrNull()
 
             assertNotNull(thrown, "Fatal Error must not be swallowed by parseAndRecord")
@@ -1850,8 +1796,7 @@ class LstBuilderTest :
             }
 
             val result = builder.build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".xml")
+                projectDir = projectDir
             )
 
             val pomFailures =
@@ -1916,8 +1861,7 @@ class LstBuilderTest :
                 )
 
             val result = builder.build(
-                projectDir = projectDir,
-                includeExtensionsCli = listOf(".java")
+                projectDir = projectDir
             )
 
             val coordFailures =

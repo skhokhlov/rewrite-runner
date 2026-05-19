@@ -68,6 +68,8 @@ The resolved classpath is **shared across all language parsers** — `JavaParser
 
 `LstBuilder` also adds project class directories (`target/classes`, `build/classes/java/main`, etc.) to the classpath for cross-module type resolution.
 
+When `--exclude-paths` (or `parse.excludePaths`) removes every JVM source file (`.java`, `.kt`, `.kts`, `.groovy`, `.gradle`) from scope, all four classpath stages are **skipped entirely** — there is no `mvn`/`gradle` subprocess, no POM walk, no local-repo scan. The build emits a single `INFO` line (`"No JVM source files in scope — skipping classpath resolution stages."`) and proceeds directly to the language parsers, which run with an empty classpath. This optimization keeps non-JVM workflows (e.g. running a YAML-only recipe) fast.
+
 ## LST Module Structure
 
 `LstBuilder` is an orchestrator that delegates each concern to a focused helper class:
@@ -75,7 +77,7 @@ The resolved classpath is **shared across all language parsers** — `JavaParser
 | Class | Responsibility |
 |-------|---------------|
 | `LstBuilder` | Orchestration, 4-stage classpath pipeline, parser dispatch |
-| `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions, extension resolution |
+| `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions; extension set is fixed (`DEFAULT_EXTENSIONS`) |
 | `VersionDetector` | Java/Kotlin JVM-version walk-up, `normalizeJvmVersion`, `parseGradleVersionFromWrapper` |
 | `GradleDslClasspathResolver` | Locate Gradle installation (`GRADLE_HOME`, wrapper, `~/.gradle/wrapper/dists/`) |
 | `MarkerFactory` | `BuildTool`, `GitProvenance`, `OperatingSystemProvenance`, `BuildEnvironment`, `GradleProject` markers |

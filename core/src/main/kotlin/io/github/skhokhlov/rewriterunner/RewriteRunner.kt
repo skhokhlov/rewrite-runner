@@ -103,6 +103,12 @@ class RewriteRunner private constructor(private val config: Builder) {
                 "resolverRequestTimeout"
             )
 
+        // Single resolution point for path exclusions: CLI override beats YAML config when
+        // non-empty. The same value is forwarded to Stage 0 and to the LST builder so the
+        // two execution paths apply identical filtering.
+        val effectiveExcludePaths: List<String> =
+            config.excludePaths.ifEmpty { toolConfig.parse.excludePaths }
+
         // Stage 0: let the project's own build tool run the official OpenRewrite plugin first.
         if (!config.skipPluginRun) {
             logger.lifecycle("[0/7] Attempting plugin-first recipe execution")
@@ -122,7 +128,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                     includeMavenCentral = config.includeMavenCentral
                         ?: toolConfig.includeMavenCentral,
                     artifactRepositories =
-                        toolConfig.resolvedArtifactRepositories() + config.artifactRepositories
+                        toolConfig.resolvedArtifactRepositories() + config.artifactRepositories,
+                    excludePaths = effectiveExcludePaths
                 )
             when (pluginResult) {
                 is PluginRunResult.Success -> {
@@ -254,19 +261,11 @@ class RewriteRunner private constructor(private val config: Builder) {
                     toolConfig = effectiveToolConfig,
                     aetherContext = projectAetherContext
                 )
-            val effectiveParseConfig =
-                if (config.excludePaths.isNotEmpty()) {
-                    toolConfig.parse.copy(excludePaths = config.excludePaths)
-                } else {
-                    toolConfig.parse
-                }
             val lstStart = System.currentTimeMillis()
             val lstBuildResult: LstBuildResult =
                 lstBuilder.build(
                     projectDir = config.projectDir,
-                    parseConfig = effectiveParseConfig,
-                    includeExtensionsCli = config.includeExtensions,
-                    excludeExtensionsCli = config.excludeExtensions
+                    excludePaths = effectiveExcludePaths
                 )
             val sourceFiles = lstBuildResult.sourceFiles
             logger.lifecycle(
@@ -361,10 +360,6 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var skipPluginRun: Boolean = false
             private set
-        internal var includeExtensions: List<String> = emptyList()
-            private set
-        internal var excludeExtensions: List<String> = emptyList()
-            private set
         internal var includeMavenCentral: Boolean? = null
             private set
         internal var artifactDownloadThreads: Int? = null
@@ -452,22 +447,6 @@ class RewriteRunner private constructor(private val config: Builder) {
         fun skipPluginRun(value: Boolean): Builder = apply { skipPluginRun = value }
 
         /**
-         * Restrict parsing to the given file extensions (e.g. `".java"`, `".kt"`).
-         * Overrides any `includeExtensions` setting from the tool config file.
-         */
-        fun includeExtensions(extensions: List<String>): Builder = apply {
-            includeExtensions = extensions
-        }
-
-        /**
-         * Skip parsing files with the given extensions.
-         * Overrides any `excludeExtensions` setting from the tool config file.
-         */
-        fun excludeExtensions(extensions: List<String>): Builder = apply {
-            excludeExtensions = extensions
-        }
-
-        /**
          * Set the number of parallel artifact download threads. Defaults to 5.
          * When not set, falls back to `downloadThreads` from the tool config.
          */
@@ -522,6 +501,11 @@ class RewriteRunner private constructor(private val config: Builder) {
          * Glob patterns (relative to the project root) for paths to skip during parsing.
          * When non-empty, overrides `parse.excludePaths` from the tool config file.
          * Supports the same glob syntax as [java.nio.file.FileSystem.getPathMatcher].
+         *
+         * The same value is forwarded both to Stage 0 (the official OpenRewrite Gradle/Maven
+         * plugin invocation — Maven receives `-Drewrite.exclusions=…` and Gradle receives
+         * `exclusion(...)` lines inside the generated init script's `rewrite { }` block) and
+         * to the LST fallback pipeline, so the two execution paths apply identical filtering.
          */
         fun excludePaths(paths: List<String>): Builder = apply { excludePaths = paths }
 

@@ -59,9 +59,7 @@ class PropertiesProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".properties"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -99,8 +97,6 @@ class PropertiesProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".properties",
                     "--dry-run"
                 )
 
@@ -137,8 +133,6 @@ class PropertiesProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".properties",
                 "--dry-run"
             )
 
@@ -165,9 +159,7 @@ class PropertiesProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".properties"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -203,8 +195,6 @@ class PropertiesProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".properties",
                     "--output",
                     "files",
                     "--dry-run"
@@ -244,9 +234,7 @@ class PropertiesProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".properties"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")

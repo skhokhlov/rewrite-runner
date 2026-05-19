@@ -55,8 +55,7 @@ class MavenProjectIntegrationTest :
                     "--active-recipe", "com.example.integration.FindAndReplace",
                     "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir", cacheDir.toString(),
-                    "--skip-plugin-run",
-                    "--include-extensions", ".xml"
+                    "--skip-plugin-run"
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -81,7 +80,6 @@ class MavenProjectIntegrationTest :
                 "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir", cacheDir.toString(),
                 "--skip-plugin-run",
-                "--include-extensions", ".xml",
                 "--dry-run"
             )
 
@@ -106,7 +104,6 @@ class MavenProjectIntegrationTest :
                     "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir", cacheDir.toString(),
                     "--skip-plugin-run",
-                    "--include-extensions", ".xml",
                     "--dry-run"
                 )
 
@@ -142,7 +139,6 @@ class MavenProjectIntegrationTest :
                     "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir", cacheDir.toString(),
                     "--skip-plugin-run",
-                    "--include-extensions", ".xml",
                     "--output", "files",
                     "--dry-run"
                 )
@@ -182,7 +178,6 @@ class MavenProjectIntegrationTest :
                     "--rewrite-config", projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir", cacheDir.toString(),
                     "--skip-plugin-run",
-                    "--include-extensions", ".xml",
                     "--output", "files",
                     "--dry-run"
                 )

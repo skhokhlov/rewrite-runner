@@ -21,6 +21,10 @@ internal class PluginRecipeRunner(
 ) {
     /**
      * Tries Gradle before Maven when both root build files are present.
+     *
+     * @param excludePaths Glob patterns of files to exclude from parsing. Passed verbatim to
+     *   whichever strategy ([gradleStrategy] / [mavenStrategy]) is dispatched; each strategy
+     *   renders them in its own native plugin format.
      */
     fun run(
         projectDir: Path,
@@ -30,7 +34,8 @@ internal class PluginRecipeRunner(
         rewriteConfigContent: String?,
         dryRun: Boolean,
         includeMavenCentral: Boolean,
-        artifactRepositories: List<RepositoryConfig>
+        artifactRepositories: List<RepositoryConfig>,
+        excludePaths: List<String> = emptyList()
     ): PluginRunResult {
         val hasGradle = hasBuildGradle(projectDir)
         val hasPom = projectDir.resolve("pom.xml").exists()
@@ -53,7 +58,8 @@ internal class PluginRecipeRunner(
                         rewriteConfigContent = rewriteConfigContent,
                         dryRun = dryRun,
                         includeMavenCentral = includeMavenCentral,
-                        artifactRepositories = artifactRepositories
+                        artifactRepositories = artifactRepositories,
+                        excludePaths = excludePaths
                     )
             ) {
                 is PluginRunResult.Failed -> failures.add(result)
@@ -73,7 +79,8 @@ internal class PluginRecipeRunner(
                         rewriteConfigContent = rewriteConfigContent,
                         dryRun = dryRun,
                         includeMavenCentral = includeMavenCentral,
-                        artifactRepositories = artifactRepositories
+                        artifactRepositories = artifactRepositories,
+                        excludePaths = excludePaths
                     )
             ) {
                 is PluginRunResult.Failed -> failures.add(result)

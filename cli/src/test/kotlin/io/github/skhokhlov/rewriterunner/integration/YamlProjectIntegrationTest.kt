@@ -53,9 +53,7 @@ class YamlProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".yaml"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -78,9 +76,7 @@ class YamlProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".yml"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -105,8 +101,6 @@ class YamlProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".yaml",
                 "--dry-run"
             )
 
@@ -135,8 +129,6 @@ class YamlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".yaml",
                     "--dry-run"
                 )
 
@@ -178,9 +170,7 @@ class YamlProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".yaml"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -208,8 +198,6 @@ class YamlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".yaml",
                     "--output",
                     "files",
                     "--dry-run"

@@ -54,9 +54,7 @@ class XmlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--skip-plugin-run",
-                    "--include-extensions",
-                    ".xml"
+                    "--skip-plugin-run"
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -80,8 +78,6 @@ class XmlProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".xml",
                 "--dry-run"
             )
 
@@ -116,9 +112,7 @@ class XmlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--skip-plugin-run",
-                    "--include-extensions",
-                    ".xml"
+                    "--skip-plugin-run"
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -149,8 +143,6 @@ class XmlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".xml",
                     "--output",
                     "files",
                     "--dry-run"
@@ -181,8 +173,6 @@ class XmlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".xml",
                     "--dry-run"
                 )
 

@@ -35,9 +35,7 @@ val result = RewriteRunner.builder()
 | `pluginTimeout(Duration)` | `Duration?` | from config / `10m` | Timeout for official Gradle/Maven plugin invocations in Stage 0 |
 | `resolverConnectTimeout(Duration)` | `Duration?` | from config / `30s` | TCP connection timeout for Maven Resolver artifact downloads |
 | `resolverRequestTimeout(Duration)` | `Duration?` | from config / `60s` | Socket read/request timeout for Maven Resolver artifact downloads |
-| `includeExtensions(List<String>)` | `List` | `[]` | Restrict to these extensions (e.g. `[".java", ".kt"]`); overrides `parse.includeExtensions` from config file |
-| `excludeExtensions(List<String>)` | `List` | `[]` | Skip these extensions; overrides `parse.excludeExtensions` from config file |
-| `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file |
+| `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file. Forwarded both to Stage 0 (Maven `-Drewrite.exclusions=…` / Gradle `exclusion(...)` DSL) and to the LST fallback pipeline. |
 | `includeMavenCentral(Boolean)` | `Boolean?` | from config / `true` | Include Maven Central as a remote repository. Set `false` for air-gapped or enterprise environments. |
 | `repository(RepositoryConfig)` | — | — | Add one extra Maven repository; accumulated, combined with config file repos |
 | `repositories(List<RepositoryConfig>)` | `List` | `[]` | Replace all extra Maven repositories; combined with config file repos |
@@ -256,9 +254,10 @@ repositories:
     password: ${NEXUS_PASS}
 
 parse:
-  includeExtensions: [".java", ".kt"]   # restrict to these; overridden by CLI flag
-  excludeExtensions: [".xml"]           # skip these; overridden by CLI flag
-  excludePaths: ["generated/", "vendor/"] # glob patterns relative to project root
+  excludePaths:
+    - "**/generated/**"
+    - "**/*.md"
+  # CLI --exclude-paths overrides this list when non-empty.
 
 processTimeout: 120s
 pluginTimeout: 10m
@@ -313,15 +312,13 @@ val runner = RewriteRunner.builder()
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `includeExtensions` | `List<String>` | `[]` | When non-empty, only parse these extensions |
-| `excludeExtensions` | `List<String>` | `[]` | Remove these from the default set |
 | `excludePaths` | `List<String>` | `[]` | Glob patterns (relative to project root) to skip |
 
-**Precedence**: CLI flags `--include-extensions` / `--exclude-extensions` override config file `parse` settings.
+**Precedence**: CLI flag `--exclude-paths` (or `Builder.excludePaths(...)`) overrides `parse.excludePaths` from the config file when non-empty. The resolved list is forwarded both to the Stage 0 plugin invocation (Maven: `-Drewrite.exclusions=…`; Gradle: `exclusion(...)` DSL inside the init script) and to the LST fallback pipeline, so both code paths apply identical filtering. The exclusion-only surface intentionally matches upstream OpenRewrite plugins, which do not support include allowlists.
 
 ### Automatically excluded directories
 
-The following directories are **always** skipped during the file-system walk, regardless of `includeExtensions`, `excludeExtensions`, or `excludePaths` configuration:
+The following directories are **always** skipped during the file-system walk, regardless of `excludePaths` configuration:
 
 `.git`, `build`, `target`, `node_modules`, `.gradle`, `.idea`, `out`, `dist`
 

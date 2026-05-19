@@ -53,9 +53,7 @@ class DockerProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".dockerfile"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -82,8 +80,6 @@ class DockerProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".dockerfile",
                 "--dry-run"
             )
 
@@ -110,9 +106,7 @@ class DockerProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".dockerfile"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -136,9 +130,7 @@ class DockerProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".dockerfile"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -164,9 +156,7 @@ class DockerProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".dockerfile"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -194,8 +184,6 @@ class DockerProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".dockerfile",
                     "--dry-run"
                 )
 
@@ -229,8 +217,6 @@ class DockerProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".dockerfile",
                     "--output",
                     "files",
                     "--dry-run"

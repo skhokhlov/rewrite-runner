@@ -1,6 +1,5 @@
 package io.github.skhokhlov.rewriterunner.lst.utils
 
-import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -18,55 +17,6 @@ class FileCollectorTest :
         afterEach { projectDir.toFile().deleteRecursively() }
 
         val collector = FileCollector()
-
-        // ─── resolveExtensions ────────────────────────────────────────────────────
-
-        test("includeExtensions CLI flag restricts to specified types") {
-            val exts = collector.resolveExtensions(
-                ParseConfig(),
-                includeExtensionsCli = listOf(".java"),
-                excludeExtensionsCli = emptyList()
-            )
-            assertEquals(setOf(".java"), exts)
-        }
-
-        test("excludeExtensions CLI flag removes types from defaults") {
-            val exts = collector.resolveExtensions(
-                ParseConfig(),
-                includeExtensionsCli = emptyList(),
-                excludeExtensionsCli = listOf(".xml", ".properties")
-            )
-            assertTrue(".xml" !in exts)
-            assertTrue(".properties" !in exts)
-            assertTrue(".java" in exts)
-        }
-
-        test("includeExtensions from config is respected when no CLI flag given") {
-            val exts = collector.resolveExtensions(
-                ParseConfig(includeExtensions = listOf(".yaml")),
-                includeExtensionsCli = emptyList(),
-                excludeExtensionsCli = emptyList()
-            )
-            assertEquals(setOf(".yaml"), exts)
-        }
-
-        test("CLI includeExtensions overrides config includeExtensions") {
-            val exts = collector.resolveExtensions(
-                ParseConfig(includeExtensions = listOf(".yaml")),
-                includeExtensionsCli = listOf(".java"),
-                excludeExtensionsCli = emptyList()
-            )
-            assertEquals(setOf(".java"), exts)
-        }
-
-        test("extensions without leading dot are normalized") {
-            val exts = collector.resolveExtensions(
-                ParseConfig(),
-                includeExtensionsCli = listOf("java"),
-                excludeExtensionsCli = emptyList()
-            )
-            assertTrue(".java" in exts)
-        }
 
         // ─── collectFiles — extension matching ────────────────────────────────────
 

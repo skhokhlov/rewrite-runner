@@ -53,9 +53,7 @@ class JsonProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".json"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -79,8 +77,6 @@ class JsonProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".json",
                 "--dry-run"
             )
 
@@ -115,9 +111,7 @@ class JsonProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".json"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -143,8 +137,6 @@ class JsonProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".json",
                     "--dry-run"
                 )
 
@@ -169,8 +161,6 @@ class JsonProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".json",
                     "--output",
                     "files",
                     "--dry-run"

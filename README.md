@@ -312,8 +312,7 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
                           [--artifact-resolver-request-timeout=<duration>]
                           [--output=<mode>] [--project-dir=<path>]
                           [--rewrite-config=<path>]
-                          [--exclude-extensions=<ext>[,<ext>...]]
-                          [--include-extensions=<ext>[,<ext>...]]
+                          [--exclude-paths=<glob>[,<glob>...]]
                           [--recipe-artifact=<coord>]...
 ```
 
@@ -333,8 +332,7 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
 | `--plugin-run-timeout`                | Timeout for plugin-first Gradle/Maven invocations. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `10m` |
 | `--artifact-resolver-connect-timeout` | TCP connection timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `30s` |
 | `--artifact-resolver-request-timeout` | Socket read/request timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `60s` |
-| `--include-extensions`                | Comma-separated file extensions to parse (e.g. `.java,.kt`) | all supported |
-| `--exclude-extensions`                | Comma-separated file extensions to skip | — |
+| `--exclude-paths`                     | Comma-separated glob patterns of files to skip (e.g. `**/generated/**,**/*.md`). Forwarded to both the Stage 0 plugin (Maven: `-Drewrite.exclusions=…`; Gradle: `exclusion(...)` DSL) and to the LST fallback pipeline. | — |
 | `--no-maven-central`                  | Disable Maven Central; use only repositories from the config file | `false` |
 | `--info`                              | Enable INFO-level logging to stderr | `false` |
 | `--debug`                             | Enable DEBUG-level logging to stderr (overrides `--info`) | `false` |
@@ -461,11 +459,9 @@ resolverConnectTimeout: 30s       # Maven Resolver TCP connection timeout
 resolverRequestTimeout: 60s       # Maven Resolver socket/request timeout
 
 parse:
-  includeExtensions: [".java", ".kt", ".xml"]
-  excludeExtensions: [".properties"]
   excludePaths:
     - "**/generated/**"
-    - "**/build/**"
+    - "**/*.md"
 ```
 
 Environment variable placeholders (`${VAR_NAME}`) are expanded at runtime.
@@ -538,7 +534,7 @@ Unresolved types appear as `JavaType.Unknown` in the LST, but all structural, te
 | `.proto` | `ProtoParser` |
 | `.dockerfile`, `.containerfile`, `Dockerfile*`, `Containerfile*` | `DockerParser` (matched both by extension and by filename prefix) |
 
-The parsed file set is configurable via `--include-extensions`, `--exclude-extensions`, and the `parse` section of `rewriterunner.yml`.
+All supported extensions are parsed by default. Use `--exclude-paths` (CLI), `parse.excludePaths` (YAML), or `Builder.excludePaths(...)` (library) to skip specific paths via glob patterns. The same value is forwarded to the Stage 0 plugin invocation and to the LST fallback pipeline.
 
 ### Automatically excluded directories
 
@@ -546,7 +542,7 @@ The following directories are always skipped during the file-system walk, regard
 
 `.git`, `build`, `target`, `node_modules`, `.gradle`, `.idea`, `out`, `dist`
 
-Use `parse.excludePaths` (or `--exclude-extensions` / `excludePaths()` in the library API) to skip additional paths.
+Use `parse.excludePaths` in `rewriterunner.yml`, `--exclude-paths` on the CLI, or `Builder.excludePaths(...)` in the library to skip additional paths.
 
 ## Development
 

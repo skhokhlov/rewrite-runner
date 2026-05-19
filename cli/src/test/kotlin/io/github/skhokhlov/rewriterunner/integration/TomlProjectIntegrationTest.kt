@@ -52,9 +52,7 @@ class TomlProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".toml"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -79,8 +77,6 @@ class TomlProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".toml",
                 "--dry-run"
             )
 
@@ -109,8 +105,6 @@ class TomlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".toml",
                     "--dry-run"
                 )
 
@@ -147,8 +141,6 @@ class TomlProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".toml",
                     "--output",
                     "files",
                     "--dry-run"

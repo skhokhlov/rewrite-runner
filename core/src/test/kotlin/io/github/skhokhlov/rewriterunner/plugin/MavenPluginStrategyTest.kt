@@ -56,6 +56,73 @@ class MavenPluginStrategyTest :
             assertTrue(command.contains("-Drewrite.configLocation=${config.toAbsolutePath()}"))
         }
 
+        test("buildCommand emits -Drewrite.exclusions when excludePaths non-empty") {
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            val command =
+                strategy.buildCommand(
+                    projectDir = projectDir,
+                    goal = "dryRun",
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    excludePaths = listOf("src/test/**")
+                )
+
+            assertTrue(command.contains("-Drewrite.exclusions=src/test/**"))
+        }
+
+        test("buildCommand omits -Drewrite.exclusions when excludePaths empty") {
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            val command =
+                strategy.buildCommand(
+                    projectDir = projectDir,
+                    goal = "dryRun",
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    excludePaths = emptyList()
+                )
+
+            assertTrue(command.none { it.startsWith("-Drewrite.exclusions") })
+        }
+
+        test("buildCommand joins multiple globs with comma") {
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            val command =
+                strategy.buildCommand(
+                    projectDir = projectDir,
+                    goal = "dryRun",
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    excludePaths = listOf("**/generated/**", "**/*.md", "src/test/**")
+                )
+
+            assertTrue(
+                command.contains(
+                    "-Drewrite.exclusions=**/generated/**,**/*.md,src/test/**"
+                )
+            )
+        }
+
         test("buildCommand uses configured rewrite Maven plugin version") {
             val strategy =
                 MavenPluginStrategy(

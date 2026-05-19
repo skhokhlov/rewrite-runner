@@ -1,6 +1,5 @@
 package io.github.skhokhlov.rewriterunner.lst.utils
 
-import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
@@ -91,33 +90,6 @@ internal class FileCollector(
         }
 
         return result
-    }
-
-    /**
-     * Resolves the effective set of extensions to parse, applying CLI-flag overrides on
-     * top of [parseConfig] and normalising each entry to a dot-prefixed lowercase string.
-     * CLI flags take precedence over config file settings.
-     */
-    fun resolveExtensions(
-        parseConfig: ParseConfig,
-        includeExtensionsCli: List<String>,
-        excludeExtensionsCli: List<String>
-    ): Set<String> {
-        val include = (
-            includeExtensionsCli.takeIf { it.isNotEmpty() }
-                ?: parseConfig.includeExtensions
-            )
-            .map { it.lowercase().let { e -> if (e.startsWith(".")) e else ".$e" } }
-
-        val exclude = (
-            excludeExtensionsCli.takeIf { it.isNotEmpty() }
-                ?: parseConfig.excludeExtensions
-            )
-            .map { it.lowercase().let { e -> if (e.startsWith(".")) e else ".$e" } }
-            .toSet()
-
-        val base = include.takeIf { it.isNotEmpty() }?.toSet() ?: defaultExtensions
-        return base - exclude
     }
 
     /**
