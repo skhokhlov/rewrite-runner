@@ -11,6 +11,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Breaking changes in vNEXT
+
+`--include-extensions` and `--exclude-extensions` have been removed; the `Builder.includeExtensions(...)`, `Builder.excludeExtensions(...)`, and the YAML `parse.includeExtensions` / `parse.excludeExtensions` keys are gone too. The new surface aligns with the upstream OpenRewrite Gradle/Maven plugins' native exclusion primitive:
+
+| Before | After |
+|--------|-------|
+| `--exclude-extensions .md,.json` | `--exclude-paths "**/*.md,**/*.json"` |
+| `--include-extensions .java` | (no replacement — exclusion is the only filter, matching upstream) |
+| `Builder.includeExtensions(...)` / `Builder.excludeExtensions(...)` | (removed; use `Builder.excludePaths(...)`) |
+| `parse.includeExtensions` / `parse.excludeExtensions` in YAML | (removed; use `parse.excludePaths`) |
+
+`--exclude-paths` is forwarded both to the Stage 0 plugin invocation (Maven: `-Drewrite.exclusions=…`; Gradle: `exclusion(...)` lines in the generated init script) and to the LST fallback pipeline, so the two paths apply identical filtering. When the exclusion list eliminates every JVM source file from scope, classpath resolution stages 1–4 are skipped entirely.
+
+---
+
 ## Quick Commands
 
 ```bash
@@ -46,8 +61,7 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 | `--plugin-run-timeout` | | Stage 0 Gradle/Maven plugin timeout | `10m` |
 | `--resolver-connect-timeout` | | Maven Resolver TCP connection timeout | `30s` |
 | `--resolver-request-timeout` | | Maven Resolver socket/request timeout | `60s` |
-| `--include-extensions` | | Comma-separated file types to parse | — |
-| `--exclude-extensions` | | Comma-separated file types to skip | — |
+| `--exclude-paths` | | Comma-separated glob patterns of files to skip (e.g. `**/generated/**,**/*.md`); forwarded to Stage 0 plugin and LST fallback alike | — |
 | `--info` | | Enable INFO-level logging to stderr | `false` |
 | `--debug` | | Enable DEBUG-level logging (overrides `--info`) | `false` |
 | `--no-maven-central` | | Disable Maven Central; use only repos from config | `false` |
@@ -105,7 +119,7 @@ cli/src/
 - `ProjectBuildStage` and `DependencyResolutionStage` are `open` with `open` methods — subclass in tests instead of mocking
 - `ResultFormatter` has a secondary constructor accepting `PrintWriter`; `RunCommand` passes picocli's `@Spec` output writer
 - Stage 0 tries the official Gradle/Maven OpenRewrite plugins first and returns `RunResult.rawDiffs` on success. Use `--skip-plugin-run` / `Builder.skipPluginRun(true)` when testing or debugging the in-process LST pipeline directly.
-- Extension filtering: CLI flags take precedence over config file settings
+- Path exclusion: `--exclude-paths` (CLI) overrides `parse.excludePaths` (YAML) when non-empty. The resolved value is forwarded to Stage 0 and to the LST fallback so both apply identical filtering. When no JVM source survives the exclusion, classpath resolution stages 1–4 are skipped.
 - OpenRewrite requires all source files in memory simultaneously — for large projects use `-Xmx6g`
 - Dockerfile/Containerfile files are collected both by extension (`.dockerfile`, `.containerfile`) and by filename prefix (`Dockerfile*`, `Containerfile*`) — all go into the `.dockerfile` bucket for `DockerParser`
 - `pom.xml` files are routed to `MavenParser` (full resolution — parent POMs, property interpolation, BOM imports); all other `.xml` files use `XmlParser`. This split happens in the `.xml` routing block inside `LstBuilder.build()` by filtering on `file.name == "pom.xml"`. `MavenParser` adds `MavenResolutionResult` marker, enabling the full `rewrite-maven` recipe catalog. Resolution uses `~/.m2/settings.xml` and local repo; artifacts already cached require no network access.

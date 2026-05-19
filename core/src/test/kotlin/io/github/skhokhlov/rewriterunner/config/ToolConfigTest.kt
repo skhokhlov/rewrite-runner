@@ -50,15 +50,26 @@ class ToolConfigTest :
             configFile.writeText(
                 """
                 parse:
-                  includeExtensions: [".java", ".kt"]
+                  excludePaths: ["**/generated/**", "**/*.md"]
+                """.trimIndent()
+            )
+
+            val config = ToolConfig.load(configFile, NoOpRunnerLogger)
+            assertEquals(listOf("**/generated/**", "**/*.md"), config.parse.excludePaths)
+        }
+
+        test("ignores unknown legacy parse fields without error") {
+            val configFile = tempDir.resolve("runner.yml")
+            configFile.writeText(
+                """
+                parse:
+                  includeExtensions: [".java"]
                   excludeExtensions: [".xml"]
                   excludePaths: ["**/generated/**"]
                 """.trimIndent()
             )
 
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
-            assertEquals(listOf(".java", ".kt"), config.parse.includeExtensions)
-            assertEquals(listOf(".xml"), config.parse.excludeExtensions)
             assertEquals(listOf("**/generated/**"), config.parse.excludePaths)
         }
 

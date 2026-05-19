@@ -5,7 +5,6 @@ import io.github.skhokhlov.rewriterunner.ExecutionDiagnostics
 import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
-import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
@@ -54,6 +53,9 @@ data class LstBuildResult(
     val sourceFiles: List<SourceFile>,
     val executionDiagnostics: ExecutionDiagnostics
 )
+
+/** Extensions whose presence requires JVM classpath resolution (stages 1–4). */
+private val JVM_SOURCE_EXTENSIONS = setOf(".java", ".kt", ".kts", ".groovy", ".gradle")
 
 /**
  * Orchestrates the 4-stage LST building pipeline and multi-language file parsing.
@@ -129,25 +131,22 @@ open class LstBuilder(
     /**
      * Parse all source files in [projectDir] into OpenRewrite SourceFile trees.
      *
-     * Runs the 3-stage classpath resolution pipeline, then dispatches each collected file
-     * to the appropriate language parser based on its extension.
+     * Runs the 4-stage classpath resolution pipeline (skipped entirely when no JVM source
+     * files survive [excludePaths]), then dispatches each collected file to the appropriate
+     * language parser based on its extension.
      *
      * @param projectDir Root of the project to parse. Must be an existing directory.
-     * @param parseConfig Extension inclusion/exclusion and glob-exclusion settings from the
-     *   tool config file. CLI flags ([includeExtensionsCli], [excludeExtensionsCli]) take
-     *   precedence when non-empty.
-     * @param includeExtensionsCli File extensions to include, as specified via CLI or the
-     *   library [io.github.skhokhlov.rewriterunner.RewriteRunner.Builder]. Overrides [parseConfig] when non-empty.
-     * @param excludeExtensionsCli File extensions to skip. Overrides [parseConfig] when non-empty.
+     * @param excludePaths Glob patterns (relative to [projectDir]) of files to skip. Same
+     *   semantics as the upstream OpenRewrite Gradle/Maven plugin exclusions. Resolved by
+     *   [io.github.skhokhlov.rewriterunner.RewriteRunner] from CLI override over
+     *   [io.github.skhokhlov.rewriterunner.config.ParseConfig.excludePaths] before reaching here.
      * @param ctx OpenRewrite execution context. Defaults to an [org.openrewrite.InMemoryExecutionContext]
      *   that logs parse warnings without aborting.
      * @return An [LstBuildResult] containing the parsed source files and execution diagnostics.
      */
     fun build(
         projectDir: Path,
-        parseConfig: ParseConfig = toolConfig.parse,
-        includeExtensionsCli: List<String> = emptyList(),
-        excludeExtensionsCli: List<String> = emptyList(),
+        excludePaths: List<String> = toolConfig.parse.excludePaths,
         ctx: ExecutionContext = InMemoryExecutionContext {}
     ): LstBuildResult {
         val pendingErrors = mutableListOf<Throwable>()
@@ -161,8 +160,7 @@ open class LstBuilder(
 
             override fun getOnError(): Consumer<Throwable> = errorConsumer
         }
-        val effectiveExtensions =
-            fileCollector.resolveExtensions(parseConfig, includeExtensionsCli, excludeExtensionsCli)
+        val effectiveExtensions = FileCollector.DEFAULT_EXTENSIONS
         logger.info("Parsing extensions: $effectiveExtensions")
 
         // ── Per-build parse-failure accumulator ───────────────────────────────
@@ -170,8 +168,30 @@ open class LstBuilder(
         // Maven coordinate failures alongside per-file parse failures.
         val parseFailures = mutableListOf<ParseFailure>()
 
+        // ── Collect files by extension ────────────────────────────────────────
+        val filesByExt = fileCollector.collectFiles(
+            projectDir,
+            effectiveExtensions,
+            excludePaths
+        )
+        val totalFiles = filesByExt.values.sumOf { it.size }
+        logger.lifecycle(
+            "Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)"
+        )
+
         // ── 4-stage classpath resolution ──────────────────────────────────────
-        val resolutionResult = resolveClasspath(projectDir, parseFailures)
+        // Skip the four classpath stages entirely when no JVM source survived
+        // [excludePaths] filtering — running mvn/gradle subprocesses is pointless when no
+        // parser would consume their output.
+        val hasJvmSources = filesByExt.keys.any { it in JVM_SOURCE_EXTENSIONS }
+        val resolutionResult = if (hasJvmSources) {
+            resolveClasspath(projectDir, parseFailures)
+        } else {
+            logger.info(
+                "No JVM source files in scope — skipping classpath resolution stages."
+            )
+            ClasspathResolutionResult(emptyList())
+        }
         val classpath = resolutionResult.classpath
 
         // ── Shared type cache — all JVM parsers share one instance ────────────
@@ -187,21 +207,8 @@ open class LstBuilder(
         val javaVersionCache = mutableMapOf<Path, Pair<String, String>?>()
         val kotlinVersionCache = mutableMapOf<Path, Pair<String, String>?>()
 
-        // ── Collect files by extension ────────────────────────────────────────
-        val filesByExt = fileCollector.collectFiles(
-            projectDir,
-            effectiveExtensions,
-            parseConfig.excludePaths
-        )
-        val totalFiles = filesByExt.values.sumOf { it.size }
-        logger.lifecycle(
-            "Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)"
-        )
-
         // ── Warn unconditionally when all stages produced empty classpath ─────
-        val jvmExtensions = setOf(".java", ".kt", ".kts", ".groovy")
-        val hasJvmFiles = jvmExtensions.any { filesByExt[it]?.isNotEmpty() == true }
-        if (classpath.isEmpty() && hasJvmFiles) {
+        if (classpath.isEmpty() && hasJvmSources) {
             logger.warn(
                 "Classpath resolution failed across all 4 stages — " +
                     "type information will be missing. Recipe results may be incomplete."

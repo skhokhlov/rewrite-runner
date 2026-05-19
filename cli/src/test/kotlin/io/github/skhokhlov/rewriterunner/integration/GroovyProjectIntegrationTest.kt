@@ -57,9 +57,7 @@ class GroovyProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".groovy"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -112,8 +110,6 @@ class GroovyProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".groovy",
                 "--dry-run"
             )
 
@@ -148,9 +144,7 @@ class GroovyProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--skip-plugin-run",
-                    "--include-extensions",
-                    ".gradle"
+                    "--skip-plugin-run"
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -189,7 +183,7 @@ class GroovyProjectIntegrationTest :
             )
         }
 
-        test("only gradle files are modified when include-extensions is dot-gradle") {
+        test("excludePaths skips .groovy file while still processing .gradle") {
             val groovyFile = projectDir.resolve("Helper.groovy")
             val gradleFile = projectDir.resolve("build.gradle")
             groovyFile.writeText("class Helper { def x = 'PLACEHOLDER' }")
@@ -206,22 +200,22 @@ class GroovyProjectIntegrationTest :
                 "--cache-dir",
                 cacheDir.toString(),
                 "--skip-plugin-run",
-                "--include-extensions",
-                ".gradle"
+                "--exclude-paths",
+                "Helper.groovy"
             )
 
             assertEquals(
                 "class Helper { def x = 'PLACEHOLDER' }",
                 groovyFile.readText(),
-                ".groovy file should not be touched when only .gradle is included"
+                ".groovy file should be excluded by --exclude-paths"
             )
             assertTrue(
                 gradleFile.readText().contains("REPLACED"),
-                ".gradle file should be modified"
+                ".gradle file should still be modified"
             )
         }
 
-        test("both groovy and gradle files are processed when no include-extensions is set") {
+        test("both groovy and gradle files are processed when no path exclusion is set") {
             val groovyFile = projectDir.resolve("Helper.groovy")
             val gradleFile = projectDir.resolve("build.gradle")
             groovyFile.writeText("def x = 'PLACEHOLDER'")

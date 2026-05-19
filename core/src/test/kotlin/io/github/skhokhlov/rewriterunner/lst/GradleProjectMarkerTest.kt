@@ -151,8 +151,7 @@ class GradleProjectMarkerTest :
             projectDir.resolve("build.gradle.kts").writeText("// empty build")
             val sources =
                 lstBuilderWithGradleData(throwOnKtsParser = true).build(
-                    projectDir,
-                    includeExtensionsCli = listOf(".kts")
+                    projectDir
                 ).sourceFiles
             assertTrue(sources.isNotEmpty(), "Expected at least one parsed source file")
             assertTrue(
@@ -165,8 +164,7 @@ class GradleProjectMarkerTest :
             projectDir.resolve("build.gradle").writeText("// empty build")
             val sources =
                 lstBuilderWithGradleData(throwOnGroovyParser = true).build(
-                    projectDir,
-                    includeExtensionsCli = listOf(".gradle")
+                    projectDir
                 ).sourceFiles
             assertTrue(sources.isNotEmpty(), "Expected at least one parsed source file")
             assertTrue(
@@ -183,8 +181,7 @@ class GradleProjectMarkerTest :
             projectDir.resolve("build.gradle.kts").writeText("// empty build")
             val sources =
                 lstBuilderWithStage1Success(gradleData = minimalGradleData).build(
-                    projectDir,
-                    includeExtensionsCli = listOf(".kts")
+                    projectDir
                 ).sourceFiles
             assertTrue(sources.isNotEmpty(), "Expected at least one parsed source file")
             assertTrue(
@@ -205,7 +202,7 @@ class GradleProjectMarkerTest :
                     }
                 }
             lstBuilderWithStage1Success(gradleData = null, logger = capturingLogger)
-                .build(projectDir, includeExtensionsCli = listOf(".kts"))
+                .build(projectDir)
             assertTrue(
                 warnings.any { it.contains("GradleProject markers could not be built") },
                 "Expected warning about missing GradleProject markers. Warnings: $warnings"
@@ -231,7 +228,7 @@ class GradleProjectMarkerTest :
                     }
                 }
             lstBuilderWithStage1Success(gradleData = null, logger = capturingLogger)
-                .build(projectDir, includeExtensionsCli = listOf(".xml"))
+                .build(projectDir)
             assertFalse(
                 warnings.any { it.contains("GradleProject markers could not be built") },
                 "Should not warn about Gradle markers for Maven-only project"
@@ -300,8 +297,7 @@ class GradleProjectMarkerTest :
             )
 
             val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
-                projectDir,
-                includeExtensionsCli = listOf(".kts", ".gradle")
+                projectDir
             ).sourceFiles
 
             fun markerFor(path: String): GradleProject {
@@ -362,8 +358,7 @@ class GradleProjectMarkerTest :
             )
 
             val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
-                projectDir,
-                includeExtensionsCli = listOf(".kts")
+                projectDir
             ).sourceFiles
             val marker = sources
                 .single { it.sourcePath.toString() == "build.gradle.kts" }
@@ -412,8 +407,7 @@ class GradleProjectMarkerTest :
             )
 
             val sources = lstBuilderWithStage1Success(gradleData = gradleData).build(
-                projectDir,
-                includeExtensionsCli = listOf(".kts")
+                projectDir
             ).sourceFiles
             val marker = sources
                 .single { it.sourcePath.toString() == "build.gradle.kts" }

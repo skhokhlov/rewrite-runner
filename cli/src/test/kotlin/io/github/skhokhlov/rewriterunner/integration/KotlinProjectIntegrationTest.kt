@@ -46,8 +46,6 @@ class KotlinProjectIntegrationTest :
                     "org.openrewrite.kotlin.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".kt",
                     "--dry-run"
                 )
 
@@ -69,8 +67,6 @@ class KotlinProjectIntegrationTest :
                     "org.openrewrite.kotlin.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".kt",
                     "--dry-run"
                 )
 
@@ -104,9 +100,7 @@ class KotlinProjectIntegrationTest :
                     "--rewrite-config",
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".kt"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -133,8 +127,6 @@ class KotlinProjectIntegrationTest :
                 projectDir.resolve("rewrite.yaml").toString(),
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".kt",
                 "--dry-run"
             )
 
@@ -168,9 +160,7 @@ class KotlinProjectIntegrationTest :
                     projectDir.resolve("rewrite.yaml").toString(),
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--skip-plugin-run",
-                    "--include-extensions",
-                    ".kts"
+                    "--skip-plugin-run"
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -220,8 +210,6 @@ class KotlinProjectIntegrationTest :
                 "--cache-dir",
                 cacheDir.toString(),
                 "--skip-plugin-run",
-                "--include-extensions",
-                ".kts",
                 "--dry-run"
             )
 
@@ -261,7 +249,7 @@ class KotlinProjectIntegrationTest :
             )
         }
 
-        test("only kts files are modified when include-extensions is dot-kts") {
+        test("excludePaths skips .kt files while still processing .kts") {
             val ktFile = projectDir.resolve("App.kt")
             val ktsFile = projectDir.resolve("build.gradle.kts")
             ktFile.writeText("val url = \"PLACEHOLDER\"")
@@ -278,50 +266,18 @@ class KotlinProjectIntegrationTest :
                 "--cache-dir",
                 cacheDir.toString(),
                 "--skip-plugin-run",
-                "--include-extensions",
-                ".kts"
+                "--exclude-paths",
+                "App.kt"
             )
 
             assertEquals(
                 "val url = \"PLACEHOLDER\"",
                 ktFile.readText(),
-                ".kt file should not be touched when only .kts is included"
+                ".kt file should be excluded by --exclude-paths"
             )
             assertTrue(
                 ktsFile.readText().contains("REPLACED"),
-                ".kts file should be modified"
-            )
-        }
-
-        // ─── Extension filtering ──────────────────────────────────────────────────
-
-        test("only kt files are processed when include-extensions is dot-kt") {
-            projectDir.resolve("App.kt").writeText("val url = \"PLACEHOLDER\"")
-            projectDir.resolve("App.java").writeText("class App { String url = \"PLACEHOLDER\"; }")
-            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "REPLACED")
-
-            runCli(
-                "--project-dir",
-                projectDir.toString(),
-                "--active-recipe",
-                "com.example.integration.FindAndReplace",
-                "--rewrite-config",
-                projectDir.resolve("rewrite.yaml").toString(),
-                "--cache-dir",
-                cacheDir.toString(),
-                "--include-extensions",
-                ".kt"
-            )
-
-            assertNotEquals(
-                "val url = \"PLACEHOLDER\"",
-                projectDir.resolve("App.kt").readText(),
-                "Kotlin file should be modified"
-            )
-            assertEquals(
-                "class App { String url = \"PLACEHOLDER\"; }",
-                projectDir.resolve("App.java").readText(),
-                "Java file should not be touched"
+                ".kts file should still be modified"
             )
         }
     })

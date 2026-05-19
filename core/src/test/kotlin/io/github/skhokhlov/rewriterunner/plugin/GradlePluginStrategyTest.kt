@@ -112,6 +112,93 @@ class GradlePluginStrategyTest :
             assertEquals(4, Regex.fromLiteral("password = \"secret\"").findAll(text).count())
         }
 
+        test("generateInitScript emits exclusion lines inside rewrite block when paths present") {
+            val strategy = GradlePluginStrategy(
+                logger = NoOpRunnerLogger,
+                timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+            )
+
+            val initScript =
+                strategy.generateInitScript(
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    includeMavenCentral = true,
+                    repositories = emptyList(),
+                    excludePaths = listOf("**/generated/**", "src/test/**")
+                )
+
+            val text = initScript.readText()
+            // Locate the rewrite { } block bound to rootProject and assert exclusions live there.
+            val rewriteStart = text.indexOf("rewrite {")
+            assertTrue(rewriteStart >= 0, "rewrite { } block missing")
+            val rewriteEnd = text.indexOf("    }", rewriteStart)
+            assertTrue(rewriteEnd > rewriteStart)
+            val rewriteBody = text.substring(rewriteStart, rewriteEnd)
+            assertTrue(
+                rewriteBody.contains("exclusion(\"**/generated/**\")"),
+                "Expected exclusion line for **/generated/** inside rewrite { }: $rewriteBody"
+            )
+            assertTrue(
+                rewriteBody.contains("exclusion(\"src/test/**\")"),
+                "Expected exclusion line for src/test/** inside rewrite { }: $rewriteBody"
+            )
+        }
+
+        test("generateInitScript emits no exclusion lines when paths empty") {
+            val strategy = GradlePluginStrategy(
+                logger = NoOpRunnerLogger,
+                timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+            )
+
+            val initScript =
+                strategy.generateInitScript(
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    includeMavenCentral = true,
+                    repositories = emptyList(),
+                    excludePaths = emptyList()
+                )
+
+            val text = initScript.readText()
+            assertTrue(!text.contains("exclusion("), "No exclusion lines expected: $text")
+        }
+
+        test("generateInitScript escapes Groovy specials in glob patterns") {
+            val strategy = GradlePluginStrategy(
+                logger = NoOpRunnerLogger,
+                timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+            )
+
+            val initScript =
+                strategy.generateInitScript(
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    includeMavenCentral = true,
+                    repositories = emptyList(),
+                    excludePaths = listOf("path\\with\\backslash", "has\"quote", "has\$dollar")
+                )
+
+            val text = initScript.readText()
+            assertTrue(
+                text.contains("exclusion(\"path\\\\with\\\\backslash\")"),
+                "Backslashes must be doubled: $text"
+            )
+            assertTrue(
+                text.contains("exclusion(\"has\\\"quote\")"),
+                "Double-quotes must be backslash-escaped: $text"
+            )
+            assertTrue(
+                text.contains("exclusion(\"has\\\$dollar\")"),
+                "Groovy dollar sign must be backslash-escaped: $text"
+            )
+        }
+
         test("generateInitScript adds recipe artifacts to root rewrite configuration only") {
             val strategy = GradlePluginStrategy(
                 logger = NoOpRunnerLogger,

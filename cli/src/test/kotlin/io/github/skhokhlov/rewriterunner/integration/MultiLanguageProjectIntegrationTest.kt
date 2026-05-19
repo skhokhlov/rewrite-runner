@@ -74,94 +74,6 @@ class MultiLanguageProjectIntegrationTest :
             )
         }
 
-        // ─── Extension filtering ──────────────────────────────────────────────────
-
-        test("include-extensions limits processing to specified file types only") {
-            createSpringBootProject()
-            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "REPLACED")
-
-            runCli(
-                "--project-dir",
-                projectDir.toString(),
-                "--active-recipe",
-                "com.example.integration.FindAndReplace",
-                "--rewrite-config",
-                projectDir.resolve("rewrite.yaml").toString(),
-                "--cache-dir",
-                cacheDir.toString(),
-                "--skip-plugin-run",
-                "--include-extensions",
-                ".java"
-            )
-
-            // Only Java should be changed
-            assertTrue(
-                projectDir.resolve("src/main/java/com/example/App.java")
-                    .readText()
-                    .contains("REPLACED"),
-                "Java file should be modified"
-            )
-            assertEquals(
-                """class Service { fun hello() = "PLACEHOLDER" }""",
-                projectDir.resolve("src/main/kotlin/com/example/Service.kt").readText(),
-                "Kotlin file must not be modified when .kt is not in include-extensions"
-            )
-            assertTrue(
-                projectDir.resolve("src/main/resources/application.yaml")
-                    .readText()
-                    .contains("PLACEHOLDER"),
-                "YAML file must not be modified"
-            )
-        }
-
-        test("multiple include-extensions targets all specified types") {
-            createSpringBootProject()
-            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "REPLACED")
-
-            runCli(
-                "--project-dir",
-                projectDir.toString(),
-                "--active-recipe",
-                "com.example.integration.FindAndReplace",
-                "--rewrite-config",
-                projectDir.resolve("rewrite.yaml").toString(),
-                "--cache-dir",
-                cacheDir.toString(),
-                "--skip-plugin-run",
-                "--include-extensions",
-                ".java,.kt,.yaml"
-            )
-
-            assertTrue(
-                projectDir.resolve("src/main/java/com/example/App.java")
-                    .readText()
-                    .contains("REPLACED"),
-                "Java file should be modified"
-            )
-            assertTrue(
-                projectDir.resolve("src/main/kotlin/com/example/Service.kt")
-                    .readText()
-                    .contains("REPLACED"),
-                "Kotlin file should be modified"
-            )
-            assertTrue(
-                projectDir.resolve("src/main/resources/application.yaml")
-                    .readText()
-                    .contains("REPLACED"),
-                "YAML file should be modified"
-            )
-            assertTrue(
-                projectDir.resolve("src/main/resources/schema.json")
-                    .readText()
-                    .contains("PLACEHOLDER"),
-                "JSON file must not be modified"
-            )
-            assertTrue(
-                projectDir.resolve("pom.xml").readText().contains("PLACEHOLDER"),
-                "XML file must not be modified"
-            )
-        }
-
         // ─── Output modes on multi-file project ───────────────────────────────────
 
         test("diff mode lists all changed files in unified diff format") {
@@ -179,8 +91,6 @@ class MultiLanguageProjectIntegrationTest :
                     "--cache-dir",
                     cacheDir.toString(),
                     "--skip-plugin-run",
-                    "--include-extensions",
-                    ".java,.yaml,.xml,.json,.properties",
                     "--output",
                     "diff",
                     "--dry-run"
@@ -207,8 +117,6 @@ class MultiLanguageProjectIntegrationTest :
                     "--cache-dir",
                     cacheDir.toString(),
                     "--skip-plugin-run",
-                    "--include-extensions",
-                    ".java,.yaml,.xml,.json,.properties",
                     "--output",
                     "files",
                     "--dry-run"
@@ -244,8 +152,6 @@ class MultiLanguageProjectIntegrationTest :
                     "--cache-dir",
                     cacheDir.toString(),
                     "--skip-plugin-run",
-                    "--include-extensions",
-                    ".java,.yaml,.xml,.json,.properties",
                     "--output",
                     "report",
                     "--dry-run"
@@ -288,8 +194,6 @@ class MultiLanguageProjectIntegrationTest :
                 "--cache-dir",
                 cacheDir.toString(),
                 "--skip-plugin-run",
-                "--include-extensions",
-                ".java,.kt,.yaml,.properties,.xml,.json",
                 "--dry-run"
             )
 
@@ -320,8 +224,6 @@ class MultiLanguageProjectIntegrationTest :
                     "--cache-dir",
                     cacheDir.toString(),
                     "--skip-plugin-run",
-                    "--include-extensions",
-                    ".java",
                     "--output",
                     "files",
                     "--dry-run"

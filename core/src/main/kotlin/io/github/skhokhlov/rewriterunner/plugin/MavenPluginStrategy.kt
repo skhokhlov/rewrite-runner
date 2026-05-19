@@ -14,6 +14,13 @@ import org.apache.maven.model.io.xpp3.MavenXpp3Reader
 private const val FALLBACK_POM_DISCOVERY_DEPTH = 6
 private val MAVEN_PATCH_PATH: Path = Path.of("target/site/rewrite/rewrite.patch")
 
+/**
+ * Maven-side [PluginBuildStrategy] implementation.
+ *
+ * Forwards `excludePaths` to the upstream `rewrite-maven-plugin` via the
+ * `-Drewrite.exclusions=<csv>` system property (the plugin's documented exclusion knob),
+ * joined into a comma-separated list of globs.
+ */
 internal open class MavenPluginStrategy(
     private val logger: RunnerLogger,
     private val timeout: Duration,
@@ -27,7 +34,8 @@ internal open class MavenPluginStrategy(
         rewriteConfigContent: String?,
         dryRun: Boolean,
         includeMavenCentral: Boolean,
-        artifactRepositories: List<RepositoryConfig>
+        artifactRepositories: List<RepositoryConfig>,
+        excludePaths: List<String>
     ): PluginRunResult {
         val effectiveRewriteConfig =
             createRewriteConfigFile(rewriteConfigContent)
@@ -40,14 +48,16 @@ internal open class MavenPluginStrategy(
                         goal = "dryRun",
                         activeRecipe = activeRecipe,
                         recipeArtifacts = recipeArtifacts,
-                        rewriteConfig = effectiveRewriteConfig
+                        rewriteConfig = effectiveRewriteConfig,
+                        excludePaths = excludePaths
                     ),
                     applyCommand = buildCommand(
                         projectDir = projectDir,
                         goal = "run",
                         activeRecipe = activeRecipe,
                         recipeArtifacts = recipeArtifacts,
-                        rewriteConfig = effectiveRewriteConfig
+                        rewriteConfig = effectiveRewriteConfig,
+                        excludePaths = excludePaths
                     ),
                     patchFiles = { findPatchFiles(projectDir) },
                     dryRunFailureMessage = { pluginFailureMessage("Maven rewrite:dryRun", it) },
@@ -66,7 +76,8 @@ internal open class MavenPluginStrategy(
         goal: String,
         activeRecipe: String,
         recipeArtifacts: List<String>,
-        rewriteConfig: Path?
+        rewriteConfig: Path?,
+        excludePaths: List<String> = emptyList()
     ): List<String> = buildList {
         add(resolveMavenCommand(projectDir))
         add("-U")
@@ -79,6 +90,9 @@ internal open class MavenPluginStrategy(
         add("-Drewrite.activeRecipes=$activeRecipe")
         if (recipeArtifacts.isNotEmpty()) {
             add("-Drewrite.recipeArtifactCoordinates=${recipeArtifacts.joinToString(",")}")
+        }
+        if (excludePaths.isNotEmpty()) {
+            add("-Drewrite.exclusions=${excludePaths.joinToString(",")}")
         }
         rewriteConfig?.let {
             add("-Drewrite.configLocation=${it.toAbsolutePath()}")

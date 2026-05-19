@@ -35,21 +35,14 @@ data class RepositoryConfig(
 /**
  * File parsing configuration for the LST-building stage.
  *
- * Controls which file types are included or excluded from parsing, and which file paths
- * are skipped via glob patterns.
+ * Controls which file paths are skipped via glob patterns. Matches the exclusion-only
+ * semantics of the upstream OpenRewrite Gradle/Maven plugins so Stage 0 plugin runs
+ * and the LST fallback apply identical filtering.
  *
- * @property includeExtensions Explicit set of file extensions to parse (e.g. `[".java", ".kt"]`).
- *   When empty, all [io.github.skhokhlov.rewriterunner.lst.LstBuilder] default extensions are used.
- * @property excludeExtensions Extensions to exclude from the default set.
- * @property excludePaths Glob patterns (relative to project root) for paths to skip entirely
- *   (e.g. `["generated/", "vendor/"]`).
+ * @property excludePaths Glob patterns (relative to project root) for paths to skip entirely.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class ParseConfig(
-    val includeExtensions: List<String> = emptyList(),
-    val excludeExtensions: List<String> = emptyList(),
-    val excludePaths: List<String> = emptyList()
-)
+data class ParseConfig(val excludePaths: List<String> = emptyList())
 
 /**
  * Top-level tool configuration, typically loaded from `rewriterunner.yml`.

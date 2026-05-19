@@ -68,7 +68,7 @@ class MultiModuleJavaVersionTest :
          */
         fun buildAndGetVersionsPerFile(): Map<String, JavaVersion> {
             val sources =
-                lstBuilder().build(projectDir, includeExtensionsCli = listOf(".java")).sourceFiles
+                lstBuilder().build(projectDir).sourceFiles
             return sources
                 .filter { it.sourcePath.toString().endsWith(".java") }
                 .associateBy(

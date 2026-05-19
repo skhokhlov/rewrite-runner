@@ -248,26 +248,33 @@ class RunCommandTest :
             )
         }
 
-        test("--include-extensions splits on comma") {
+        test("--exclude-paths splits on comma") {
             val cmd = RunCommand()
             CommandLine(cmd).parseArgs(
                 "--active-recipe",
                 "io.github.skhokhlov.rewriterunner.MyRecipe",
-                "--include-extensions",
-                ".java,.kt"
+                "--exclude-paths",
+                "**/*.md,src/test/**"
             )
-            assertEquals(listOf(".java", ".kt"), cmd.includeExtensions)
+            assertEquals(listOf("**/*.md", "src/test/**"), cmd.excludePaths)
         }
 
-        test("--exclude-extensions splits on comma") {
-            val cmd = RunCommand()
-            CommandLine(cmd).parseArgs(
+        test("--include-extensions is rejected (removed in breaking change)") {
+            val errBaos = ByteArrayOutputStream()
+            val code = cli().setErr(PrintWriter(errBaos)).execute(
                 "--active-recipe",
-                "io.github.skhokhlov.rewriterunner.MyRecipe",
-                "--exclude-extensions",
-                ".xml,.properties"
+                "io.github.skhokhlov.rewriterunner.MyRecipe"
             )
-            assertEquals(listOf(".xml", ".properties"), cmd.excludeExtensions)
+            assertNotEquals(0, code, "--include-extensions should no longer be recognised")
+        }
+
+        test("--exclude-extensions is rejected (removed in breaking change)") {
+            val errBaos = ByteArrayOutputStream()
+            val code = cli().setErr(PrintWriter(errBaos)).execute(
+                "--active-recipe",
+                "io.github.skhokhlov.rewriterunner.MyRecipe"
+            )
+            assertNotEquals(0, code, "--exclude-extensions should no longer be recognised")
         }
 
         test("--rewrite-config path is accepted") {
@@ -350,9 +357,7 @@ class RunCommandTest :
                         "--active-recipe",
                         "io.github.skhokhlov.rewriterunner.recipe.ThatDoesNotExist",
                         "--cache-dir",
-                        cacheDir.toString(),
-                        "--include-extensions",
-                        ".java"
+                        cacheDir.toString()
                     )
 
             assertNotEquals(0, code, "Nonexistent recipe should produce exit code 1")
@@ -409,8 +414,6 @@ class RunCommandTest :
                         "org.openrewrite.java.format.AutoFormat",
                         "--cache-dir",
                         cacheDir.toString(),
-                        "--include-extensions",
-                        ".java",
                         "--output",
                         "diff"
                     )
@@ -443,8 +446,6 @@ class RunCommandTest :
                 "org.openrewrite.java.format.AutoFormat",
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".java",
                 "--dry-run"
             )
 
@@ -471,8 +472,6 @@ class RunCommandTest :
                         "org.openrewrite.java.format.AutoFormat",
                         "--cache-dir",
                         cacheDir.toString(),
-                        "--include-extensions",
-                        ".java",
                         "--output",
                         "files",
                         "--dry-run"
@@ -500,8 +499,6 @@ class RunCommandTest :
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".java",
                     "--output",
                     "report",
                     "--dry-run"
@@ -537,9 +534,7 @@ class RunCommandTest :
                     "--active-recipe",
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".java"
+                    cacheDir.toString()
                 )
             }
             assertTrue(
@@ -572,9 +567,7 @@ class RunCommandTest :
                     "--rewrite-config",
                     rewriteYaml.toString(),
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".java"
+                    cacheDir.toString()
                 )
             }
             assertTrue(

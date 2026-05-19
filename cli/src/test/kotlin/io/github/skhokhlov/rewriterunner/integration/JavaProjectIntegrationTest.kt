@@ -49,8 +49,6 @@ class JavaProjectIntegrationTest :
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".java",
                     "--dry-run"
                 )
 
@@ -76,8 +74,6 @@ class JavaProjectIntegrationTest :
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".java",
                     "--dry-run"
                 )
 
@@ -101,8 +97,6 @@ class JavaProjectIntegrationTest :
                 "org.openrewrite.java.format.AutoFormat",
                 "--cache-dir",
                 cacheDir.toString(),
-                "--include-extensions",
-                ".java",
                 "--dry-run"
             )
 
@@ -126,9 +120,7 @@ class JavaProjectIntegrationTest :
                     "--active-recipe",
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
-                    cacheDir.toString(),
-                    "--include-extensions",
-                    ".java"
+                    cacheDir.toString()
                 )
 
             assertEquals(0, result.exitCode, "stderr: ${result.stderr}")
@@ -154,8 +146,6 @@ class JavaProjectIntegrationTest :
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".java",
                     "--output",
                     "files",
                     "--dry-run"
@@ -187,8 +177,6 @@ class JavaProjectIntegrationTest :
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".java",
                     "--output",
                     "report",
                     "--dry-run"
@@ -222,8 +210,6 @@ class JavaProjectIntegrationTest :
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".java",
                     "--output",
                     "files",
                     "--dry-run"
@@ -262,10 +248,12 @@ class JavaProjectIntegrationTest :
                 gradlew.setExecutable(true)
 
                 val result = runCli(
-                    "--project-dir", projectDir.toString(),
-                    "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-                    "--cache-dir", cacheDir.toString(),
-                    "--include-extensions", ".java",
+                    "--project-dir",
+                    projectDir.toString(),
+                    "--active-recipe",
+                    "org.openrewrite.java.format.AutoFormat",
+                    "--cache-dir",
+                    cacheDir.toString(),
                     "--skip-plugin-run",
                     "--dry-run"
                 )
@@ -319,10 +307,12 @@ class JavaProjectIntegrationTest :
                 mvnw.setExecutable(true)
 
                 val result = runCli(
-                    "--project-dir", projectDir.toString(),
-                    "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-                    "--cache-dir", cacheDir.toString(),
-                    "--include-extensions", ".java",
+                    "--project-dir",
+                    projectDir.toString(),
+                    "--active-recipe",
+                    "org.openrewrite.java.format.AutoFormat",
+                    "--cache-dir",
+                    cacheDir.toString(),
                     "--skip-plugin-run",
                     "--dry-run"
                 )
@@ -349,10 +339,12 @@ class JavaProjectIntegrationTest :
             gradlew.setExecutable(true)
 
             val result = runCli(
-                "--project-dir", projectDir.toString(),
-                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-                "--cache-dir", cacheDir.toString(),
-                "--include-extensions", ".java",
+                "--project-dir",
+                projectDir.toString(),
+                "--active-recipe",
+                "org.openrewrite.java.format.AutoFormat",
+                "--cache-dir",
+                cacheDir.toString(),
                 "--dry-run"
             )
 
@@ -380,10 +372,12 @@ class JavaProjectIntegrationTest :
             mvnw.setExecutable(true)
 
             val result = runCli(
-                "--project-dir", projectDir.toString(),
-                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-                "--cache-dir", cacheDir.toString(),
-                "--include-extensions", ".java",
+                "--project-dir",
+                projectDir.toString(),
+                "--active-recipe",
+                "org.openrewrite.java.format.AutoFormat",
+                "--cache-dir",
+                cacheDir.toString(),
                 "--dry-run"
             )
 
@@ -403,8 +397,6 @@ class JavaProjectIntegrationTest :
                     "org.openrewrite.java.format.AutoFormat",
                     "--cache-dir",
                     cacheDir.toString(),
-                    "--include-extensions",
-                    ".java",
                     "--output",
                     "files",
                     "--dry-run"

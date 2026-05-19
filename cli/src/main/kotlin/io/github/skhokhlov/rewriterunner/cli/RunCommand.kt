@@ -99,18 +99,14 @@ class RunCommand : Callable<Int> {
     var debugLogging: Boolean = false
 
     @Option(
-        names = ["--include-extensions"],
-        description = ["Comma-separated list of file extensions to include (e.g. .java,.kt)."],
+        names = ["--exclude-paths"],
+        description = [
+            "Comma-separated glob patterns of files to skip (e.g. '**/generated/**,**/*.md').",
+            "Forwarded to the OpenRewrite Gradle/Maven plugin and to the LST fallback pipeline."
+        ],
         split = ","
     )
-    var includeExtensions: List<String> = emptyList()
-
-    @Option(
-        names = ["--exclude-extensions"],
-        description = ["Comma-separated list of file extensions to exclude."],
-        split = ","
-    )
-    var excludeExtensions: List<String> = emptyList()
+    var excludePaths: List<String> = emptyList()
 
     @Option(
         names = ["--no-maven-central"],
@@ -175,8 +171,7 @@ class RunCommand : Callable<Int> {
                 .recipeArtifacts(recipeArtifacts)
                 .dryRun(dryRun)
                 .skipPluginRun(skipPluginRun)
-                .includeExtensions(includeExtensions)
-                .excludeExtensions(excludeExtensions)
+                .excludePaths(excludePaths)
                 .logger(logger)
             rewriteConfig?.let { builder.rewriteConfig(it) }
             cacheDir?.let { builder.cacheDir(it) }

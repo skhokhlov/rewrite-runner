@@ -8,6 +8,14 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 
+/**
+ * Gradle-side [PluginBuildStrategy] implementation.
+ *
+ * Forwards `excludePaths` to the upstream `rewrite-gradle-plugin` by emitting
+ * `exclusion("…")` lines inside the generated init script's `rewrite { }` block — the
+ * plugin does not expose `-P`-style overrides for exclusions, so the DSL is the only
+ * supported injection point. Each glob is escaped via [groovyString] before substitution.
+ */
 internal open class GradlePluginStrategy(
     private val logger: RunnerLogger,
     private val timeout: Duration,
@@ -21,7 +29,8 @@ internal open class GradlePluginStrategy(
         rewriteConfigContent: String?,
         dryRun: Boolean,
         includeMavenCentral: Boolean,
-        artifactRepositories: List<RepositoryConfig>
+        artifactRepositories: List<RepositoryConfig>,
+        excludePaths: List<String>
     ): PluginRunResult {
         val effectiveRewriteConfig =
             createRewriteConfigFile(rewriteConfigContent)
@@ -32,7 +41,8 @@ internal open class GradlePluginStrategy(
                 recipeArtifacts = recipeArtifacts,
                 rewriteConfig = effectiveRewriteConfig,
                 includeMavenCentral = includeMavenCentral,
-                repositories = artifactRepositories
+                repositories = artifactRepositories,
+                excludePaths = excludePaths
             )
         return try {
             DirectPluginExecutor(projectDir, dryRun, ::execute).run(
@@ -57,7 +67,8 @@ internal open class GradlePluginStrategy(
         recipeArtifacts: List<String>,
         rewriteConfig: Path?,
         includeMavenCentral: Boolean,
-        repositories: List<RepositoryConfig>
+        repositories: List<RepositoryConfig>,
+        excludePaths: List<String> = emptyList()
     ): Path {
         val initScript = createPrivateTempFile("rewrite-runner-plugin-", ".gradle")
         val text =
@@ -99,6 +110,9 @@ internal open class GradlePluginStrategy(
                     appendLine(
                         "        configFile = file(\"${it.toAbsolutePath().toString().groovyString()}\")"
                     )
+                }
+                excludePaths.forEach {
+                    appendLine("        exclusion(\"${it.groovyString()}\")")
                 }
                 appendLine("    }")
                 if (recipeArtifacts.isNotEmpty()) {
