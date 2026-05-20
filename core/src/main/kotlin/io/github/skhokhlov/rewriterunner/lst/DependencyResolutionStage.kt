@@ -8,6 +8,7 @@ import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleConfigData
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleProjectData
+import io.github.skhokhlov.rewriterunner.lst.utils.ProcessRunner
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import io.github.skhokhlov.rewriterunner.lst.utils.hasGradleBuildInSubdir
@@ -65,8 +66,15 @@ import org.eclipse.aether.resolution.ArtifactResolutionException
 open class DependencyResolutionStage(
     private val aetherContext: AetherContext,
     protected val logger: RunnerLogger,
-    private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT
+    private val processTimeout: Duration,
+    private val processRunner: ProcessRunner = ::runProcess
 ) {
+    constructor(
+        aetherContext: AetherContext,
+        logger: RunnerLogger,
+        processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT
+    ) : this(aetherContext, logger, processTimeout, ::runProcess)
+
     private val staticParser = StaticBuildFileParser(logger)
 
     /**
@@ -246,12 +254,13 @@ open class DependencyResolutionStage(
     protected open fun runMavenDependencyTreeOutput(projectDir: Path): String? {
         val mvnCmd = resolveMavenCommand(projectDir)
         val output = StringBuilder()
-        val result = runProcess(
+        val result = processRunner(
             projectDir,
             listOf(mvnCmd, "dependency:tree"),
-            captureStdout = output,
-            timeout = processTimeout,
-            logger = logger
+            output,
+            processTimeout,
+            "processTimeout",
+            logger
         ) ?: return null
         if (result != 0) {
             logger.warn("Maven dependency:tree failed with exit code $result")
@@ -334,7 +343,7 @@ open class DependencyResolutionStage(
         subprojects.mapTo(tasks) { "$it:dependencies" }
 
         val output = StringBuilder()
-        val result = runProcess(
+        val result = processRunner(
             projectDir,
             listOf(
                 gradleCmd,
@@ -344,9 +353,10 @@ open class DependencyResolutionStage(
                 "--no-daemon",
                 "--no-configuration-cache"
             ) + tasks,
-            captureStdout = output,
-            timeout = processTimeout,
-            logger = logger
+            output,
+            processTimeout,
+            "processTimeout",
+            logger
         ) ?: return null
 
         if (result != 0) {

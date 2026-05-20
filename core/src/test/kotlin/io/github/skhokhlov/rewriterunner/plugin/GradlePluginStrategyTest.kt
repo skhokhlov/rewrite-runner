@@ -425,23 +425,22 @@ class GradlePluginStrategyTest :
         }
 
         test("run honors configured plugin timeout") {
-            val gradlew = projectDir.resolve("gradlew").toFile()
-            gradlew.writeText(
-                """
-                #!/bin/sh
-                sleep 5
-                exit 0
-                """.trimIndent()
-            )
-            gradlew.setExecutable(true)
+            var observedCommand: List<String> = emptyList()
+            var observedTimeout: Duration? = null
+            var observedTimeoutName: String? = null
 
             val strategy =
                 GradlePluginStrategy(
                     NoOpRunnerLogger,
                     timeout = Duration.ofSeconds(1),
-                    ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+                    ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
+                    processRunner = { _, command, _, timeout, timeoutName, _ ->
+                        observedCommand = command
+                        observedTimeout = timeout
+                        observedTimeoutName = timeoutName
+                        null
+                    }
                 )
-            val start = System.currentTimeMillis()
             val result =
                 strategy.run(
                     projectDir = projectDir,
@@ -453,12 +452,10 @@ class GradlePluginStrategyTest :
                     includeMavenCentral = true,
                     artifactRepositories = emptyList()
                 )
-            val elapsed = System.currentTimeMillis() - start
 
             assertIs<PluginRunResult.Failed>(result)
-            assertTrue(
-                elapsed < 4_000,
-                "Configured 1s timeout should stop rewriteDryRun promptly, took ${elapsed}ms"
-            )
+            assertEquals(Duration.ofSeconds(1), observedTimeout)
+            assertEquals("pluginTimeout", observedTimeoutName)
+            assertTrue(observedCommand.contains("rewriteDryRun"))
         }
     })

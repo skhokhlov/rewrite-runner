@@ -1,4 +1,5 @@
 import org.gradle.api.attributes.Bundling
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
@@ -19,6 +20,16 @@ kotlin {
 tasks.withType<Test> {
     useJUnitPlatform()
     jvmArgs("-Xmx2g")
+    val defaultParallelForks =
+        providers.environmentVariable("CI")
+            .map { if (it == "true" && project.name == "core") "2" else "1" }
+            .orElse("1")
+    maxParallelForks =
+        providers.gradleProperty("${project.name}TestMaxParallelForks")
+            .orElse(providers.gradleProperty("testMaxParallelForks"))
+            .orElse(defaultParallelForks)
+            .map { it.toInt().coerceAtLeast(1) }
+            .get()
 }
 
 // Resolve ktlint CLI locally in each subproject to avoid cross-project configuration resolution
@@ -43,6 +54,25 @@ tasks.register<JavaExec>("ktlintCheck") {
     mainClass.set("com.pinterest.ktlint.Main")
     args("--reporter=plain", "src/**/*.kt")
     workingDir = projectDir
+
+    val kotlinSources = project.fileTree("src") {
+        include("**/*.kt")
+    }
+    inputs.files(kotlinSources)
+        .withPropertyName("kotlinSources")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.files(ktlintCli)
+        .withPropertyName("ktlintCliClasspath")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    val markerFile = layout.buildDirectory.file("reports/ktlint/ktlintCheck.marker")
+    outputs.file(markerFile)
+    outputs.cacheIf { true }
+    doLast {
+        markerFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText("ktlint passed\n")
+        }
+    }
 }
 
 // ktlintFormat — auto-fixes style violations in-place.

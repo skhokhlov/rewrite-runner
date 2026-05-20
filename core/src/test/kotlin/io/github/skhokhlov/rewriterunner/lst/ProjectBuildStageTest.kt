@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import kotlin.io.path.writeText
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -268,27 +269,28 @@ class ProjectBuildStageTest :
 
         test("extractClasspath honors configured process timeout") {
             projectDir.resolve("pom.xml").writeText("<project/>")
-            val mvnw = projectDir.resolve("mvnw").toFile()
-            mvnw.writeText(
-                """
-                #!/bin/sh
-                sleep 5
-                exit 0
-                """.trimIndent()
-            )
-            mvnw.setExecutable(true)
+
+            var observedCommand: List<String> = emptyList()
+            var observedTimeout: Duration? = null
+            var observedTimeoutName: String? = null
 
             val timedStage =
-                ProjectBuildStage(NoOpRunnerLogger, processTimeout = Duration.ofSeconds(1))
-            val start = System.currentTimeMillis()
+                ProjectBuildStage(
+                    NoOpRunnerLogger,
+                    processTimeout = Duration.ofSeconds(1),
+                    processRunner = { _, command, _, timeout, timeoutName, _ ->
+                        observedCommand = command
+                        observedTimeout = timeout
+                        observedTimeoutName = timeoutName
+                        null
+                    }
+                )
             val result = timedStage.extractClasspath(projectDir)
-            val elapsed = System.currentTimeMillis() - start
 
             assertNull(result, "Timed-out classpath extraction should fall through")
-            assertTrue(
-                elapsed < 4_000,
-                "Configured 1s timeout should stop the wrapper promptly, took ${elapsed}ms"
-            )
+            assertEquals(Duration.ofSeconds(1), observedTimeout)
+            assertEquals("processTimeout", observedTimeoutName)
+            assertTrue(observedCommand.contains("dependency:build-classpath"))
         }
     })
 

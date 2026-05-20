@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
+import io.github.skhokhlov.rewriterunner.lst.utils.ProcessRunner
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
@@ -55,8 +56,14 @@ import kotlin.io.path.exists
  */
 open class ProjectBuildStage(
     protected val logger: RunnerLogger,
-    private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT
+    private val processTimeout: Duration,
+    private val processRunner: ProcessRunner = ::runProcess
 ) {
+    constructor(
+        logger: RunnerLogger,
+        processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT
+    ) : this(logger, processTimeout, ::runProcess)
+
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.
      *
@@ -89,11 +96,13 @@ open class ProjectBuildStage(
                 "-Dmdep.outputFile=${outputFile.toAbsolutePath()}"
             )
             logger.debug("Stage 1: running ${mvnCommand.joinToString(" ")}")
-            val result = runProcess(
+            val result = processRunner(
                 projectDir,
                 mvnCommand,
-                timeout = processTimeout,
-                logger = logger
+                null,
+                processTimeout,
+                "processTimeout",
+                logger
             ) ?: return null
 
             if (result != 0) {
@@ -142,12 +151,13 @@ open class ProjectBuildStage(
             )
             logger.debug("Stage 1: running ${gradleCommand.joinToString(" ")}")
             val output = StringBuilder()
-            val result = runProcess(
+            val result = processRunner(
                 projectDir,
                 gradleCommand,
-                captureStdout = output,
-                timeout = processTimeout,
-                logger = logger
+                output,
+                processTimeout,
+                "processTimeout",
+                logger
             ) ?: return null
 
             if (result != 0) {
@@ -232,11 +242,13 @@ open class ProjectBuildStage(
     private fun runCompileTask(projectDir: Path, command: List<String>, toolName: String): Boolean =
         try {
             val result =
-                runProcess(
+                processRunner(
                     projectDir,
                     command,
-                    timeout = processTimeout,
-                    logger = logger
+                    null,
+                    processTimeout,
+                    "processTimeout",
+                    logger
                 ) ?: return false
             if (result == 0) {
                 logger.info("$toolName compilation succeeded")

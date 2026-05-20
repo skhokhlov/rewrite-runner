@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.plugin
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
+import io.github.skhokhlov.rewriterunner.lst.utils.ProcessRunner
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
 import java.nio.file.Files
@@ -19,8 +20,15 @@ import java.time.Duration
 internal open class GradlePluginStrategy(
     private val logger: RunnerLogger,
     private val timeout: Duration,
-    private val rewritePluginVersion: String
+    private val rewritePluginVersion: String,
+    private val processRunner: ProcessRunner = ::runProcess
 ) : PluginBuildStrategy {
+    constructor(
+        logger: RunnerLogger,
+        timeout: Duration,
+        rewritePluginVersion: String
+    ) : this(logger, timeout, rewritePluginVersion, ::runProcess)
+
     override fun run(
         projectDir: Path,
         activeRecipe: String,
@@ -159,13 +167,8 @@ internal open class GradlePluginStrategy(
         }
     }
 
-    open fun execute(projectDir: Path, command: List<String>): Int? = runProcess(
-        workDir = projectDir,
-        command = command,
-        timeout = timeout,
-        timeoutName = "pluginTimeout",
-        logger = logger
-    )
+    open fun execute(projectDir: Path, command: List<String>): Int? =
+        processRunner(projectDir, command, null, timeout, "pluginTimeout", logger)
 
     private fun buildCommand(projectDir: Path, task: String, initScript: Path): List<String> =
         listOf(
