@@ -3,23 +3,10 @@ package io.github.skhokhlov.rewriterunner.integration
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermission
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-
-private val isWindows = System.getProperty("os.name", "").lowercase().contains("windows")
-
-// Kotlin raw strings interpolate $identifier; embed a literal `$` for shell vars via `${d}`.
-private const val D = "$"
-
-private val posixExecutable =
-    setOf(
-        PosixFilePermission.OWNER_READ,
-        PosixFilePermission.OWNER_WRITE,
-        PosixFilePermission.OWNER_EXECUTE
-    )
 
 class PluginFirstIntegrationTest :
     FunSpec({
@@ -49,32 +36,12 @@ class PluginFirstIntegrationTest :
         }
 
         fun writeFakeGradlew() {
-            val gradlew = projectDir.resolve("gradlew")
-            gradlew.writeText(
-                """
-                #!/bin/sh
-                LOG="$D(cd "$D(dirname "${D}0")" && pwd)/wrapper-calls.log"
-                echo "${D}1" >> "${D}LOG"
-                if [ "${D}1" = "rewriteDryRun" ]; then
-                  mkdir -p build/reports/rewrite
-                  cat > build/reports/rewrite/rewrite.patch <<'PATCH'
-                diff --git a/src/App.java b/src/App.java
-                --- a/src/App.java
-                +++ b/src/App.java
-                @@ -1 +1 @@
-                -class App{}
-                +class App { }
-                PATCH
-                  exit 0
-                fi
-                if [ "${D}1" = "rewriteRun" ]; then
-                  printf 'class App { }\n' > src/App.java
-                  exit 0
-                fi
-                exit 1
-                """.trimIndent()
+            projectDir.writeFakeGradlew(
+                targetFile = "src/App.java",
+                oldLine = "class App{}",
+                newLine = "class App { }",
+                newContent = "class App { }\n"
             )
-            Files.setPosixFilePermissions(gradlew, posixExecutable)
         }
 
         // Fake `mvnw` that exercises the full RunCommand → MavenPluginStrategy →
