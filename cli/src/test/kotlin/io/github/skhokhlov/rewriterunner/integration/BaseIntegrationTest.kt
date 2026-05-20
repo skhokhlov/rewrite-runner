@@ -137,7 +137,7 @@ fun Path.writeFakeGradlew(
         exit 1
         """.trimIndent()
     )
-    Files.setPosixFilePermissions(gradlew, posixExecutable)
+    if (!isWindows) Files.setPosixFilePermissions(gradlew, posixExecutable)
 }
 
 /**
@@ -199,7 +199,7 @@ fun Path.writeFakeMvnwSimple(
         exit 1
         """.trimIndent()
     )
-    Files.setPosixFilePermissions(mvnw, posixExecutable)
+    if (!isWindows) Files.setPosixFilePermissions(mvnw, posixExecutable)
 }
 
 /** Retained for source compatibility; all helpers are now top-level functions. */
