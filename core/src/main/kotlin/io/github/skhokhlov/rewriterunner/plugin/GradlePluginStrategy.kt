@@ -45,7 +45,9 @@ internal open class GradlePluginStrategy(
                 excludePaths = excludePaths
             )
         return try {
-            DirectPluginExecutor(projectDir, dryRun, ::execute).run(
+            DirectPluginExecutor(projectDir, dryRun, { path, cmd ->
+                execute(path, cmd, timeout)
+            }).run(
                 DirectPluginInvocation(
                     dryRunCommand = buildCommand(projectDir, "rewriteDryRun", initScript),
                     applyCommand = buildCommand(projectDir, "rewriteRun", initScript),
@@ -159,7 +161,7 @@ internal open class GradlePluginStrategy(
         }
     }
 
-    open fun execute(projectDir: Path, command: List<String>): Int? = runProcess(
+    open fun execute(projectDir: Path, command: List<String>, timeout: Duration): Int? = runProcess(
         workDir = projectDir,
         command = command,
         timeout = timeout,

@@ -238,7 +238,11 @@ class GradlePluginStrategyTest :
                     timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration
+                    ): Int? {
                         commands.add(command)
                         if ("rewriteDryRun" in command) {
                             projectDir.resolve("build/reports/rewrite").createDirectories()
@@ -282,7 +286,11 @@ class GradlePluginStrategyTest :
                     timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration
+                    ): Int? {
                         commands.add(command)
                         if ("rewriteDryRun" in command) {
                             projectDir.resolve("module-a/build/reports/rewrite").createDirectories()
@@ -337,7 +345,11 @@ class GradlePluginStrategyTest :
                     timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? = 0
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration
+                    ): Int? = 0
                 }
 
             val result =
@@ -362,7 +374,11 @@ class GradlePluginStrategyTest :
                     timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? = null
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration
+                    ): Int? = null
                 }
 
             val result =
@@ -390,7 +406,11 @@ class GradlePluginStrategyTest :
                     timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration
+                    ): Int? {
                         if ("rewriteDryRun" in command) {
                             projectDir.resolve("build/reports/rewrite").createDirectories()
                             projectDir.resolve("build/reports/rewrite/rewrite.patch").writeText(
@@ -424,24 +444,25 @@ class GradlePluginStrategyTest :
             assertEquals(PluginRunResult.Failed("Gradle rewriteRun exited with 2"), result)
         }
 
-        test("run honors configured plugin timeout") {
-            val gradlew = projectDir.resolve("gradlew").toFile()
-            gradlew.writeText(
-                """
-                #!/bin/sh
-                sleep 5
-                exit 0
-                """.trimIndent()
-            )
-            gradlew.setExecutable(true)
-
+        test("run passes configured plugin timeout to execute") {
+            var capturedTimeout: Duration? = null
+            val configuredTimeout = Duration.ofSeconds(42)
             val strategy =
-                GradlePluginStrategy(
-                    NoOpRunnerLogger,
-                    timeout = Duration.ofSeconds(1),
-                    ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
-                )
-            val start = System.currentTimeMillis()
+                object : GradlePluginStrategy(
+                    logger = NoOpRunnerLogger,
+                    timeout = configuredTimeout,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration
+                    ): Int? {
+                        capturedTimeout = timeout
+                        return null
+                    }
+                }
+
             val result =
                 strategy.run(
                     projectDir = projectDir,
@@ -453,12 +474,11 @@ class GradlePluginStrategyTest :
                     includeMavenCentral = true,
                     artifactRepositories = emptyList()
                 )
-            val elapsed = System.currentTimeMillis() - start
 
-            assertIs<PluginRunResult.Failed>(result)
-            assertTrue(
-                elapsed < 4_000,
-                "Configured 1s timeout should stop rewriteDryRun promptly, took ${elapsed}ms"
+            assertEquals(configuredTimeout, capturedTimeout)
+            assertEquals(
+                PluginRunResult.Failed("Gradle rewriteDryRun did not start or timed out"),
+                result
             )
         }
     })
