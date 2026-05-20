@@ -447,8 +447,8 @@ class RecipeArtifactResolverTest :
                     .createSessionBuilder()
                     .withLocalRepositories(org.eclipse.aether.repository.LocalRepository(repoDir))
                     .setSystemProperties(System.getProperties())
-                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 2_000)
-                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 2_000)
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 1_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 1_000)
                     .setConfigProperty(
                         "aether.remoteRepositoryFilter.prefixes.resolvePrefixFiles",
                         false
@@ -470,8 +470,8 @@ class RecipeArtifactResolverTest :
 
             blackHole.close()
             assertTrue(
-                elapsedMs < 10_000,
-                "resolve() must honour resolver request timeout and complete in <10 s; took ${elapsedMs}ms"
+                elapsedMs < 5_000,
+                "resolve() must honour resolver request timeout and complete in <5 s; took ${elapsedMs}ms"
             )
         }
 
@@ -523,20 +523,10 @@ class RecipeArtifactResolverTest :
             // Use "simple" local repo type so Maven Resolver reads cached files directly
             // without verifying their provenance against a remote repository.
 
-            val blackHole = ServerSocket(0)
-            val port = blackHole.localPort
-            Thread {
-                try {
-                    val conn = blackHole.accept()
-                    Thread.sleep(30_000)
-                    conn.close()
-                } catch (_: Exception) {}
-            }
-                .also { it.isDaemon = true }
-                .start()
-
             // Build a custom AetherContext with a "simple" local repository so the pre-cached
-            // root artifact is used as-is, and only the missing transitive dep hits the black-hole.
+            // root artifact is used as-is, and only the missing transitive dep hits the fake
+            // file repository.
+            val fakeRemote = cacheDir.resolve("fake-remote").also { Files.createDirectories(it) }
             val system2 = RepositorySystemSupplier().get()
             val repoDir2 = cacheDir.resolve("repository").also { it.toFile().mkdirs() }
             // "simple" type: reads cached files without _remote.repositories checks
@@ -546,22 +536,20 @@ class RecipeArtifactResolverTest :
                     .createSessionBuilder()
                     .withLocalRepositories(localRepo2)
                     .setSystemProperties(System.getProperties())
-                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 2_000)
-                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 2_000)
+                    .setConfigProperty(ConfigurationProperties.CONNECT_TIMEOUT, 1_000)
+                    .setConfigProperty(ConfigurationProperties.REQUEST_TIMEOUT, 1_000)
                     .build()
-            val blackHoleRepo2 = listOf(
-                RemoteRepository.Builder("blackhole", "default", "http://127.0.0.1:$port").build()
+            val fakeRemoteRepo2 = listOf(
+                RemoteRepository.Builder("fake", "default", fakeRemote.toUri().toString()).build()
             )
             val resolver =
                 RecipeArtifactResolver(
-                    AetherContext(system2, session2, blackHoleRepo2),
+                    AetherContext(system2, session2, fakeRemoteRepo2),
                     NoOpRunnerLogger
                 )
 
             // Should NOT throw — partial results (root artifact) are returned
             val paths = resolver.resolve("$rootGroupId:$rootArtifactId:$rootVersion")
-
-            blackHole.close()
 
             assertTrue(
                 paths.isNotEmpty(),

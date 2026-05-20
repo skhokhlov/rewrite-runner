@@ -23,5 +23,4 @@ jobs:
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
 
       - name: Build and test
-        run: ./gradlew check shadowJar
-
+        run: ./gradlew check shadowJar --max-workers=3

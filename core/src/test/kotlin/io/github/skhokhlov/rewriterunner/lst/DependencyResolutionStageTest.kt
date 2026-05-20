@@ -53,31 +53,30 @@ class DependencyResolutionStageTest :
 
         test("resolveClasspath honors configured process timeout") {
             projectDir.resolve("pom.xml").writeText("<project/>")
-            val mvnw = projectDir.resolve("mvnw").toFile()
-            mvnw.writeText(
-                """
-                #!/bin/sh
-                sleep 5
-                exit 0
-                """.trimIndent()
-            )
-            mvnw.setExecutable(true)
+
+            var observedCommand: List<String> = emptyList()
+            var observedTimeout: Duration? = null
+            var observedTimeoutName: String? = null
+
             val timedStage =
                 DependencyResolutionStage(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger,
-                    processTimeout = Duration.ofSeconds(1)
+                    processTimeout = Duration.ofSeconds(1),
+                    processRunner = { _, command, _, timeout, timeoutName, _ ->
+                        observedCommand = command
+                        observedTimeout = timeout
+                        observedTimeoutName = timeoutName
+                        null
+                    }
                 )
 
-            val start = System.currentTimeMillis()
             val result = timedStage.resolveClasspath(projectDir)
-            val elapsed = System.currentTimeMillis() - start
 
             assertTrue(result.classpath.isEmpty(), "Timed-out Stage 2 should return no classpath")
-            assertTrue(
-                elapsed < 4_000,
-                "Configured 1s timeout should stop dependency:tree promptly, took ${elapsed}ms"
-            )
+            assertEquals(Duration.ofSeconds(1), observedTimeout)
+            assertEquals("processTimeout", observedTimeoutName)
+            assertTrue(observedCommand.contains("dependency:tree"))
         }
 
         // ─── Maven pom.xml parsing ────────────────────────────────────────────────

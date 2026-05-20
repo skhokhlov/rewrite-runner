@@ -6,7 +6,7 @@ Located in `buildSrc/src/main/kotlin/`. Applied via `plugins { id("...") }` in s
 
 | Plugin | Applied to | What it does |
 |--------|-----------|--------------|
-| `kotlin-convention` | `core`, `cli` | Kotlin JVM 21 toolchain, JUnit platform, `-Xmx2g` for tests, ktlint tasks (`ktlintCheck`/`ktlintFormat`), JaCoCo XML+HTML reports auto-run after test |
+| `kotlin-convention` | `core`, `cli` | Kotlin JVM 21 toolchain, JUnit platform, `-Xmx2g` for tests, CI test fork parallelism for `core`, ktlint tasks (`ktlintCheck`/`ktlintFormat`), JaCoCo XML+HTML reports auto-run after test |
 | `publishing-convention` | `core` | `maven-publish`, optional signing, Dokka sources/javadoc JARs, POM template |
 | `dokka-convention` | `core` | Dokka HTML docs generation |
 
@@ -53,8 +53,8 @@ Chosen for **Gradle 9.0.0 + JDK 25 compatibility**:
 ### Build workflow (`.github/workflows/build.yml`)
 Triggers on push/PR to `main`/`master`:
 1. Set up JDK 21 (Temurin)
-2. `./gradlew check shadowJar` (`check` = `ktlintCheck` + `test`)
-3. Upload fat JAR as build artifact
+2. `./gradlew check shadowJar --max-workers=3` (`check` = `ktlintCheck` + `test`)
+3. Build the fat JAR
 
 ### Publish workflow (`.github/workflows/publish.yml`)
 Triggers on `v*` tags — publishes `core` to Maven Central.

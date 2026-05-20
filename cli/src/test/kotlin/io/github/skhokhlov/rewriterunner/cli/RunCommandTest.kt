@@ -263,7 +263,9 @@ class RunCommandTest :
             val errBaos = ByteArrayOutputStream()
             val code = cli().setErr(PrintWriter(errBaos)).execute(
                 "--active-recipe",
-                "io.github.skhokhlov.rewriterunner.MyRecipe"
+                "io.github.skhokhlov.rewriterunner.MyRecipe",
+                "--include-extensions",
+                ".java"
             )
             assertNotEquals(0, code, "--include-extensions should no longer be recognised")
         }
@@ -272,7 +274,9 @@ class RunCommandTest :
             val errBaos = ByteArrayOutputStream()
             val code = cli().setErr(PrintWriter(errBaos)).execute(
                 "--active-recipe",
-                "io.github.skhokhlov.rewriterunner.MyRecipe"
+                "io.github.skhokhlov.rewriterunner.MyRecipe",
+                "--exclude-extensions",
+                ".md"
             )
             assertNotEquals(0, code, "--exclude-extensions should no longer be recognised")
         }

@@ -12,10 +12,13 @@ val tagVersion = System.getenv("GITHUB_REF")
     ?.takeIf { it.startsWith("refs/tags/") }
     ?.removePrefix("refs/tags/v")
 val gitDescribe = runCatching {
-    providers.exec { commandLine("git", "describe", "--tags", "--exact-match") }
+    providers.exec {
+        commandLine("git", "describe", "--tags", "--exact-match")
+        isIgnoreExitValue = true
+    }
         .standardOutput.asText.get().trim().removePrefix("v")
 }.getOrNull()
-val projectVersion = tagVersion ?: gitDescribe ?: "1.0-SNAPSHOT"
+val projectVersion = tagVersion ?: gitDescribe?.ifBlank { null } ?: "1.0-SNAPSHOT"
 
 allprojects {
     version = projectVersion
