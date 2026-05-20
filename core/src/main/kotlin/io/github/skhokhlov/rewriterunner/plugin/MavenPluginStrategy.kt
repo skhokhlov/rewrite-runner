@@ -13,10 +13,12 @@ import kotlin.io.path.exists
  * Maven-side [PluginBuildStrategy] implementation.
  *
  * Pins the plugin's patch output to a private temp directory via
- * `-Drewrite.reportOutputDirectory=<dir>`, sidestepping per-version default-path drift
- * (older docs say `target/site/rewrite/`, current plugin defaults to `target/rewrite/`).
- * Also pins `-Drewrite.runPerSubmodule=false` so user pom configuration cannot redirect
- * the plugin into per-submodule mode that would race/overwrite the shared output file.
+ * `-DreportOutputDirectory=<dir>` (note: the rewrite-maven-plugin's documented user property
+ * is unprefixed — `-Drewrite.reportOutputDirectory=` is silently ignored). This sidesteps
+ * per-version default-path drift (older docs say `target/site/rewrite/`, current plugin
+ * defaults to `target/rewrite/`). Also pins `-Drewrite.runPerSubmodule=false` so user pom
+ * configuration cannot redirect the plugin into per-submodule mode that would
+ * race/overwrite the shared output file.
  *
  * Forwards `excludePaths` to the upstream `rewrite-maven-plugin` via the
  * `-Drewrite.exclusions=<csv>` system property, joined into a comma-separated list of globs.
