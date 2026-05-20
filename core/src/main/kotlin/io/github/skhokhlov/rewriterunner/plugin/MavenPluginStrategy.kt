@@ -8,18 +8,18 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import kotlin.io.path.exists
-import kotlin.streams.toList
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader
-
-private const val FALLBACK_POM_DISCOVERY_DEPTH = 6
-private val MAVEN_PATCH_PATH: Path = Path.of("target/site/rewrite/rewrite.patch")
 
 /**
  * Maven-side [PluginBuildStrategy] implementation.
  *
+ * Pins the plugin's patch output to a private temp directory via
+ * `-Drewrite.reportOutputDirectory=<dir>`, sidestepping per-version default-path drift
+ * (older docs say `target/site/rewrite/`, current plugin defaults to `target/rewrite/`).
+ * Also pins `-Drewrite.runPerSubmodule=false` so user pom configuration cannot redirect
+ * the plugin into per-submodule mode that would race/overwrite the shared output file.
+ *
  * Forwards `excludePaths` to the upstream `rewrite-maven-plugin` via the
- * `-Drewrite.exclusions=<csv>` system property (the plugin's documented exclusion knob),
- * joined into a comma-separated list of globs.
+ * `-Drewrite.exclusions=<csv>` system property, joined into a comma-separated list of globs.
  */
 internal open class MavenPluginStrategy(
     private val logger: RunnerLogger,
@@ -40,6 +40,7 @@ internal open class MavenPluginStrategy(
         val effectiveRewriteConfig =
             createRewriteConfigFile(rewriteConfigContent)
                 ?: rewriteConfig
+        val reportDir = createPrivateTempDirectory("rewrite-runner-report-")
         return try {
             DirectPluginExecutor(projectDir, dryRun, ::execute).run(
                 DirectPluginInvocation(
@@ -49,6 +50,7 @@ internal open class MavenPluginStrategy(
                         activeRecipe = activeRecipe,
                         recipeArtifacts = recipeArtifacts,
                         rewriteConfig = effectiveRewriteConfig,
+                        reportOutputDirectory = reportDir,
                         excludePaths = excludePaths
                     ),
                     applyCommand = buildCommand(
@@ -57,14 +59,20 @@ internal open class MavenPluginStrategy(
                         activeRecipe = activeRecipe,
                         recipeArtifacts = recipeArtifacts,
                         rewriteConfig = effectiveRewriteConfig,
+                        reportOutputDirectory = reportDir,
                         excludePaths = excludePaths
                     ),
-                    patchFiles = { findPatchFiles(projectDir) },
+                    patchFiles = { findPatchFiles(projectDir, reportDir) },
                     dryRunFailureMessage = { pluginFailureMessage("Maven rewrite:dryRun", it) },
                     applyFailureMessage = { pluginFailureMessage("Maven rewrite:run", it) }
                 )
             )
         } finally {
+            try {
+                deleteRecursively(reportDir)
+            } catch (e: Exception) {
+                logger.warn("Maven plugin: failed to clean up report dir $reportDir: ${e.message}")
+            }
             if (rewriteConfigContent != null && effectiveRewriteConfig != null) {
                 Files.deleteIfExists(effectiveRewriteConfig)
             }
@@ -77,6 +85,7 @@ internal open class MavenPluginStrategy(
         activeRecipe: String,
         recipeArtifacts: List<String>,
         rewriteConfig: Path?,
+        reportOutputDirectory: Path,
         excludePaths: List<String> = emptyList()
     ): List<String> = buildList {
         add(resolveMavenCommand(projectDir))
@@ -88,6 +97,11 @@ internal open class MavenPluginStrategy(
                 "$rewritePluginVersion:$goal"
         )
         add("-Drewrite.activeRecipes=$activeRecipe")
+        add(
+            "-Drewrite.reportOutputDirectory=" +
+                reportOutputDirectory.toAbsolutePath().toString()
+        )
+        add("-Drewrite.runPerSubmodule=false")
         if (recipeArtifacts.isNotEmpty()) {
             add("-Drewrite.recipeArtifactCoordinates=${recipeArtifacts.joinToString(",")}")
         }
@@ -107,77 +121,9 @@ internal open class MavenPluginStrategy(
         logger = logger
     )
 
-    private fun findPatchFiles(projectDir: Path): List<DirectPluginPatchFile> =
-        discoverMavenRoots(projectDir).mapNotNull { moduleDir ->
-            val patchFile = moduleDir.resolve(MAVEN_PATCH_PATH)
-            if (!patchFile.exists()) return@mapNotNull null
-
-            DirectPluginPatchFile(
-                file = patchFile,
-                baseDir = moduleDir
-            )
-        }.sortedBy { it.file }
-
-    private fun discoverMavenRoots(projectDir: Path): List<Path> {
-        val projectRoot = projectDir.toAbsolutePath().normalize()
-        return if (projectRoot.resolve("pom.xml").exists()) {
-            val roots = linkedSetOf<Path>()
-            collectDeclaredMavenRoots(
-                projectRoot = projectRoot,
-                moduleDir = projectRoot,
-                found = roots
-            )
-            roots.toList()
-        } else {
-            discoverFallbackPomRoots(projectRoot)
-        }
-    }
-
-    private fun collectDeclaredMavenRoots(
-        projectRoot: Path,
-        moduleDir: Path,
-        found: MutableSet<Path>
-    ) {
-        val normalizedModule = moduleDir.toAbsolutePath().normalize()
-        if (!normalizedModule.startsWith(projectRoot)) return
-        if (!normalizedModule.resolve("pom.xml").exists()) return
-        if (!found.add(normalizedModule)) return
-
-        for (module in readDeclaredModules(normalizedModule)) {
-            if (module.isBlank()) continue
-            collectDeclaredMavenRoots(
-                projectRoot = projectRoot,
-                moduleDir = normalizedModule.resolve(module),
-                found = found
-            )
-        }
-    }
-
-    private fun readDeclaredModules(moduleDir: Path): List<String> = try {
-        Files.newInputStream(moduleDir.resolve("pom.xml")).use { input ->
-            MavenXpp3Reader().read(input).modules
-        }
-    } catch (e: Exception) {
-        logger.warn("Maven plugin: failed to parse modules in ${moduleDir.fileName}: ${e.message}")
-        emptyList()
-    }
-
-    private fun discoverFallbackPomRoots(projectRoot: Path): List<Path> = try {
-        Files.find(
-            projectRoot,
-            FALLBACK_POM_DISCOVERY_DEPTH,
-            { path, attributes ->
-                attributes.isRegularFile &&
-                    path.fileName.toString() == "pom.xml"
-            }
-        ).use { paths ->
-            paths.toList()
-                .map { it.parent.toAbsolutePath().normalize() }
-                .distinct()
-                .sorted()
-        }
-    } catch (e: Exception) {
-        logger.warn("Maven plugin: failed to walk for pom.xml files: ${e.message}")
-        emptyList()
+    private fun findPatchFiles(projectDir: Path, reportDir: Path): List<DirectPluginPatchFile> {
+        val patch = reportDir.resolve("rewrite.patch")
+        if (!patch.exists()) return emptyList()
+        return listOf(DirectPluginPatchFile(file = patch, baseDir = projectDir))
     }
 }
