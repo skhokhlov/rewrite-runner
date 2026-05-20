@@ -12,7 +12,11 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-private const val REPORT_OUTPUT_FLAG = "-Drewrite.reportOutputDirectory="
+// These must match the documented user-property names on the rewrite-maven-plugin mojos
+// (https://openrewrite.github.io/rewrite-maven-plugin/dryRun-mojo.html). They are pinned as
+// literal strings here — *not* shared with production code — so a typo in the production
+// flag fails this test rather than silently being ignored by Maven and skipping rewrite:run.
+private const val REPORT_OUTPUT_FLAG = "-DreportOutputDirectory="
 private const val RUN_PER_SUBMODULE_FLAG = "-Drewrite.runPerSubmodule=false"
 
 private fun extractReportDir(command: List<String>): Path? =

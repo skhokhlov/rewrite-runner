@@ -97,10 +97,11 @@ internal open class MavenPluginStrategy(
                 "$rewritePluginVersion:$goal"
         )
         add("-Drewrite.activeRecipes=$activeRecipe")
-        add(
-            "-Drewrite.reportOutputDirectory=" +
-                reportOutputDirectory.toAbsolutePath().toString()
-        )
+        // The rewrite-maven-plugin's documented user property for reportOutputDirectory is
+        // unprefixed (see https://openrewrite.github.io/rewrite-maven-plugin/dryRun-mojo.html);
+        // -Drewrite.reportOutputDirectory is silently ignored. runPerSubmodule, by contrast, is
+        // exposed as `rewrite.runPerSubmodule`.
+        add("-DreportOutputDirectory=${reportOutputDirectory.toAbsolutePath()}")
         add("-Drewrite.runPerSubmodule=false")
         if (recipeArtifacts.isNotEmpty()) {
             add("-Drewrite.recipeArtifactCoordinates=${recipeArtifacts.joinToString(",")}")
