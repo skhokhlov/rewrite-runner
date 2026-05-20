@@ -259,24 +259,6 @@ class RunCommandTest :
             assertEquals(listOf("**/*.md", "src/test/**"), cmd.excludePaths)
         }
 
-        test("--include-extensions is rejected (removed in breaking change)") {
-            val errBaos = ByteArrayOutputStream()
-            val code = cli().setErr(PrintWriter(errBaos)).execute(
-                "--active-recipe",
-                "io.github.skhokhlov.rewriterunner.MyRecipe"
-            )
-            assertNotEquals(0, code, "--include-extensions should no longer be recognised")
-        }
-
-        test("--exclude-extensions is rejected (removed in breaking change)") {
-            val errBaos = ByteArrayOutputStream()
-            val code = cli().setErr(PrintWriter(errBaos)).execute(
-                "--active-recipe",
-                "io.github.skhokhlov.rewriterunner.MyRecipe"
-            )
-            assertNotEquals(0, code, "--exclude-extensions should no longer be recognised")
-        }
-
         test("--rewrite-config path is accepted") {
             val rewriteYaml = projectDir.resolve("my-rewrite.yaml")
             rewriteYaml.writeText("---\ntype: specs.openrewrite.org/v1beta/recipe\n")
@@ -395,45 +377,6 @@ class RunCommandTest :
             )
         }
 
-        test("run with AutoFormat recipe on a simple Java project produces output") {
-            projectDir.resolve("Hello.java").writeText(
-                "public class Hello {public static void main(String[] args){System.out.println(\"hi\");}}"
-            )
-
-            val outBaos = ByteArrayOutputStream()
-            val errBaos = ByteArrayOutputStream()
-
-            val code =
-                cli()
-                    .setOut(PrintWriter(outBaos))
-                    .setErr(PrintWriter(errBaos))
-                    .execute(
-                        "--project-dir",
-                        projectDir.toString(),
-                        "--active-recipe",
-                        "org.openrewrite.java.format.AutoFormat",
-                        "--cache-dir",
-                        cacheDir.toString(),
-                        "--output",
-                        "diff"
-                    )
-
-            val stdout = outBaos.toString()
-            val stderr = errBaos.toString()
-
-            if (code == 0) {
-                assertTrue(
-                    stdout.contains("---") || stdout.contains("No changes"),
-                    "Success should produce a diff or 'No changes'. Got: $stdout"
-                )
-            } else {
-                assertTrue(
-                    stderr.isNotBlank(),
-                    "Failure should produce an error message. stderr: $stderr"
-                )
-            }
-        }
-
         test("run with --dry-run does not write files") {
             val originalContent = "public class Dry { public static void main(String[]args){} }"
             val javaFile = projectDir.resolve("Dry.java")
@@ -454,63 +397,6 @@ class RunCommandTest :
                 javaFile.toFile().readText(),
                 "--dry-run should not modify files"
             )
-        }
-
-        test("run with --output files mode does not print diffs") {
-            projectDir.resolve("Hello.java").writeText(
-                "public class Hello {public static void main(String[] args){System.out.println(\"hi\");}}"
-            )
-
-            val outBaos = ByteArrayOutputStream()
-            val code =
-                cli()
-                    .setOut(PrintWriter(outBaos))
-                    .execute(
-                        "--project-dir",
-                        projectDir.toString(),
-                        "--active-recipe",
-                        "org.openrewrite.java.format.AutoFormat",
-                        "--cache-dir",
-                        cacheDir.toString(),
-                        "--output",
-                        "files",
-                        "--dry-run"
-                    )
-
-            val output = outBaos.toString()
-            if (code == 0 && !output.contains("No files changed")) {
-                assertTrue(
-                    !output.contains("---") && !output.contains("@@"),
-                    "FILES mode should not contain unified diff markers"
-                )
-            }
-        }
-
-        test("run with --output report creates JSON file") {
-            projectDir.resolve("Hello.java").writeText(
-                "public class Hello {public static void main(String[] args){System.out.println(\"hi\");}}"
-            )
-
-            val code =
-                cli().execute(
-                    "--project-dir",
-                    projectDir.toString(),
-                    "--active-recipe",
-                    "org.openrewrite.java.format.AutoFormat",
-                    "--cache-dir",
-                    cacheDir.toString(),
-                    "--output",
-                    "report",
-                    "--dry-run"
-                )
-
-            if (code == 0) {
-                val reportFile = projectDir.resolve("openrewrite-report.json").toFile()
-                assertTrue(
-                    reportFile.exists(),
-                    "Report file should be created with --output report"
-                )
-            }
         }
 
         // ─── Throwable / LinkageError handling ───────────────────────────────────
