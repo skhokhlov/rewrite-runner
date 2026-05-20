@@ -12,6 +12,18 @@ internal fun createPrivateTempFile(prefix: String, suffix: String): Path =
         it.toFile().deleteOnExit()
     }
 
+internal fun createPrivateTempDirectory(prefix: String): Path =
+    Files.createTempDirectory(prefix, *privateTempDirectoryAttributes()).also {
+        it.toFile().deleteOnExit()
+    }
+
+internal fun deleteRecursively(path: Path) {
+    if (!Files.exists(path)) return
+    Files.walk(path).use { stream ->
+        stream.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
+    }
+}
+
 internal fun createRewriteConfigFile(content: String?): Path? {
     if (content == null) return null
     val configFile = createPrivateTempFile("rewrite-runner-config-", ".yml")
@@ -32,6 +44,21 @@ private fun privateTempFileAttributes(): Array<FileAttribute<*>> =
                 setOf(
                     PosixFilePermission.OWNER_READ,
                     PosixFilePermission.OWNER_WRITE
+                )
+            )
+        )
+    } else {
+        emptyArray()
+    }
+
+private fun privateTempDirectoryAttributes(): Array<FileAttribute<*>> =
+    if ("posix" in FileSystems.getDefault().supportedFileAttributeViews()) {
+        arrayOf<FileAttribute<*>>(
+            PosixFilePermissions.asFileAttribute(
+                setOf(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE,
+                    PosixFilePermission.OWNER_EXECUTE
                 )
             )
         )

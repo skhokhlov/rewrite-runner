@@ -5,11 +5,24 @@ import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+
+// These must match the documented user-property names on the rewrite-maven-plugin mojos
+// (https://openrewrite.github.io/rewrite-maven-plugin/dryRun-mojo.html). They are pinned as
+// literal strings here — *not* shared with production code — so a typo in the production
+// flag fails this test rather than silently being ignored by Maven and skipping rewrite:run.
+private const val REPORT_OUTPUT_FLAG = "-DreportOutputDirectory="
+private const val RUN_PER_SUBMODULE_FLAG = "-Drewrite.runPerSubmodule=false"
+
+private fun extractReportDir(command: List<String>): Path? =
+    command.firstOrNull { it.startsWith(REPORT_OUTPUT_FLAG) }
+        ?.removePrefix(REPORT_OUTPUT_FLAG)
+        ?.let(Path::of)
 
 class MavenPluginStrategyTest :
     FunSpec({
@@ -24,6 +37,7 @@ class MavenPluginStrategyTest :
 
         test("buildCommand includes active recipe, artifacts, and config location") {
             val config = Files.createTempFile("rewrite", ".yml")
+            val reportDir = Files.createTempDirectory("report-")
             val strategy =
                 MavenPluginStrategy(
                     NoOpRunnerLogger,
@@ -37,7 +51,8 @@ class MavenPluginStrategyTest :
                     goal = "dryRun",
                     activeRecipe = "com.example.Recipe",
                     recipeArtifacts = listOf("com.example:recipes:1.0.0", "com.example:more:2.0.0"),
-                    rewriteConfig = config
+                    rewriteConfig = config,
+                    reportOutputDirectory = reportDir
                 )
 
             assertEquals("mvn", command.first())
@@ -57,6 +72,7 @@ class MavenPluginStrategyTest :
         }
 
         test("buildCommand emits -Drewrite.exclusions when excludePaths non-empty") {
+            val reportDir = Files.createTempDirectory("report-")
             val strategy =
                 MavenPluginStrategy(
                     NoOpRunnerLogger,
@@ -71,6 +87,7 @@ class MavenPluginStrategyTest :
                     activeRecipe = "com.example.Recipe",
                     recipeArtifacts = emptyList(),
                     rewriteConfig = null,
+                    reportOutputDirectory = reportDir,
                     excludePaths = listOf("src/test/**")
                 )
 
@@ -78,6 +95,7 @@ class MavenPluginStrategyTest :
         }
 
         test("buildCommand omits -Drewrite.exclusions when excludePaths empty") {
+            val reportDir = Files.createTempDirectory("report-")
             val strategy =
                 MavenPluginStrategy(
                     NoOpRunnerLogger,
@@ -92,6 +110,7 @@ class MavenPluginStrategyTest :
                     activeRecipe = "com.example.Recipe",
                     recipeArtifacts = emptyList(),
                     rewriteConfig = null,
+                    reportOutputDirectory = reportDir,
                     excludePaths = emptyList()
                 )
 
@@ -99,6 +118,7 @@ class MavenPluginStrategyTest :
         }
 
         test("buildCommand joins multiple globs with comma") {
+            val reportDir = Files.createTempDirectory("report-")
             val strategy =
                 MavenPluginStrategy(
                     NoOpRunnerLogger,
@@ -113,6 +133,7 @@ class MavenPluginStrategyTest :
                     activeRecipe = "com.example.Recipe",
                     recipeArtifacts = emptyList(),
                     rewriteConfig = null,
+                    reportOutputDirectory = reportDir,
                     excludePaths = listOf("**/generated/**", "**/*.md", "src/test/**")
                 )
 
@@ -124,6 +145,7 @@ class MavenPluginStrategyTest :
         }
 
         test("buildCommand uses configured rewrite Maven plugin version") {
+            val reportDir = Files.createTempDirectory("report-")
             val strategy =
                 MavenPluginStrategy(
                     logger = NoOpRunnerLogger,
@@ -137,7 +159,8 @@ class MavenPluginStrategyTest :
                     goal = "dryRun",
                     activeRecipe = "com.example.Recipe",
                     recipeArtifacts = emptyList(),
-                    rewriteConfig = null
+                    rewriteConfig = null,
+                    reportOutputDirectory = reportDir
                 )
 
             assertTrue(
@@ -145,6 +168,57 @@ class MavenPluginStrategyTest :
                     "org.openrewrite.maven:rewrite-maven-plugin:" +
                         ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION + ":dryRun"
                 )
+            )
+        }
+
+        test("buildCommand pins reportOutputDirectory to an absolute path") {
+            val reportDir = Files.createTempDirectory("report-")
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            val command =
+                strategy.buildCommand(
+                    projectDir = projectDir,
+                    goal = "dryRun",
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    reportOutputDirectory = reportDir
+                )
+
+            val flag = command.firstOrNull { it.startsWith(REPORT_OUTPUT_FLAG) }
+            assertNotNull(flag, "expected $REPORT_OUTPUT_FLAG in $command")
+            val path = Path.of(flag.removePrefix(REPORT_OUTPUT_FLAG))
+            assertTrue(path.isAbsolute, "expected absolute path, got $path")
+            assertEquals(reportDir.toAbsolutePath(), path)
+        }
+
+        test("buildCommand pins runPerSubmodule=false to defend against user overrides") {
+            val reportDir = Files.createTempDirectory("report-")
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            val command =
+                strategy.buildCommand(
+                    projectDir = projectDir,
+                    goal = "dryRun",
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    reportOutputDirectory = reportDir
+                )
+
+            assertTrue(
+                command.contains(RUN_PER_SUBMODULE_FLAG),
+                "expected $RUN_PER_SUBMODULE_FLAG in $command"
             )
         }
 
@@ -173,7 +247,7 @@ class MavenPluginStrategyTest :
             assertIs<PluginRunResult.Failed>(result)
         }
 
-        test("run returns success without apply in dry-run mode") {
+        test("run picks up patch written to the configured reportOutputDirectory") {
             val commands = mutableListOf<List<String>>()
             val strategy =
                 object : MavenPluginStrategy(
@@ -183,8 +257,8 @@ class MavenPluginStrategyTest :
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
                         commands.add(command)
-                        projectDir.resolve("target/site/rewrite").createDirectories()
-                        projectDir.resolve("target/site/rewrite/rewrite.patch").writeText(
+                        val reportDir = extractReportDir(command)!!
+                        reportDir.resolve("rewrite.patch").writeText(
                             """
                             diff --git a/pom.xml b/pom.xml
                             --- a/pom.xml
@@ -216,7 +290,9 @@ class MavenPluginStrategyTest :
             assertEquals(setOf(Path.of("pom.xml")), result.diffs.keys)
         }
 
-        test("run detects patch files emitted by Maven submodules") {
+        test("run aggregates diffs across submodules from a single patch file") {
+            // Multi-module: parent declares modules, but the plugin (with runPerSubmodule=false)
+            // emits one aggregated patch at the configured reportOutputDirectory.
             projectDir.resolve("pom.xml").writeText(
                 """
                 <project>
@@ -227,23 +303,12 @@ class MavenPluginStrategyTest :
                   <packaging>pom</packaging>
                   <modules>
                     <module>module-a</module>
+                    <module>module-b</module>
                   </modules>
                 </project>
                 """.trimIndent()
             )
-            projectDir.resolve("module-a").createDirectories()
-            projectDir.resolve("module-a/pom.xml").writeText(
-                """
-                <project>
-                  <modelVersion>4.0.0</modelVersion>
-                  <groupId>com.example</groupId>
-                  <artifactId>module-a</artifactId>
-                  <version>1.0.0</version>
-                </project>
-                """.trimIndent()
-            )
 
-            val commands = mutableListOf<List<String>>()
             val strategy =
                 object : MavenPluginStrategy(
                     NoOpRunnerLogger,
@@ -251,21 +316,22 @@ class MavenPluginStrategyTest :
                     ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
-                        commands.add(command)
                         if (command.any { it.endsWith(":dryRun") }) {
-                            projectDir.resolve("module-a/target/site/rewrite").createDirectories()
-                            val patchFile =
-                                projectDir.resolve(
-                                    "module-a/target/site/rewrite/rewrite.patch"
-                                )
-                            patchFile.writeText(
+                            val reportDir = extractReportDir(command)!!
+                            reportDir.resolve("rewrite.patch").writeText(
                                 """
-                                diff --git a/src/main/java/A.java b/src/main/java/A.java
-                                --- a/src/main/java/A.java
-                                +++ b/src/main/java/A.java
+                                diff --git a/module-a/src/main/java/A.java b/module-a/src/main/java/A.java
+                                --- a/module-a/src/main/java/A.java
+                                +++ b/module-a/src/main/java/A.java
                                 @@ -1 +1 @@
                                 -class A {}
                                 +class A { }
+                                diff --git a/module-b/src/main/java/B.java b/module-b/src/main/java/B.java
+                                --- a/module-b/src/main/java/B.java
+                                +++ b/module-b/src/main/java/B.java
+                                @@ -1 +1 @@
+                                -class B {}
+                                +class B { }
                                 """.trimIndent()
                             )
                         }
@@ -286,19 +352,18 @@ class MavenPluginStrategyTest :
                 )
 
             assertIs<PluginRunResult.Success>(result)
-            assertEquals(2, commands.size)
             assertEquals(
-                listOf(projectDir.resolve("module-a/src/main/java/A.java")),
-                result.changedFiles
-            )
-            assertEquals(setOf(Path.of("module-a/src/main/java/A.java")), result.diffs.keys)
-            assertTrue(
-                result.diffs.getValue(Path.of("module-a/src/main/java/A.java"))
-                    .contains("diff --git a/module-a/src/main/java/A.java")
+                setOf(
+                    Path.of("module-a/src/main/java/A.java"),
+                    Path.of("module-b/src/main/java/B.java")
+                ),
+                result.diffs.keys
             )
         }
 
-        test("run ignores patch files outside declared Maven module roots") {
+        test("run surfaces submodule pom.xml diffs in the aggregated patch") {
+            // Pins that aggregated mode (runPerSubmodule=false) covers dependency-style recipe
+            // changes to submodule POMs, not just sources.
             projectDir.resolve("pom.xml").writeText(
                 """
                 <project>
@@ -309,18 +374,8 @@ class MavenPluginStrategyTest :
                   <packaging>pom</packaging>
                   <modules>
                     <module>module-a</module>
+                    <module>module-b</module>
                   </modules>
-                </project>
-                """.trimIndent()
-            )
-            projectDir.resolve("module-a").createDirectories()
-            projectDir.resolve("module-a/pom.xml").writeText(
-                """
-                <project>
-                  <modelVersion>4.0.0</modelVersion>
-                  <groupId>com.example</groupId>
-                  <artifactId>module-a</artifactId>
-                  <version>1.0.0</version>
                 </project>
                 """.trimIndent()
             )
@@ -333,35 +388,23 @@ class MavenPluginStrategyTest :
                 ) {
                     override fun execute(projectDir: Path, command: List<String>): Int? {
                         if (command.any { it.endsWith(":dryRun") }) {
-                            projectDir.resolve("module-a/target/site/rewrite").createDirectories()
-                            projectDir.resolve("module-a/target/site/rewrite/rewrite.patch")
-                                .writeText(
-                                    """
-                                    diff --git a/src/main/java/A.java b/src/main/java/A.java
-                                    --- a/src/main/java/A.java
-                                    +++ b/src/main/java/A.java
-                                    @@ -1 +1 @@
-                                    -class A {}
-                                    +class A { }
-                                    """.trimIndent()
-                                )
-
-                            projectDir.resolve("untracked/deep/module-b/target/site/rewrite")
-                                .createDirectories()
-                            projectDir
-                                .resolve(
-                                    "untracked/deep/module-b/target/site/rewrite/rewrite.patch"
-                                )
-                                .writeText(
-                                    """
-                                    diff --git a/src/main/java/Rogue.java b/src/main/java/Rogue.java
-                                    --- a/src/main/java/Rogue.java
-                                    +++ b/src/main/java/Rogue.java
-                                    @@ -1 +1 @@
-                                    -class Rogue {}
-                                    +class Rogue { }
-                                    """.trimIndent()
-                                )
+                            val reportDir = extractReportDir(command)!!
+                            reportDir.resolve("rewrite.patch").writeText(
+                                """
+                                diff --git a/module-a/pom.xml b/module-a/pom.xml
+                                --- a/module-a/pom.xml
+                                +++ b/module-a/pom.xml
+                                @@ -1 +1 @@
+                                -<project/>
+                                +<project></project>
+                                diff --git a/module-b/pom.xml b/module-b/pom.xml
+                                --- a/module-b/pom.xml
+                                +++ b/module-b/pom.xml
+                                @@ -1 +1 @@
+                                -<project/>
+                                +<project></project>
+                                """.trimIndent()
+                            )
                         }
                         return 0
                     }
@@ -380,10 +423,98 @@ class MavenPluginStrategyTest :
                 )
 
             assertIs<PluginRunResult.Success>(result)
-            assertEquals(setOf(Path.of("module-a/src/main/java/A.java")), result.diffs.keys)
             assertEquals(
-                listOf(projectDir.resolve("module-a/src/main/java/A.java")),
-                result.changedFiles
+                setOf(Path.of("module-a/pom.xml"), Path.of("module-b/pom.xml")),
+                result.diffs.keys
             )
+        }
+
+        test("run returns NoChanges when the report directory contains no patch") {
+            val strategy =
+                object : MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                ) {
+                    override fun execute(projectDir: Path, command: List<String>): Int? = 0
+                }
+
+            val result =
+                strategy.run(
+                    projectDir = projectDir,
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    rewriteConfigContent = null,
+                    dryRun = true,
+                    includeMavenCentral = true,
+                    artifactRepositories = emptyList()
+                )
+
+            assertIs<PluginRunResult.NoChanges>(result)
+        }
+
+        test("run deletes the temp report directory after success") {
+            val capturedReportDirs = mutableListOf<Path>()
+            val strategy =
+                object : MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                ) {
+                    override fun execute(projectDir: Path, command: List<String>): Int? {
+                        extractReportDir(command)?.let(capturedReportDirs::add)
+                        return 0
+                    }
+                }
+
+            strategy.run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = true,
+                includeMavenCentral = true,
+                artifactRepositories = emptyList()
+            )
+
+            assertTrue(capturedReportDirs.isNotEmpty(), "expected at least one report dir captured")
+            capturedReportDirs.forEach { dir ->
+                assertTrue(!dir.exists(), "expected temp report dir $dir to be cleaned up")
+            }
+        }
+
+        test("run deletes the temp report directory after failure") {
+            val capturedReportDirs = mutableListOf<Path>()
+            val strategy =
+                object : MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                ) {
+                    override fun execute(projectDir: Path, command: List<String>): Int {
+                        extractReportDir(command)?.let(capturedReportDirs::add)
+                        return 1
+                    }
+                }
+
+            val result =
+                strategy.run(
+                    projectDir = projectDir,
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    rewriteConfigContent = null,
+                    dryRun = true,
+                    includeMavenCentral = true,
+                    artifactRepositories = emptyList()
+                )
+
+            assertIs<PluginRunResult.Failed>(result)
+            assertTrue(capturedReportDirs.isNotEmpty(), "expected at least one report dir captured")
+            capturedReportDirs.forEach { dir ->
+                assertTrue(!dir.exists(), "expected temp report dir $dir to be cleaned up")
+            }
         }
     })
