@@ -202,5 +202,18 @@ fun Path.writeFakeMvnwSimple(
     if (!isWindows) Files.setPosixFilePermissions(mvnw, posixExecutable)
 }
 
+/**
+ * Writes a minimal wrapper script (gradlew or mvnw) that exits 1 for every invocation.
+ *
+ * Used in stage-1 failure tests where the build tool must be present but must not produce
+ * any classpath output, forcing the LST pipeline to fall through to later stages.
+ * Uses [File.setExecutable] which works on all platforms (unlike POSIX permissions).
+ */
+fun Path.writeFakeExitOneWrapper(name: String) {
+    val script = resolve(name).toFile()
+    script.writeText("#!/bin/sh\nexit 1\n")
+    script.setExecutable(true)
+}
+
 /** Retained for source compatibility; all helpers are now top-level functions. */
 abstract class BaseIntegrationTest

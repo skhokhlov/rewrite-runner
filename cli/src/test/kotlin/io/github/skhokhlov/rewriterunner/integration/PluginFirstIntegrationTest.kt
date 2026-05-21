@@ -35,15 +35,6 @@ class PluginFirstIntegrationTest :
             projectDir.resolve("src/App.java").writeText("class App{}\n")
         }
 
-        fun writeFakeGradlew() {
-            projectDir.writeFakeGradlew(
-                targetFile = "src/App.java",
-                oldLine = "class App{}",
-                newLine = "class App { }",
-                newContent = "class App { }\n"
-            )
-        }
-
         // Fake `mvnw` that exercises the full RunCommand → MavenPluginStrategy →
         // DirectPluginExecutor wiring without invoking real Maven.
         //
@@ -138,7 +129,12 @@ class PluginFirstIntegrationTest :
             "plugin-first Gradle path formats raw diffs and applies changes"
         ).config(enabled = !isWindows) {
             setUpGradleProject()
-            writeFakeGradlew()
+            projectDir.writeFakeGradlew(
+                "src/App.java",
+                "class App{}",
+                "class App { }",
+                "class App { }\n"
+            )
 
             // The fake wrapper validates plugin-first orchestration and raw-diff formatting.
             // Init script content is covered by GradlePluginStrategyTest.
@@ -166,7 +162,12 @@ class PluginFirstIntegrationTest :
 
         test("--skip-plugin-run bypasses fake plugin path").config(enabled = !isWindows) {
             setUpGradleProject()
-            writeFakeGradlew()
+            projectDir.writeFakeGradlew(
+                "src/App.java",
+                "class App{}",
+                "class App { }",
+                "class App { }\n"
+            )
 
             val result =
                 runCli(
