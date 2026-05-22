@@ -13,6 +13,6 @@ object ToolConfigDefaults {
     val ARTIFACT_RESOLVER_CONNECT_TIMEOUT: Duration = Duration.ofSeconds(30)
     val ARTIFACT_RESOLVER_REQUEST_TIMEOUT: Duration = Duration.ofSeconds(60)
 
-    const val REWRITE_GRADLE_PLUGIN_VERSION: String = "7.32.1"
-    const val REWRITE_MAVEN_PLUGIN_VERSION: String = "6.38.0"
+    val REWRITE_GRADLE_PLUGIN_VERSION: String = BuildPluginVersions.REWRITE_GRADLE_PLUGIN_VERSION
+    val REWRITE_MAVEN_PLUGIN_VERSION: String = BuildPluginVersions.REWRITE_MAVEN_PLUGIN_VERSION
 }

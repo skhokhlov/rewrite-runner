@@ -126,6 +126,7 @@ cli/src/
 - `LstBuilder` delegates to `FileCollector` (file walk/filtering), `VersionDetector` (Java/Kotlin version detection), `GradleDslClasspathResolver` (Gradle installation lookup), and `MarkerFactory` (provenance/build-tool markers). These are internal helpers instantiated inside `LstBuilder`'s constructor body.
 - `LstBuilder.parseGradleVersionFromWrapper` and `LstBuilder.resolveGradleDslClasspath` are `internal` thin delegations to `VersionDetector` / `GradleDslClasspathResolver` preserved for test backward compatibility.
 - Parsers requiring external runtimes (Python via RPC, JavaScript/TypeScript via Node.js, C# via .NET) are **not** included — they need out-of-process services
+- Upstream `rewrite-gradle-plugin` and `rewrite-maven-plugin` versions live in `gradle/libs.versions.toml` (`rewrite-gradle-plugin`, `rewrite-maven-plugin` keys). The `generatePluginVersions` task in `core/build.gradle.kts` emits a generated `BuildPluginVersions` object that `ToolConfigDefaults.REWRITE_*_PLUGIN_VERSION` reads from. Bump in the TOML — never edit the generated file.
 
 ## Logging
 
