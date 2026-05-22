@@ -23,34 +23,38 @@ class PluginFirstIntegrationTest :
             cacheDir.toFile().deleteRecursively()
         }
 
-        fun setUpGradleProject() {
-            projectDir.resolve("build.gradle.kts").writeText("")
-            projectDir.resolve("src").toFile().mkdirs()
-            projectDir.resolve("src/App.java").writeText("class App{}\n")
+        // Installs a fake gradlew whose before/after content is derived from the scenario.
+        // Assumes exactly one entry in scenario.expectedAfterFiles (single-file scenarios only).
+        fun setupFakeGradlew(scenario: PluginScenario) {
+            scenario.setUpProject(projectDir)
+            val (relPath, afterContent) = scenario.expectedAfterFiles.entries.single()
+            val beforeContent = projectDir.resolve(relPath).readText()
+            projectDir.writeFakeGradlew(
+                targetFile = relPath,
+                oldLine = beforeContent.trimEnd('\n'),
+                newLine = afterContent.trimEnd('\n'),
+                newContent = afterContent
+            )
         }
 
-        fun setUpMavenProject() {
-            projectDir.resolve("pom.xml").writeText("<project/>")
-            projectDir.resolve("src").toFile().mkdirs()
-            projectDir.resolve("src/App.java").writeText("class App{}\n")
+        // Installs a simple fake mvnw (no flag protocol validation) derived from the scenario.
+        // Assumes exactly one entry in scenario.expectedAfterFiles (single-file scenarios only).
+        fun setupFakeMvnwSimple(scenario: PluginScenario) {
+            scenario.setUpProject(projectDir)
+            val (relPath, afterContent) = scenario.expectedAfterFiles.entries.single()
+            val beforeContent = projectDir.resolve(relPath).readText()
+            projectDir.writeFakeMvnwSimple(
+                targetFile = relPath,
+                oldLine = beforeContent.trimEnd('\n'),
+                newLine = afterContent.trimEnd('\n'),
+                newContent = afterContent
+            )
         }
 
-        // Fake `mvnw` that exercises the full RunCommand → MavenPluginStrategy →
-        // DirectPluginExecutor wiring without invoking real Maven.
-        //
-        // The script:
-        //   1. detects the plugin goal (suffix `:dryRun` or `:run`),
-        //   2. extracts `-DreportOutputDirectory=<dir>`,
-        //   3. fails fast (exit 2) if the prefixed `-Drewrite.reportOutputDirectory=`
-        //      shows up, if the unprefixed flag is missing, or if
-        //      `-Drewrite.runPerSubmodule=false` is missing,
-        //   4. appends the goal to `wrapper-calls.log` for ordering assertions,
-        //   5. on `:dryRun` writes a rewrite.patch into the report directory,
-        //   6. on `:run` mutates `src/App.java`.
-        //
-        // Validation uses literal documented flag strings (not constants shared with
-        // production) so a typo in MavenPluginStrategy is a true regression here.
-        fun writeFakeMvnw() {
+        // Full protocol-validation fake mvnw, kept for the "flag protocol" test below.
+        // Validates that MavenPluginStrategy sends the unprefixed -DreportOutputDirectory=
+        // flag (not -Drewrite.reportOutputDirectory=) and -Drewrite.runPerSubmodule=false.
+        fun writeFakeMvnwWithProtocolChecks() {
             val mvnw = projectDir.resolve("mvnw")
             mvnw.writeText(
                 """
@@ -128,22 +132,14 @@ class PluginFirstIntegrationTest :
         test(
             "plugin-first Gradle path formats raw diffs and applies changes"
         ).config(enabled = !isWindows) {
-            setUpGradleProject()
-            projectDir.writeFakeGradlew(
-                "src/App.java",
-                "class App{}",
-                "class App { }",
-                "class App { }\n"
-            )
+            setupFakeGradlew(PluginScenarios.gradleSingleFile)
 
-            // The fake wrapper validates plugin-first orchestration and raw-diff formatting.
-            // Init script content is covered by GradlePluginStrategyTest.
             val result =
                 runCli(
                     "--project-dir",
                     projectDir.toString(),
                     "--active-recipe",
-                    "com.example.Recipe",
+                    PluginScenarios.gradleSingleFile.activeRecipe,
                     "--cache-dir",
                     cacheDir.toString(),
                     "--output",
@@ -151,8 +147,11 @@ class PluginFirstIntegrationTest :
                 )
 
             assertEquals(0, result.exitCode)
-            assertEquals("src/App.java", result.stdout.trim())
-            assertEquals("class App { }\n", projectDir.resolve("src/App.java").toFile().readText())
+            assertEquals("src/main/java/App.java", result.stdout.trim())
+            assertEquals(
+                PluginScenarios.gradleSingleFile.expectedAfterFiles["src/main/java/App.java"],
+                projectDir.resolve("src/main/java/App.java").toFile().readText()
+            )
             // Ordering: dry-run must precede apply, and apply must run exactly once.
             assertEquals(
                 "rewriteDryRun\nrewriteRun\n",
@@ -160,13 +159,18 @@ class PluginFirstIntegrationTest :
             )
         }
 
+        // This test specifically tests CLI bypass behavior, not recipe execution.
+        // It intentionally sets up a project WITHOUT a rewrite.yaml so the LST pipeline
+        // cannot find `com.example.Recipe`, producing a non-zero exit code.
         test("--skip-plugin-run bypasses fake plugin path").config(enabled = !isWindows) {
-            setUpGradleProject()
+            projectDir.resolve("build.gradle.kts").writeText("")
+            projectDir.resolve("src").toFile().mkdirs()
+            projectDir.resolve("src/App.java").writeText("class App{}\n")
             projectDir.writeFakeGradlew(
-                "src/App.java",
-                "class App{}",
-                "class App { }",
-                "class App { }\n"
+                targetFile = "src/App.java",
+                oldLine = "class App{}",
+                newLine = "class App { }",
+                newContent = "class App { }\n"
             )
 
             val result =
@@ -187,19 +191,14 @@ class PluginFirstIntegrationTest :
         test(
             "plugin-first Maven path applies patch via reportOutputDirectory and mutates source"
         ).config(enabled = !isWindows) {
-            setUpMavenProject()
-            writeFakeMvnw()
+            setupFakeMvnwSimple(PluginScenarios.mavenSingleFile)
 
-            // End-to-end: drives the real RunCommand → RewriteRunner → PluginRecipeRunner →
-            // MavenPluginStrategy → DirectPluginExecutor path. The wrapper writes a patch only
-            // when the unprefixed -DreportOutputDirectory= is present, so a regression to
-            // -Drewrite.reportOutputDirectory= in production would make this test fail.
             val result =
                 runCli(
                     "--project-dir",
                     projectDir.toString(),
                     "--active-recipe",
-                    "com.example.Recipe",
+                    PluginScenarios.mavenSingleFile.activeRecipe,
                     "--cache-dir",
                     cacheDir.toString(),
                     "--output",
@@ -207,10 +206,10 @@ class PluginFirstIntegrationTest :
                 )
 
             assertEquals(0, result.exitCode, "stderr=${result.stderr}\nstdout=${result.stdout}")
-            assertEquals("src/App.java", result.stdout.trim())
+            assertEquals("src/main/java/App.java", result.stdout.trim())
             assertEquals(
-                "class App { }\n",
-                projectDir.resolve("src/App.java").toFile().readText()
+                PluginScenarios.mavenSingleFile.expectedAfterFiles["src/main/java/App.java"],
+                projectDir.resolve("src/main/java/App.java").toFile().readText()
             )
             // Order: dryRun discovers the patch, then run applies it. Exactly one of each.
             assertEquals(
@@ -222,15 +221,14 @@ class PluginFirstIntegrationTest :
         test(
             "plugin-first Maven dry-run produces diff without invoking rewrite:run"
         ).config(enabled = !isWindows) {
-            setUpMavenProject()
-            writeFakeMvnw()
+            setupFakeMvnwSimple(PluginScenarios.mavenSingleFile)
 
             val result =
                 runCli(
                     "--project-dir",
                     projectDir.toString(),
                     "--active-recipe",
-                    "com.example.Recipe",
+                    PluginScenarios.mavenSingleFile.activeRecipe,
                     "--cache-dir",
                     cacheDir.toString(),
                     "--dry-run",
@@ -240,7 +238,10 @@ class PluginFirstIntegrationTest :
 
             assertEquals(0, result.exitCode, "stderr=${result.stderr}\nstdout=${result.stdout}")
             // Source must be untouched on dry-run.
-            assertEquals("class App{}\n", projectDir.resolve("src/App.java").toFile().readText())
+            assertEquals(
+                "class App{}\n",
+                projectDir.resolve("src/main/java/App.java").toFile().readText()
+            )
             assertTrue(
                 "-class App{}" in result.stdout && "+class App { }" in result.stdout,
                 "expected dry-run diff in stdout, got:\n${result.stdout}"
@@ -248,6 +249,37 @@ class PluginFirstIntegrationTest :
             // rewrite:run must not be invoked under --dry-run.
             assertEquals(
                 "dryRun\n",
+                projectDir.resolve("wrapper-calls.log").readText()
+            )
+        }
+
+        // Validates that MavenPluginStrategy sends the correct flag format to the Maven wrapper:
+        // - unprefixed `-DreportOutputDirectory=` (not `-Drewrite.reportOutputDirectory=`)
+        // - `-Drewrite.runPerSubmodule=false`
+        // A regression to the wrong flag format causes the fake wrapper to exit 2 here.
+        test(
+            "maven fake-wrapper flag protocol: unprefixed -DreportOutputDirectory and runPerSubmodule=false"
+        ).config(enabled = !isWindows) {
+            PluginScenarios.mavenSingleFile.setUpProject(projectDir)
+            writeFakeMvnwWithProtocolChecks()
+
+            val result =
+                runCli(
+                    "--project-dir",
+                    projectDir.toString(),
+                    "--active-recipe",
+                    PluginScenarios.mavenSingleFile.activeRecipe,
+                    "--cache-dir",
+                    cacheDir.toString(),
+                    "--output",
+                    "files"
+                )
+
+            assertEquals(0, result.exitCode, "stderr=${result.stderr}\nstdout=${result.stdout}")
+            assertEquals("src/App.java", result.stdout.trim())
+            // Ordering: dryRun must precede run, and run must run exactly once.
+            assertEquals(
+                "dryRun\nrun\n",
                 projectDir.resolve("wrapper-calls.log").readText()
             )
         }

@@ -51,10 +51,20 @@ Chosen for **Gradle 9.0.0 + JDK 25 compatibility**:
 ## CI/CD
 
 ### Build workflow (`.github/workflows/build.yml`)
-Triggers on push/PR to `main`/`master`:
+Triggers on push/PR to `main`/`master`.
+
+**`build` job** (fast lane):
 1. Set up JDK 21 (Temurin)
-2. `./gradlew check shadowJar` (`check` = `ktlintCheck` + `test`)
+2. `./gradlew check shadowJar` (`check` = `ktlintCheck` + `test`; `PluginRealExecutionIntegrationTest` is filtered out by class-name pattern)
 3. Upload fat JAR as build artifact
+
+**`plugin-real` job** (real-plugin lane, runs after `build` passes):
+1. Set up JDK 21 (Temurin)
+2. Cache `~/.m2/repository` and `cli/build/test-cache/toolchains/` (the toolchain cache key embeds `hashFiles('gradle/wrapper/gradle-wrapper.properties')` so bumping the wrapper auto-evicts the stale Gradle distribution)
+3. `./gradlew :cli:testRealPlugin --info` — runs only `PluginRealExecutionIntegrationTest` against the live OpenRewrite Maven/Gradle plugins
+4. Timeout: 25 minutes (covers first-run downloads from Maven Central)
+
+The `plugin-real` job failure is visible on the PR check list but does not block the fast `build` signal.
 
 ### Publish workflow (`.github/workflows/publish.yml`)
 Triggers on `v*` tags — publishes `core` to Maven Central.

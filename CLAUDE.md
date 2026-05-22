@@ -127,6 +127,7 @@ cli/src/
 - `LstBuilder.parseGradleVersionFromWrapper` and `LstBuilder.resolveGradleDslClasspath` are `internal` thin delegations to `VersionDetector` / `GradleDslClasspathResolver` preserved for test backward compatibility.
 - Parsers requiring external runtimes (Python via RPC, JavaScript/TypeScript via Node.js, C# via .NET) are **not** included — they need out-of-process services
 - Upstream `rewrite-gradle-plugin` and `rewrite-maven-plugin` versions live in `gradle/libs.versions.toml` (`rewrite-gradle-plugin`, `rewrite-maven-plugin` keys). The `generatePluginVersions` task in `core/build.gradle.kts` emits a generated `BuildPluginVersions` object that `ToolConfigDefaults.REWRITE_*_PLUGIN_VERSION` reads from. Bump in the TOML — never edit the generated file.
+- Stage 0 plugin execution is covered both by fake-wrapper tests (`PluginFirstIntegrationTest`, default test lane) and real-wrapper tests (`PluginRealExecutionIntegrationTest`, `testRealPlugin` task, runs in the `plugin-real` CI job). The two lanes are partitioned by Gradle `Test.filter` class-name pattern, not by Kotest tags. The real-wrapper suite calls `RewriteRunner` directly and asserts `executionDiagnostics.stageUsed == UsedExecutionStage.PLUGIN` so an accidental LST-fallback success cannot mask a Stage 0 regression. The Gradle distribution under test tracks the project's own `gradle-wrapper.properties` (forwarded via `-Drewriterunner.test.gradleVersion`). See [`docs/testing.md`](docs/testing.md) for the two-tier strategy.
 
 ## Logging
 
