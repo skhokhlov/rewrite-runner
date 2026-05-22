@@ -4,26 +4,26 @@ plugins {
     id("kotlin-convention")
     id("publishing-convention")
     id("dokka-convention")
-    id("com.gradleup.shadow")
+    alias(libs.plugins.shadow)
 }
 
 dependencies {
     implementation(project(":core"))
 
     // CLI framework
-    implementation("info.picocli:picocli:4.7.7")
-    annotationProcessor("info.picocli:picocli-codegen:4.7.7")
+    implementation(libs.picocli)
+    annotationProcessor(libs.picocli.codegen)
 
     // SLF4J backend for the CLI fat JAR
-    implementation("ch.qos.logback:logback-classic:1.5.32")
+    implementation(libs.logback.classic)
 
     // Tests
     testImplementation(project(":core"))
-    testImplementation("io.kotest:kotest-runner-junit5:6.1.11")
+    testImplementation(libs.kotest.runner.junit5)
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     // OpenRewrite needed in test scope for integration tests (Result, SourceFile, etc.)
-    testImplementation(platform("org.openrewrite.recipe:rewrite-recipe-bom:3.30.1"))
+    testImplementation(platform(libs.rewrite.recipe.bom))
     testImplementation("org.openrewrite:rewrite-core")
 }
 

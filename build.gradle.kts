@@ -2,7 +2,7 @@ import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
 
 plugins {
     kotlin("jvm") apply false
-    id("com.gradleup.shadow") apply false
+    alias(libs.plugins.shadow) apply false
     id("org.jetbrains.dokka") // applied at root for multi-module HTML aggregation
     id("dokka-convention")
 }
