@@ -3,23 +3,10 @@ package io.github.skhokhlov.rewriterunner.integration
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermission
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-
-private val isWindows = System.getProperty("os.name", "").lowercase().contains("windows")
-
-// Kotlin raw strings interpolate $identifier; embed a literal `$` for shell vars via `${d}`.
-private const val D = "$"
-
-private val posixExecutable =
-    setOf(
-        PosixFilePermission.OWNER_READ,
-        PosixFilePermission.OWNER_WRITE,
-        PosixFilePermission.OWNER_EXECUTE
-    )
 
 class PluginFirstIntegrationTest :
     FunSpec({
@@ -46,35 +33,6 @@ class PluginFirstIntegrationTest :
             projectDir.resolve("pom.xml").writeText("<project/>")
             projectDir.resolve("src").toFile().mkdirs()
             projectDir.resolve("src/App.java").writeText("class App{}\n")
-        }
-
-        fun writeFakeGradlew() {
-            val gradlew = projectDir.resolve("gradlew")
-            gradlew.writeText(
-                """
-                #!/bin/sh
-                LOG="$D(cd "$D(dirname "${D}0")" && pwd)/wrapper-calls.log"
-                echo "${D}1" >> "${D}LOG"
-                if [ "${D}1" = "rewriteDryRun" ]; then
-                  mkdir -p build/reports/rewrite
-                  cat > build/reports/rewrite/rewrite.patch <<'PATCH'
-                diff --git a/src/App.java b/src/App.java
-                --- a/src/App.java
-                +++ b/src/App.java
-                @@ -1 +1 @@
-                -class App{}
-                +class App { }
-                PATCH
-                  exit 0
-                fi
-                if [ "${D}1" = "rewriteRun" ]; then
-                  printf 'class App { }\n' > src/App.java
-                  exit 0
-                fi
-                exit 1
-                """.trimIndent()
-            )
-            Files.setPosixFilePermissions(gradlew, posixExecutable)
         }
 
         // Fake `mvnw` that exercises the full RunCommand → MavenPluginStrategy →
@@ -171,7 +129,12 @@ class PluginFirstIntegrationTest :
             "plugin-first Gradle path formats raw diffs and applies changes"
         ).config(enabled = !isWindows) {
             setUpGradleProject()
-            writeFakeGradlew()
+            projectDir.writeFakeGradlew(
+                "src/App.java",
+                "class App{}",
+                "class App { }",
+                "class App { }\n"
+            )
 
             // The fake wrapper validates plugin-first orchestration and raw-diff formatting.
             // Init script content is covered by GradlePluginStrategyTest.
@@ -199,7 +162,12 @@ class PluginFirstIntegrationTest :
 
         test("--skip-plugin-run bypasses fake plugin path").config(enabled = !isWindows) {
             setUpGradleProject()
-            writeFakeGradlew()
+            projectDir.writeFakeGradlew(
+                "src/App.java",
+                "class App{}",
+                "class App { }",
+                "class App { }\n"
+            )
 
             val result =
                 runCli(

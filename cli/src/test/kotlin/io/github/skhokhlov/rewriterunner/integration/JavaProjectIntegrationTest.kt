@@ -334,9 +334,7 @@ class JavaProjectIntegrationTest :
             projectDir.resolve("Hello.java").writeText(unformattedClass)
 
             // Fake gradlew exits non-zero → Stage 1 returns null → pipeline falls through
-            val gradlew = projectDir.resolve("gradlew").toFile()
-            gradlew.writeText("#!/bin/sh\nexit 1\n")
-            gradlew.setExecutable(true)
+            projectDir.writeFakeExitOneWrapper("gradlew")
 
             val result = runCli(
                 "--project-dir",
@@ -367,9 +365,7 @@ class JavaProjectIntegrationTest :
             projectDir.resolve("Hello.java").writeText(unformattedClass)
 
             // Fake mvnw exits non-zero → Stage 1 returns null → pipeline falls through
-            val mvnw = projectDir.resolve("mvnw").toFile()
-            mvnw.writeText("#!/bin/sh\nexit 1\n")
-            mvnw.setExecutable(true)
+            projectDir.writeFakeExitOneWrapper("mvnw")
 
             val result = runCli(
                 "--project-dir",
