@@ -110,14 +110,30 @@ cli/src/test/kotlin/.../
     └── MultiLanguageProjectIntegrationTest.kt
 ```
 
+## Test Lanes
+
+Tests are split into three lanes by Gradle `Test.filter` class-name pattern. Each lane has a dedicated CI job; in CI they run sequentially so a failure shows up at the right stage.
+
+| Lane | Gradle task | Scope | When |
+|------|-------------|-------|------|
+| Unit | `:core:test`, `:cli:test` | `core` module + `RunCommandTest`; excludes `*IntegrationTest` | `check` lifecycle, CI job 1 |
+| Integration (fake wrappers) | `:cli:testIntegration` | All `*IntegrationTest` classes **except** `PluginRealExecutionIntegrationTest`; offline-safe | CI job 2 |
+| Integration (real plugins) | `:cli:testRealPlugin` | `PluginRealExecutionIntegrationTest` only; downloads Maven/Gradle distributions and pulls live plugin artifacts from Maven Central | CI job 3 |
+
+`:cli:check` does **not** depend on `:cli:testIntegration` or `:cli:testRealPlugin` — those are explicit. Run `./gradlew check :cli:testIntegration` for a full offline verification before pushing; add `:cli:testRealPlugin` for the live-plugin pass.
+
+Class-name conventions:
+- Every integration test class name ends with `IntegrationTest` (enforced by `failOnNoMatchingTests = true` on `testIntegration` / `testRealPlugin`).
+- Add a new offline integration test by simply creating an `*IntegrationTest` class under `cli/src/test/kotlin/.../integration/`.
+
 ## Stage 0 Plugin Tests
 
 Stage 0 (plugin-first execution) is covered by two complementary test tiers:
 
-| Tier | Class | How | When |
+| Tier | Class | How | Lane |
 |------|-------|-----|------|
-| Fake-wrapper (fast) | `PluginFirstIntegrationTest` | Shell scripts simulate plugin output | Default `test` lane |
-| Real-wrapper (slow) | `PluginRealExecutionIntegrationTest` | Real Maven/Gradle distributions downloaded by `ToolchainCache` | `testRealPlugin` task, `plugin-real` CI job |
+| Fake-wrapper (fast) | `PluginFirstIntegrationTest` | Shell scripts simulate plugin output | `:cli:testIntegration` |
+| Real-wrapper (slow) | `PluginRealExecutionIntegrationTest` | Real Maven/Gradle distributions downloaded by `ToolchainCache` | `:cli:testRealPlugin` |
 
 The fake-wrapper tier gives fast feedback on orchestration logic and CLI flag wiring. The real-wrapper tier verifies that the pinned plugin versions actually exist on Maven Central, that the generated Gradle init-script DSL is accepted by the live plugin (including Gradle 9 compatibility, exercised via the version pulled from the project's `gradle-wrapper.properties`), and that `PatchParser` can parse the real plugin's output for both single-project and multi-module builds.
 
@@ -127,13 +143,16 @@ The fake-wrapper tier gives fast feedback on orchestration logic and CLI flag wi
 
 **Scenario shape** — both tiers consume `PluginScenario` objects from `PluginScenarios.kt`. Each scenario defines the project layout, recipe, and expected outcomes so a layout change is a one-place edit.
 
-**Task partitioning** — the default `:cli:test` task and `:cli:testRealPlugin` task share one source set; Gradle `Test.filter` selects which class runs in each lane (`PluginRealExecutionIntegrationTest` is excluded by class-name pattern from the default lane and included by the real-plugin task). There is no Kotest tag involved.
+**Task partitioning** — all three test tasks share one source set; Gradle `Test.filter` selects which class runs in each lane (see the Test Lanes table above). There is no Kotest tag involved.
 
 **Running locally:**
 
 ```bash
-# Fast lane (excludes PluginRealExecutionIntegrationTest by class name):
+# Unit only (fast):
 ./gradlew :cli:test
+
+# Full offline verification (unit + fake-wrapper integration):
+./gradlew check :cli:testIntegration
 
 # Real-plugin lane (downloads toolchains + plugins on first run; ~5 min warm):
 ./gradlew :cli:testRealPlugin

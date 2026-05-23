@@ -36,14 +36,18 @@ tasks.shadowJar {
     }
 }
 
-// Real-plugin integration tests live in the same source set as the rest of the test code
-// (they share BaseIntegrationTest helpers) but are partitioned by Gradle Test class-name
-// filtering rather than by Kotest tags. The split is deliberate:
-//  - the default `test` task EXCLUDES PluginRealExecutionIntegrationTest so the lane stays
-//    fast and offline-safe;
-//  - `testRealPlugin` INCLUDES ONLY that class, downloads Maven/Gradle on demand, and runs
-//    against the live OpenRewrite plugin artifacts on Maven Central.
-private val testRealPluginClassPattern = "*PluginRealExecutionIntegrationTest*"
+// Test partitioning. All test code lives in one source set (shares BaseIntegrationTest helpers
+// and `ToolchainCache`); the three lanes are split by Gradle `Test.filter` class-name patterns
+// rather than by Kotest tags. The split mirrors the three CI jobs:
+//
+//   :cli:test           → unit-only (RunCommandTest et al.; excludes *IntegrationTest)
+//   :cli:testIntegration → fake-wrapper integration suite; offline-safe, no network needed
+//   :cli:testRealPlugin → real OpenRewrite Maven/Gradle plugins from Maven Central
+//
+// Integration tests follow the `*IntegrationTest` class-name convention (enforced by the
+// `failOnNoMatchingTests` flags below — a typo would surface immediately).
+private val integrationClassPattern = "*IntegrationTest"
+private val realPluginClassPattern = "*PluginRealExecutionIntegrationTest"
 
 // Pin the Gradle distribution used by real-plugin tests to the same version the repo itself
 // uses (see gradle/wrapper/gradle-wrapper.properties). Read eagerly at configuration time so a
@@ -57,16 +61,34 @@ private val realPluginGradleVersion: String = run {
         ?: error("Could not parse Gradle version from $wrapperProps")
 }
 
+// `:cli:test` runs unit tests only. Integration suites are dedicated tasks so CI can sequence
+// the three lanes (unit → fake-wrapper → real-plugin) and surface failures at the right stage.
 tasks.named<Test>("test") {
     filter {
-        excludeTestsMatching(testRealPluginClassPattern)
+        excludeTestsMatching(integrationClassPattern)
         isFailOnNoMatchingTests = false
     }
 }
 
-// Dedicated task that runs ONLY the real-plugin integration suite. First run downloads the
-// Maven/Gradle distributions and OpenRewrite plugins from Maven Central; subsequent runs are
-// cache hits. Expected runtime: <5 min warm, <15 min cold.
+// Fake-wrapper integration tests: per-language LST coverage + Stage 0 plugin-orchestration
+// tests that drive fake `gradlew`/`mvnw` shell scripts. Fully offline; no toolchain downloads.
+tasks.register<Test>("testIntegration") {
+    group = "verification"
+    description = "Runs integration tests with fake build-tool wrappers (offline-safe)."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching(integrationClassPattern)
+        excludeTestsMatching(realPluginClassPattern)
+        isFailOnNoMatchingTests = true
+    }
+    shouldRunAfter(tasks.named("test"))
+}
+
+// Real-plugin integration tests: download Maven/Gradle distributions on first run and execute
+// against the live OpenRewrite plugin artifacts from Maven Central. Expected runtime: <5 min
+// warm, <15 min cold.
 tasks.register<Test>("testRealPlugin") {
     group = "verification"
     description = "Runs Stage 0 tests against the real OpenRewrite Maven/Gradle plugins."
@@ -74,10 +96,11 @@ tasks.register<Test>("testRealPlugin") {
     classpath = sourceSets["test"].runtimeClasspath
     useJUnitPlatform()
     filter {
-        includeTestsMatching(testRealPluginClassPattern)
+        includeTestsMatching(realPluginClassPattern)
         isFailOnNoMatchingTests = true
     }
     // Bridge the Gradle version from the wrapper into the test JVM so ToolchainCache picks it up.
     systemProperty("rewriterunner.test.gradleVersion", realPluginGradleVersion)
     timeout.set(Duration.ofMinutes(20))
+    shouldRunAfter(tasks.named("testIntegration"))
 }
