@@ -260,7 +260,22 @@ class PluginFirstIntegrationTest :
         test(
             "maven fake-wrapper flag protocol: unprefixed -DreportOutputDirectory and runPerSubmodule=false"
         ).config(enabled = !isWindows) {
-            PluginScenarios.mavenSingleFile.setUpProject(projectDir)
+            // This test only exercises the Maven flag protocol and call ordering; the fake
+            // wrapper emits a hard-coded patch for `src/App.java`, so the layout is just the
+            // minimal pom + source the assertions below reference (no shared scenario needed).
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>test</artifactId>
+                  <version>1.0-SNAPSHOT</version>
+                </project>
+                """.trimIndent()
+            )
+            projectDir.resolve("src").toFile().mkdirs()
+            projectDir.resolve("src/App.java").writeText("class App{}\n")
             writeFakeMvnwWithProtocolChecks()
 
             val result =
@@ -268,7 +283,7 @@ class PluginFirstIntegrationTest :
                     "--project-dir",
                     projectDir.toString(),
                     "--active-recipe",
-                    PluginScenarios.mavenSingleFile.activeRecipe,
+                    "com.example.integration.FindAndReplace",
                     "--cache-dir",
                     cacheDir.toString(),
                     "--output",

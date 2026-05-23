@@ -31,6 +31,10 @@ import kotlin.io.path.exists
 object ToolchainCache {
     const val MAVEN_VERSION = "3.9.9"
 
+    private const val CONNECT_TIMEOUT_MS = 15_000
+    private const val READ_TIMEOUT_MS = 60_000
+    private const val DOWNLOAD_ATTEMPTS = 3
+
     /** Gradle distribution version used by real-plugin tests; sourced from the project wrapper. */
     val gradleVersion: String by lazy { resolveGradleVersion() }
 
@@ -112,7 +116,12 @@ object ToolchainCache {
                 val archivePath = cacheDir.resolve(archiveName)
                 downloadIfNeeded(archivePath, url)
                 extractZip(archivePath, cacheDir)
-                Files.createFile(markerFile)
+                Files.newOutputStream(
+                    markerFile,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING
+                ).close()
             }
         }
         return extractedDir
@@ -122,26 +131,45 @@ object ToolchainCache {
         if (target.exists() && isValidZip(target)) return
         Files.deleteIfExists(target)
         val tmp = target.parent.resolve("${target.fileName}.tmp")
-        try {
-            URL(url).openStream().use { input ->
-                Files.copy(input, tmp, StandardCopyOption.REPLACE_EXISTING)
+        var lastError: Exception? = null
+        for (attempt in 1..DOWNLOAD_ATTEMPTS) {
+            try {
+                val conn = URL(url).openConnection().apply {
+                    connectTimeout = CONNECT_TIMEOUT_MS
+                    readTimeout = READ_TIMEOUT_MS
+                }
+                conn.getInputStream().use { input ->
+                    Files.copy(input, tmp, StandardCopyOption.REPLACE_EXISTING)
+                }
+                if (!isValidZip(tmp)) {
+                    throw IOException("Downloaded archive is not a valid ZIP: $url")
+                }
+                Files.move(
+                    tmp,
+                    target,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+                )
+                return
+            } catch (e: Exception) {
+                Files.deleteIfExists(tmp)
+                lastError = e
+                if (attempt < DOWNLOAD_ATTEMPTS) {
+                    Thread.sleep(1_000L * (1L shl (attempt - 1)))
+                }
             }
-            if (!isValidZip(tmp)) throw IOException("Downloaded archive is not a valid ZIP: $url")
-            Files.move(
-                tmp,
-                target,
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-            )
-        } catch (e: Exception) {
-            Files.deleteIfExists(tmp)
-            throw e
         }
+        throw IOException(
+            "Failed to download $url after $DOWNLOAD_ATTEMPTS attempts",
+            lastError
+        )
     }
 
+    // A truncated download can still open as a ZipFile but yields zero entries; a real
+    // distribution archive always has at least one. Opening without throwing plus a
+    // non-empty entry count is the actual validity signal.
     private fun isValidZip(path: Path): Boolean = try {
-        ZipFile(path.toFile()).use { it.size() >= 0 }
-        true
+        ZipFile(path.toFile()).use { it.size() > 0 }
     } catch (_: ZipException) {
         false
     } catch (_: IOException) {

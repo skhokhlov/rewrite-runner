@@ -147,8 +147,9 @@ fun Path.writeFakeGradlew(
  * extracts `-DreportOutputDirectory=<dir>`, and on `dryRun` writes a unified-diff patch there;
  * on `run` overwrites [targetFile] with [newContent].
  *
- * Does **not** validate Maven flag details — see `PluginFirstIntegrationTest.writeFakeMvnw` for
- * that level of protocol verification.
+ * Does **not** validate Maven flag details — see
+ * `PluginFirstIntegrationTest.writeFakeMvnwWithProtocolChecks` for that level of protocol
+ * verification.
  */
 fun Path.writeFakeMvnwSimple(
     targetFile: String,
