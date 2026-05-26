@@ -7,7 +7,8 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build:
+  unit:
+    name: Unit tests
     runs-on: ubuntu-latest
 
     steps:
@@ -22,6 +23,63 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
 
-      - name: Build and test
+      - name: Unit tests + lint + fat JAR
         run: ./gradlew check shadowJar
 
+  integration-fake:
+    name: Integration tests (fake wrappers)
+    runs-on: ubuntu-latest
+    needs: unit
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+
+      - name: Fake-wrapper integration tests
+        run: ./gradlew :cli:testIntegration
+
+  plugin-real:
+    name: Integration tests (real plugins)
+    runs-on: ubuntu-latest
+    needs: integration-fake
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+
+      - name: Cache Maven local repository
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: maven-${{ runner.os }}-
+
+      - name: Cache test toolchains (Maven/Gradle distributions)
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+        with:
+          # The Gradle distribution version baked into this cache is determined by the project's
+          # own gradle-wrapper.properties. The hashFiles entry below ensures bumping the wrapper
+          # automatically evicts a stale cached distribution.
+          path: cli/build/test-cache/toolchains
+          key: toolchains-${{ runner.os }}-v4-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: toolchains-${{ runner.os }}-v4-
+
+      - name: Real-plugin integration tests
+        run: ./gradlew :cli:testRealPlugin --info
+        timeout-minutes: 25

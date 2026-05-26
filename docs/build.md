@@ -51,10 +51,24 @@ Chosen for **Gradle 9.0.0 + JDK 25 compatibility**:
 ## CI/CD
 
 ### Build workflow (`.github/workflows/build.yml`)
-Triggers on push/PR to `main`/`master`:
+Triggers on push/PR to `main`/`master`. Three sequential jobs gate on each other so each failure surfaces at the right lane.
+
+**`unit` job** (fast lane):
 1. Set up JDK 21 (Temurin)
-2. `./gradlew check shadowJar` (`check` = `ktlintCheck` + `test`)
-3. Upload fat JAR as build artifact
+2. `./gradlew check shadowJar` (`check` = `ktlintCheck` + `test`; `test` excludes everything matching `*IntegrationTest`)
+3. Fat JAR is produced as a build artifact of the same command
+
+**`integration-fake` job** (offline integration lane, needs `unit`):
+1. Set up JDK 21 (Temurin)
+2. `./gradlew :cli:testIntegration` — runs every `*IntegrationTest` except `PluginRealExecutionIntegrationTest`, including the per-language LST integration tests and the fake-wrapper Stage 0 suite. No network calls; no toolchain downloads.
+
+**`plugin-real` job** (real-plugin lane, needs `integration-fake`):
+1. Set up JDK 21 (Temurin)
+2. Cache `~/.m2/repository` and `cli/build/test-cache/toolchains/` (the toolchain cache key embeds `hashFiles('gradle/wrapper/gradle-wrapper.properties')` so bumping the wrapper auto-evicts the stale Gradle distribution)
+3. `./gradlew :cli:testRealPlugin --info` — runs only `PluginRealExecutionIntegrationTest` against the live OpenRewrite Maven/Gradle plugins
+4. Timeout: 25 minutes (covers first-run downloads from Maven Central)
+
+Because the jobs chain via `needs:`, an early failure short-circuits the later lanes: a unit-test regression never spends CI minutes downloading Gradle/Maven distributions.
 
 ### Publish workflow (`.github/workflows/publish.yml`)
 Triggers on `v*` tags — publishes `core` to Maven Central.
