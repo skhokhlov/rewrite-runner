@@ -34,6 +34,9 @@ class DependencyResolutionStageResolveClasspathTest :
             cacheDir.toFile().deleteRecursively()
         }
 
+        fun mkdir(relative: String): Path =
+            projectDir.resolve(relative).also { Files.createDirectories(it) }
+
         // ─── resolveClasspath routing ─────────────────────────────────────────────
 
         test("resolveClasspath returns empty list when no build file is present") {
@@ -365,6 +368,104 @@ class DependencyResolutionStageResolveClasspathTest :
             stage.resolveClasspath(projectDir)
             assertTrue(mavenCalled, "Maven subprocess should be attempted for mixed project")
             assertTrue(gradleCalled, "Gradle subprocess should be attempted for mixed project")
+        }
+
+        test("resolveClasspath aggregates Maven coordinates from root-less build units") {
+            val api = mkdir("services/api")
+            api.resolve("pom.xml").writeText("<project/>")
+            val worker = mkdir("services/worker")
+            worker.resolve("pom.xml").writeText("<project/>")
+
+            val calledDirs = mutableListOf<Path>()
+            var resolvedCoordinates = emptyList<String>()
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                ) {
+                    override fun runMavenDependencyTreeOutput(projectDir: Path): String {
+                        calledDirs.add(projectDir)
+                        val artifact = projectDir.fileName.toString()
+                        return "[INFO] +- org.example:$artifact:jar:1.0.0:compile\n"
+                    }
+
+                    override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
+                        resolvedCoordinates = coordinates
+                        return emptyList()
+                    }
+                }
+
+            stage.resolveClasspath(projectDir)
+
+            assertEquals(setOf(api, worker), calledDirs.toSet())
+            assertEquals(
+                setOf("org.example:api:1.0.0", "org.example:worker:1.0.0"),
+                resolvedCoordinates.toSet()
+            )
+        }
+
+        test("resolveClasspath merges Gradle project data from root-less build units") {
+            val api = mkdir("services/api")
+            api.resolve("build.gradle.kts").writeText("")
+            val worker = mkdir("services/worker")
+            worker.resolve("build.gradle.kts").writeText("")
+
+            val calledDirs = mutableListOf<Path>()
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                ) {
+                    override fun runGradleDependenciesRawOutput(projectDir: Path): String {
+                        calledDirs.add(projectDir)
+                        val artifact = projectDir.fileName.toString()
+                        return """
+                            > Task :dependencies
+                            compileClasspath - Compile classpath for source set 'main'.
+                            +--- org.example:$artifact:1.0.0
+                        """.trimIndent()
+                    }
+
+                    override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> =
+                        emptyList()
+                }
+
+            val result = stage.resolveClasspath(projectDir)
+
+            assertEquals(setOf(api, worker), calledDirs.toSet())
+            assertEquals(
+                setOf(":services:api", ":services:worker"),
+                result.gradleProjectData?.keys
+            )
+        }
+
+        test("collectGradleProjectData runs dependencies in each root-less Gradle unit") {
+            val api = mkdir("services/api")
+            api.resolve("build.gradle.kts").writeText("")
+            val worker = mkdir("services/worker")
+            worker.resolve("build.gradle.kts").writeText("")
+
+            val calledDirs = mutableListOf<Path>()
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                ) {
+                    override fun runGradleDependenciesRawOutput(projectDir: Path): String {
+                        calledDirs.add(projectDir)
+                        val artifact = projectDir.fileName.toString()
+                        return """
+                            > Task :dependencies
+                            compileClasspath - Compile classpath for source set 'main'.
+                            +--- org.example:$artifact:1.0.0
+                        """.trimIndent()
+                    }
+                }
+
+            val result = stage.collectGradleProjectData(projectDir)
+
+            assertEquals(setOf(api, worker), calledDirs.toSet())
+            assertEquals(setOf(":services:api", ":services:worker"), result?.keys)
         }
 
         // ─── Extra repositories (buildRemoteRepos coverage) ───────────────────────

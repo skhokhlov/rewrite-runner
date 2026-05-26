@@ -6,6 +6,7 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.util.jar.JarOutputStream
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -53,6 +54,50 @@ class RewriteRunnerTest :
                 .dryRun(dryRun)
                 .build()
                 .run()
+        }
+
+        fun writeEmptyJar(path: Path) {
+            Files.createDirectories(path.parent)
+            JarOutputStream(Files.newOutputStream(path)).use { }
+        }
+
+        fun writeModulePom(moduleDir: Path, artifactId: String) {
+            moduleDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>$artifactId</artifactId>
+                  <version>1.0.0</version>
+                </project>
+                """.trimIndent()
+            )
+        }
+
+        fun writeClasspathMvnw(moduleDir: Path, jar: Path, callLog: Path) {
+            val mvnw = moduleDir.resolve("mvnw").toFile()
+            mvnw.writeText(
+                """
+                #!/bin/sh
+                if [ "${'$'}1" = "compile" ]; then
+                  echo "compile:${'$'}(pwd)" >> "${callLog.toAbsolutePath()}"
+                  mkdir -p target/classes
+                  exit 0
+                fi
+                if [ "${'$'}1" = "dependency:build-classpath" ]; then
+                  echo "classpath:${'$'}(pwd)" >> "${callLog.toAbsolutePath()}"
+                  for arg in "${'$'}@"; do
+                    case "${'$'}arg" in
+                      -Dmdep.outputFile=*) output="${'$'}{arg#-Dmdep.outputFile=}" ;;
+                    esac
+                  done
+                  printf "%s" "${jar.toAbsolutePath()}" > "${'$'}output"
+                  exit 0
+                fi
+                exit 1
+                """.trimIndent()
+            )
+            mvnw.setExecutable(true)
         }
 
         // ─── File deletion ────────────────────────────────────────────────────────
@@ -173,6 +218,45 @@ class RewriteRunnerTest :
                 completedMarker.exists(),
                 "Configured process timeout should stop the wrapper before it completes"
             )
+        }
+
+        test("root-less Maven modules use build-unit Stage 1 classpath").config(
+            enabled = !isWindows
+        ) {
+            val callLog = projectDir.resolve("build-unit-calls.log")
+            val fakeJar = cacheDir.resolve("deps/fake-dep.jar")
+            writeEmptyJar(fakeJar)
+
+            val api = projectDir.resolve("services/api")
+            Files.createDirectories(api.resolve("src/main/java/com/example"))
+            writeModulePom(api, "api")
+            api.resolve("src/main/java/com/example/Api.java").writeText(
+                "package com.example; class Api {}\n"
+            )
+            writeClasspathMvnw(api, fakeJar, callLog)
+
+            val worker = projectDir.resolve("services/worker")
+            Files.createDirectories(worker.resolve("src/main/java/com/example"))
+            writeModulePom(worker, "worker")
+            worker.resolve("src/main/java/com/example/Worker.java").writeText(
+                "package com.example; class Worker {}\n"
+            )
+            writeClasspathMvnw(worker, fakeJar, callLog)
+
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe("org.openrewrite.FindSourceFiles")
+                    .cacheDir(cacheDir)
+                    .skipPluginRun(true)
+                    .build()
+                    .run()
+
+            assertEquals(UsedExecutionStage.BUILD_TOOL, result.executionDiagnostics.stageUsed)
+            assertTrue(result.executionDiagnostics.resolvedJarCount > 0)
+            val calls = callLog.readText()
+            assertTrue("classpath:${api.toRealPath()}" in calls, calls)
+            assertTrue("classpath:${worker.toRealPath()}" in calls, calls)
         }
 
         // ─── plugin version config ──────────────────────────────────────────────

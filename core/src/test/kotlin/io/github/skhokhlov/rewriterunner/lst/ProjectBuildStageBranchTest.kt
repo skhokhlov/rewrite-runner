@@ -5,7 +5,6 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.writeText
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -66,19 +65,18 @@ class ProjectBuildStageBranchTest :
 
         // ─── Gradle classpath extraction — covers the captureStdout and success paths
 
-        test(
-            "extractClasspath returns empty list when gradlew exits 0 with no output"
-        ).config(enabled = !isWindows) {
+        test("extractClasspath returns null when gradlew exits 0 with no output").config(
+            enabled = !isWindows
+        ) {
             projectDir.resolve("build.gradle").writeText("// empty")
             val gradlew = projectDir.resolve("gradlew").toFile()
             // Exit 0 with no stdout → captureStdout path is exercised, success branch is taken,
-            // returned list is empty (all paths filtered out because none exist on disk).
+            // but the merged Stage 1 classpath is empty, so the stage falls through.
             gradlew.writeText("#!/bin/sh\nexit 0\n")
             gradlew.setExecutable(true)
 
             val result = stage.extractClasspath(projectDir)
-            assertNotNull(result, "Exit 0 with no output → empty list (not null)")
-            assertTrue(result.isEmpty(), "No paths printed → empty classpath list")
+            assertNull(result, "Exit 0 with no output -> null")
         }
 
         test("extractClasspath with gradlew handles non-zero exit gracefully").config(

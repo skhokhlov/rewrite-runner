@@ -2,7 +2,8 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
-import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
+import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
+import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnits
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
@@ -21,10 +22,10 @@ import kotlin.io.path.exists
  * catalogs, dependency management, and plugin-contributed dependencies that are
  * difficult to reproduce by static parsing alone.
  *
- * **Build tool detection:**
- * The presence of `pom.xml` signals a Maven project; any of `build.gradle`,
- * `build.gradle.kts`, or `settings.gradle(.kts)` signals a Gradle project.
- * If neither is found, [extractClasspath] returns `null` immediately.
+ * **Build unit discovery:**
+ * Root descriptors keep the historical single-root invocation for that tool. If a tool has no root
+ * descriptor, top-most subdirectory descriptors become build units, so root-less monorepos can still
+ * use build-tool classpaths. Maven and Gradle units are non-exclusive and their results are merged.
  *
  * **Maven:** Runs `mvnw dependency:build-classpath` (using the Maven wrapper if
  * present, otherwise `mvn`). The classpath is written to a temp file via
@@ -39,10 +40,10 @@ import kotlin.io.path.exists
  * prints each JAR path to stdout. The Gradle wrapper (`gradlew`) is used when
  * present; otherwise the system `gradle` command is used.
  *
- * **Failure behaviour:** Any failure — non-zero exit code, process timeout,
- * missing build tool, or an unexpected exception — is logged as a warning and
- * causes [extractClasspath] to return `null`. The pipeline then falls through to
- * [DependencyResolutionStage] (Stage 2).
+ * **Failure behaviour:** Per-unit failures — non-zero exit code, process timeout,
+ * missing build tool, or unexpected exception — are logged as warnings. [extractClasspath] returns
+ * the merged classpath if any unit yields JARs; otherwise it returns `null` and the pipeline falls
+ * through to [DependencyResolutionStage] (Stage 2).
  *
  * **Compilation:** After a successful Stage 1, [tryCompile] is called if the
  * project has no pre-compiled class directories. Compiled `.class` files are then
@@ -60,20 +61,29 @@ open class ProjectBuildStage(
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.
      *
-     * Detects the build tool from [projectDir]:
-     * - `pom.xml` present → Maven via `mvnw dependency:build-classpath` (or `mvn`)
-     * - `build.gradle` / `build.gradle.kts` / `settings.gradle(.kts)` present → Gradle via
-     *   a temporary init script that registers a `printClasspathForOpenRewrite` task
+     * Discovers Maven and Gradle build units under [projectDir], invokes each unit's build tool,
+     * and returns the distinct union of successful JAR paths.
      *
      * @return The list of JAR paths that make up the project's compile/test classpath, or
-     *   `null` if the build tool could not be invoked, returned a non-zero exit code,
-     *   or produced an empty result. A `null` return signals [LstBuilder] to fall through
-     *   to [DependencyResolutionStage].
+     *   `null` if no unit could be invoked successfully or every successful unit produced an empty
+     *   result. A `null` return signals [LstBuilder] to fall through to [DependencyResolutionStage].
      */
-    open fun extractClasspath(projectDir: Path): List<Path>? = when {
-        projectDir.resolve("pom.xml").exists() -> extractMavenClasspath(projectDir)
-        hasBuildGradle(projectDir) -> extractGradleClasspath(projectDir)
-        else -> null
+    open fun extractClasspath(projectDir: Path): List<Path>? {
+        val classpath = linkedSetOf<Path>()
+        val units = discoverBuildUnits(projectDir, logger = logger)
+        if (units.isEmpty()) return null
+
+        units.forEach { unit ->
+            val unitClasspath = when (unit.tool) {
+                BuildToolKind.MAVEN -> extractMavenClasspath(unit.dir)
+                BuildToolKind.GRADLE -> extractGradleClasspath(unit.dir)
+            }
+            if (!unitClasspath.isNullOrEmpty()) {
+                classpath += unitClasspath
+            }
+        }
+
+        return classpath.takeIf { it.isNotEmpty() }?.toList()
     }
 
     // ─── Maven ───────────────────────────────────────────────────────────────
@@ -177,7 +187,7 @@ open class ProjectBuildStage(
     // ─── Compilation ─────────────────────────────────────────────────────────
 
     /**
-     * Attempts to compile the project using its build tool.
+     * Attempts to compile discovered build units using their build tools.
      *
      * Called by [LstBuilder] after a successful [extractClasspath] when no pre-compiled
      * class directories are found (`target/classes`, `build/classes/java/main`, etc.).
@@ -185,30 +195,36 @@ open class ProjectBuildStage(
      * intra-project type references and wildcard imports within the project itself resolve
      * correctly during OpenRewrite's type-attribution phase.
      *
-     * Runs `mvn compile -q` for Maven or `gradle classes -q` for Gradle.
-     * Uses the project wrapper (`mvnw` / `gradlew`) when present.
+     * Runs `mvn compile` for Maven units or `gradle classes` for Gradle units. Uses each unit's
+     * wrapper (`mvnw` / `gradlew`) when present.
      *
-     * @return `true` if compilation exited with code 0; `false` on any failure (non-zero
-     *   exit, missing build tool, or exception). Never throws — failure is logged as a
-     *   warning and the pipeline continues without compiled class directories.
+     * @return `true` if any unit compiles successfully; `false` when every unit fails or no unit is
+     *   found. Never throws — failure is logged as a warning and the pipeline continues without
+     *   compiled class directories.
      */
-    open fun tryCompile(projectDir: Path): Boolean = when {
-        projectDir.resolve("pom.xml").exists() -> {
-            logger.debug("Project appears to be Maven (pom.xml found) -> attempting compilation")
-            tryMavenCompile(projectDir)
-        }
-
-        hasBuildGradle(projectDir) -> {
-            logger.debug(
-                "Project appears to be Gradle (build.gradle or settings.gradle found) -> attempting compilation"
-            )
-            tryGradleCompile(projectDir)
-        }
-
-        else -> {
+    open fun tryCompile(projectDir: Path): Boolean {
+        val units = discoverBuildUnits(projectDir, logger = logger)
+        if (units.isEmpty()) {
             logger.info("No build tool detected for compilation -> skipping")
-            false
+            return false
         }
+
+        var compiledAny = false
+        units.forEach { unit ->
+            val compiled = when (unit.tool) {
+                BuildToolKind.MAVEN -> {
+                    logger.debug("Maven build unit found at ${unit.dir} -> attempting compilation")
+                    tryMavenCompile(unit.dir)
+                }
+
+                BuildToolKind.GRADLE -> {
+                    logger.debug("Gradle build unit found at ${unit.dir} -> attempting compilation")
+                    tryGradleCompile(unit.dir)
+                }
+            }
+            compiledAny = compiledAny || compiled
+        }
+        return compiledAny
     }
 
     private fun tryMavenCompile(projectDir: Path): Boolean {

@@ -5,13 +5,12 @@ import io.github.skhokhlov.rewriterunner.MavenCoordinates
 import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
+import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleConfigData
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleProjectData
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
-import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
-import io.github.skhokhlov.rewriterunner.lst.utils.hasGradleBuildInSubdir
-import io.github.skhokhlov.rewriterunner.lst.utils.hasMavenPomInSubdir
+import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnits
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
@@ -78,14 +77,24 @@ open class DependencyResolutionStage(
      * when no dependency data could be parsed.
      */
     open fun collectGradleProjectData(projectDir: Path): Map<String, GradleProjectData>? {
-        if (!hasBuildGradle(projectDir) && !hasGradleBuildInSubdir(projectDir)) return null
-        return try {
-            val rawOutput = runGradleDependenciesRawOutput(projectDir) ?: return null
-            parseGradleDependencyTaskOutputByProject(rawOutput)
-        } catch (e: Exception) {
-            logger.warn("Could not collect Gradle project data for markers: ${e.message}")
-            null
+        val gradleUnits = discoverBuildUnits(projectDir, logger = logger)
+            .filter { it.tool == BuildToolKind.GRADLE }
+        if (gradleUnits.isEmpty()) return null
+
+        val merged = linkedMapOf<String, GradleProjectData>()
+        gradleUnits.forEach { unit ->
+            try {
+                val rawOutput = runGradleDependenciesRawOutput(unit.dir) ?: return@forEach
+                val parsed = parseGradleDependencyTaskOutputByProject(rawOutput)
+                merged.putAll(rekeyGradleProjectData(projectDir, unit.dir, parsed))
+            } catch (e: Exception) {
+                logger.warn(
+                    "Could not collect Gradle project data for markers from ${unit.dir}: " +
+                        e.message
+                )
+            }
         }
+        return merged.takeIf { it.isNotEmpty() }
     }
 
     /**
@@ -104,35 +113,49 @@ open class DependencyResolutionStage(
      */
     open fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
         val coords = mutableListOf<String>()
-        var gradleProjectData: Map<String, GradleProjectData>? = null
+        val gradleProjectData = linkedMapOf<String, GradleProjectData>()
 
-        // Maven subprocess: run mvn dependency:tree
-        if (projectDir.resolve("pom.xml").exists() || hasMavenPomInSubdir(projectDir)) {
-            logger.debug("Stage 2: Maven project detected — running dependency:tree")
-            val rawOutput = runMavenDependencyTreeOutput(projectDir)
-            if (rawOutput != null) {
-                coords += parseMavenDependencyTreeOutput(rawOutput)
-            }
-        }
+        discoverBuildUnits(projectDir, logger = logger).forEach { unit ->
+            when (unit.tool) {
+                BuildToolKind.MAVEN -> {
+                    logger.debug(
+                        "Stage 2: Maven build unit at ${unit.dir} — running dependency:tree"
+                    )
+                    val rawOutput = runMavenDependencyTreeOutput(unit.dir)
+                    if (rawOutput != null) {
+                        coords += parseMavenDependencyTreeOutput(rawOutput)
+                    }
+                }
 
-        // Gradle subprocess: run gradle dependencies
-        if (hasBuildGradle(projectDir) || hasGradleBuildInSubdir(projectDir)) {
-            logger.debug("Stage 2: Gradle project detected — running dependencies task")
-            val rawOutput = runGradleDependenciesRawOutput(projectDir)
-            if (rawOutput != null) {
-                val gradleCoords = parseGradleDependencyTaskOutput(rawOutput)
-                if (gradleCoords.isNotEmpty()) {
-                    coords += gradleCoords
-                    gradleProjectData = parseGradleDependencyTaskOutputByProject(rawOutput)
-                } else {
-                    logger.info("Gradle dependencies task returned no coordinates")
+                BuildToolKind.GRADLE -> {
+                    logger.debug(
+                        "Stage 2: Gradle build unit at ${unit.dir} — running dependencies task"
+                    )
+                    val rawOutput = runGradleDependenciesRawOutput(unit.dir)
+                    if (rawOutput != null) {
+                        val gradleCoords = parseGradleDependencyTaskOutput(rawOutput)
+                        if (gradleCoords.isNotEmpty()) {
+                            coords += gradleCoords
+                            val parsedData = parseGradleDependencyTaskOutputByProject(rawOutput)
+                            gradleProjectData.putAll(
+                                rekeyGradleProjectData(projectDir, unit.dir, parsedData)
+                            )
+                        } else {
+                            logger.info("Gradle dependencies task returned no coordinates")
+                        }
+                    }
                 }
             }
         }
 
         if (coords.isEmpty()) {
             logger.info("No dependencies found via subprocess")
-            return ClasspathResolutionResult(emptyList(), gradleProjectData)
+            return ClasspathResolutionResult(
+                emptyList(),
+                gradleProjectData.takeIf {
+                    it.isNotEmpty()
+                }
+            )
         }
 
         // If [resolveClasspath] was invoked through the 2-arg overload, route through the
@@ -145,7 +168,27 @@ open class DependencyResolutionStage(
         } else {
             resolveArtifactsDirectly(coords.distinct())
         }
-        return ClasspathResolutionResult(classpath, gradleProjectData)
+        return ClasspathResolutionResult(classpath, gradleProjectData.takeIf { it.isNotEmpty() })
+    }
+
+    private fun rekeyGradleProjectData(
+        rootDir: Path,
+        unitDir: Path,
+        data: Map<String, GradleProjectData>
+    ): Map<String, GradleProjectData> {
+        val unitPath = gradleProjectPath(rootDir, unitDir)
+        if (unitPath == ":") return data
+        return data.mapKeys { (projectPath, _) ->
+            if (projectPath == ":") unitPath else unitPath + projectPath
+        }
+    }
+
+    private fun gradleProjectPath(rootDir: Path, projectDir: Path): String {
+        if (rootDir == projectDir) return ":"
+        val relative = rootDir.relativize(projectDir).toString().replace('\\', '/')
+        return relative.split('/')
+            .filter { it.isNotBlank() }
+            .joinToString(separator = ":", prefix = ":")
     }
 
     /**

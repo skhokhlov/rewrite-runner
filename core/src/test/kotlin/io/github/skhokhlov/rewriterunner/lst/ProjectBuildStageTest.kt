@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import kotlin.io.path.writeText
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -18,6 +19,70 @@ class ProjectBuildStageTest :
         beforeEach { projectDir = Files.createTempDirectory("bts-") }
 
         afterEach { projectDir.toFile().deleteRecursively() }
+
+        fun mkdir(relative: String): Path = projectDir.resolve(relative).also {
+            Files.createDirectories(it)
+        }
+
+        fun fakeJar(relative: String): Path = projectDir.resolve(relative).also {
+            Files.createDirectories(it.parent)
+            Files.createFile(it)
+        }
+
+        fun writeMavenWrapper(
+            moduleDir: Path,
+            classpath: List<Path> = emptyList(),
+            exitCode: Int = 0
+        ) {
+            val cp = classpath.joinToString(java.io.File.pathSeparator) {
+                it.toAbsolutePath().toString()
+            }
+            val mvnw = moduleDir.resolve("mvnw").toFile()
+            mvnw.writeText(
+                """
+                #!/bin/sh
+                if [ "${'$'}1" = "compile" ]; then
+                  if [ $exitCode -eq 0 ]; then
+                    touch compiled.marker
+                  fi
+                  exit $exitCode
+                fi
+                for arg in "${'$'}@"; do
+                  case "${'$'}arg" in
+                    -Dmdep.outputFile=*) output="${'$'}{arg#-Dmdep.outputFile=}" ;;
+                  esac
+                done
+                if [ -n "${'$'}output" ]; then
+                  printf "%s" "$cp" > "${'$'}output"
+                fi
+                exit $exitCode
+                """.trimIndent()
+            )
+            mvnw.setExecutable(true)
+        }
+
+        fun writeGradleWrapper(
+            moduleDir: Path,
+            classpath: List<Path> = emptyList(),
+            exitCode: Int = 0
+        ) {
+            val output = classpath.joinToString("\n") { it.toAbsolutePath().toString() }
+            val gradlew = moduleDir.resolve("gradlew").toFile()
+            gradlew.writeText(
+                """
+                #!/bin/sh
+                if [ "${'$'}1" = "classes" ]; then
+                  if [ $exitCode -eq 0 ]; then
+                    touch compiled.marker
+                  fi
+                  exit $exitCode
+                fi
+                printf "%s\n" "$output"
+                exit $exitCode
+                """.trimIndent()
+            )
+            gradlew.setExecutable(true)
+        }
 
         test("returns null when no build file exists") {
             // Empty directory with no pom.xml or build.gradle
@@ -206,6 +271,57 @@ class ProjectBuildStageTest :
             } finally {
                 fakeJar.toFile().delete()
             }
+        }
+
+        test("extractClasspath merges Maven and Gradle classpaths from root-less build units") {
+            val mavenModule = mkdir("services/api")
+            mavenModule.resolve("pom.xml").writeText("<project/>")
+            val gradleModule = mkdir("services/worker")
+            gradleModule.resolve("build.gradle.kts").writeText("")
+
+            val mavenJar = fakeJar("deps/maven.jar")
+            val gradleJar = fakeJar("deps/gradle.jar")
+            writeMavenWrapper(mavenModule, listOf(mavenJar))
+            writeGradleWrapper(gradleModule, listOf(gradleJar))
+
+            val result = stage.extractClasspath(projectDir)
+
+            assertEquals(setOf(mavenJar, gradleJar), result?.toSet())
+        }
+
+        test("extractClasspath keeps classpath from succeeding root-less units") {
+            val failingModule = mkdir("services/failing")
+            failingModule.resolve("pom.xml").writeText("<project/>")
+            val workingModule = mkdir("services/working")
+            workingModule.resolve("pom.xml").writeText("<project/>")
+
+            val jar = fakeJar("deps/working.jar")
+            writeMavenWrapper(failingModule, exitCode = 1)
+            writeMavenWrapper(workingModule, listOf(jar))
+
+            val result = stage.extractClasspath(projectDir)
+
+            assertEquals(listOf(jar), result)
+        }
+
+        test("tryCompile compiles each root-less build unit and succeeds on partial success") {
+            val mavenModule = mkdir("services/api")
+            mavenModule.resolve("pom.xml").writeText("<project/>")
+            val gradleModule = mkdir("services/worker")
+            gradleModule.resolve("build.gradle.kts").writeText("")
+            val failingModule = mkdir("services/failing")
+            failingModule.resolve("pom.xml").writeText("<project/>")
+
+            writeMavenWrapper(mavenModule)
+            writeGradleWrapper(gradleModule)
+            writeMavenWrapper(failingModule, exitCode = 1)
+
+            val result = stage.tryCompile(projectDir)
+
+            assertTrue(result, "At least one successful unit should make compilation succeed")
+            assertTrue(Files.exists(mavenModule.resolve("compiled.marker")))
+            assertTrue(Files.exists(gradleModule.resolve("compiled.marker")))
+            assertFalse(Files.exists(failingModule.resolve("compiled.marker")))
         }
 
         // ─── Deadlock-prevention tests ────────────────────────────────────────────
