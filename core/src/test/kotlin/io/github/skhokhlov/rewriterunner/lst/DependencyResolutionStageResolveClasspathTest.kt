@@ -468,6 +468,66 @@ class DependencyResolutionStageResolveClasspathTest :
             assertEquals(setOf(":services:api", ":services:worker"), result?.keys)
         }
 
+        test("resolveClasspath reuses root wrappers for root-less build units").config(
+            enabled = !System.getProperty("os.name", "").lowercase().contains("windows")
+        ) {
+            val mavenModule = mkdir("services/api")
+            mavenModule.resolve("pom.xml").writeText("<project/>")
+            val gradleModule = mkdir("services/worker")
+            gradleModule.resolve("build.gradle.kts").writeText("")
+            val callLog = projectDir.resolve("wrapper-calls.log")
+
+            val mvnw = projectDir.resolve("mvnw").toFile()
+            mvnw.writeText(
+                """
+                #!/bin/sh
+                echo "maven:${'$'}(pwd)" >> "${callLog.toAbsolutePath()}"
+                artifact="${'$'}(basename "${'$'}(pwd)")"
+                echo "[INFO] +- org.example:${'$'}artifact:jar:1.0.0:compile"
+                exit 0
+                """.trimIndent()
+            )
+            mvnw.setExecutable(true)
+
+            val gradlew = projectDir.resolve("gradlew").toFile()
+            gradlew.writeText(
+                """
+                #!/bin/sh
+                echo "gradle:${'$'}(pwd)" >> "${callLog.toAbsolutePath()}"
+                artifact="${'$'}(basename "${'$'}(pwd)")"
+                cat <<EOF
+                > Task :dependencies
+                compileClasspath - Compile classpath for source set 'main'.
+                +--- org.example:${'$'}artifact:1.0.0
+                EOF
+                exit 0
+                """.trimIndent()
+            )
+            gradlew.setExecutable(true)
+
+            var resolvedCoordinates = emptyList<String>()
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
+                        resolvedCoordinates = coordinates
+                        return emptyList()
+                    }
+                }
+
+            stage.resolveClasspath(projectDir)
+
+            val calls = callLog.toFile().readText()
+            assertTrue("maven:${mavenModule.toRealPath()}" in calls, calls)
+            assertTrue("gradle:${gradleModule.toRealPath()}" in calls, calls)
+            assertEquals(
+                setOf("org.example:api:1.0.0", "org.example:worker:1.0.0"),
+                resolvedCoordinates.toSet()
+            )
+        }
+
         // ─── Extra repositories (buildRemoteRepos coverage) ───────────────────────
 
         test("stage accepts extra repositories with credentials") {

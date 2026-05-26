@@ -26,6 +26,7 @@ import kotlin.io.path.exists
  * Root descriptors keep the historical single-root invocation for that tool. If a tool has no root
  * descriptor, top-most subdirectory descriptors become build units, so root-less monorepos can still
  * use build-tool classpaths. Maven and Gradle units are non-exclusive and their results are merged.
+ * Root-level wrappers are reused when subdirectory units do not have their own wrappers.
  *
  * **Maven:** Runs `mvnw dependency:build-classpath` (using the Maven wrapper if
  * present, otherwise `mvn`). The classpath is written to a temp file via
@@ -75,8 +76,8 @@ open class ProjectBuildStage(
 
         units.forEach { unit ->
             val unitClasspath = when (unit.tool) {
-                BuildToolKind.MAVEN -> extractMavenClasspath(unit.dir)
-                BuildToolKind.GRADLE -> extractGradleClasspath(unit.dir)
+                BuildToolKind.MAVEN -> extractMavenClasspath(unit.dir, projectDir)
+                BuildToolKind.GRADLE -> extractGradleClasspath(unit.dir, projectDir)
             }
             if (!unitClasspath.isNullOrEmpty()) {
                 classpath += unitClasspath
@@ -88,10 +89,10 @@ open class ProjectBuildStage(
 
     // ─── Maven ───────────────────────────────────────────────────────────────
 
-    private fun extractMavenClasspath(projectDir: Path): List<Path>? {
+    private fun extractMavenClasspath(projectDir: Path, rootDir: Path): List<Path>? {
         val outputFile = Files.createTempFile("openrewrite-cp-", ".txt")
         try {
-            val mvnCmd = resolveMavenCommand(projectDir)
+            val mvnCmd = resolveMavenCommand(projectDir, rootDir)
             val mvnCommand = listOf(
                 mvnCmd,
                 "dependency:build-classpath",
@@ -133,12 +134,12 @@ open class ProjectBuildStage(
 
     // ─── Gradle ──────────────────────────────────────────────────────────────
 
-    private fun extractGradleClasspath(projectDir: Path): List<Path>? {
+    private fun extractGradleClasspath(projectDir: Path, rootDir: Path): List<Path>? {
         val initScript = Files.createTempFile("openrewrite-init-", ".gradle")
         try {
             initScript.toFile().writeText(GRADLE_INIT_SCRIPT)
 
-            val gradleCmd = resolveGradleCommand(projectDir)
+            val gradleCmd = resolveGradleCommand(projectDir, rootDir)
             val gradleCommand = listOf(
                 gradleCmd,
                 "-i",
@@ -196,7 +197,7 @@ open class ProjectBuildStage(
      * correctly during OpenRewrite's type-attribution phase.
      *
      * Runs `mvn compile` for Maven units or `gradle classes` for Gradle units. Uses each unit's
-     * wrapper (`mvnw` / `gradlew`) when present.
+     * wrapper (`mvnw` / `gradlew`) when present, otherwise falls back to the project root wrapper.
      *
      * @return `true` if any unit compiles successfully; `false` when every unit fails or no unit is
      *   found. Never throws — failure is logged as a warning and the pipeline continues without
@@ -214,12 +215,12 @@ open class ProjectBuildStage(
             val compiled = when (unit.tool) {
                 BuildToolKind.MAVEN -> {
                     logger.debug("Maven build unit found at ${unit.dir} -> attempting compilation")
-                    tryMavenCompile(unit.dir)
+                    tryMavenCompile(unit.dir, projectDir)
                 }
 
                 BuildToolKind.GRADLE -> {
                     logger.debug("Gradle build unit found at ${unit.dir} -> attempting compilation")
-                    tryGradleCompile(unit.dir)
+                    tryGradleCompile(unit.dir, projectDir)
                 }
             }
             compiledAny = compiledAny || compiled
@@ -227,15 +228,15 @@ open class ProjectBuildStage(
         return compiledAny
     }
 
-    private fun tryMavenCompile(projectDir: Path): Boolean {
-        val mvnCmd = resolveMavenCommand(projectDir)
+    private fun tryMavenCompile(projectDir: Path, rootDir: Path): Boolean {
+        val mvnCmd = resolveMavenCommand(projectDir, rootDir)
         return runCompileTask(projectDir, listOf(mvnCmd, "compile"), "Maven")
     }
 
-    private fun tryGradleCompile(projectDir: Path): Boolean = runCompileTask(
+    private fun tryGradleCompile(projectDir: Path, rootDir: Path): Boolean = runCompileTask(
         projectDir,
         listOf(
-            resolveGradleCommand(projectDir),
+            resolveGradleCommand(projectDir, rootDir),
             "classes",
             "-i",
             "-S",

@@ -324,6 +324,37 @@ class ProjectBuildStageTest :
             assertFalse(Files.exists(failingModule.resolve("compiled.marker")))
         }
 
+        test("extractClasspath reuses root wrappers for root-less build units") {
+            val mavenModule = mkdir("services/api")
+            mavenModule.resolve("pom.xml").writeText("<project/>")
+            val gradleModule = mkdir("services/worker")
+            gradleModule.resolve("build.gradle.kts").writeText("")
+
+            val mavenJar = fakeJar("deps/root-maven.jar")
+            val gradleJar = fakeJar("deps/root-gradle.jar")
+            writeMavenWrapper(projectDir, listOf(mavenJar))
+            writeGradleWrapper(projectDir, listOf(gradleJar))
+
+            val result = stage.extractClasspath(projectDir)
+
+            assertEquals(setOf(mavenJar, gradleJar), result?.toSet())
+        }
+
+        test("tryCompile reuses root wrappers for root-less build units") {
+            val mavenModule = mkdir("services/api")
+            mavenModule.resolve("pom.xml").writeText("<project/>")
+            val gradleModule = mkdir("services/worker")
+            gradleModule.resolve("build.gradle.kts").writeText("")
+            writeMavenWrapper(projectDir)
+            writeGradleWrapper(projectDir)
+
+            val result = stage.tryCompile(projectDir)
+
+            assertTrue(result)
+            assertTrue(Files.exists(mavenModule.resolve("compiled.marker")))
+            assertTrue(Files.exists(gradleModule.resolve("compiled.marker")))
+        }
+
         // ─── Deadlock-prevention tests ────────────────────────────────────────────
 
         test(

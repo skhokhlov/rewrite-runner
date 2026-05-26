@@ -208,7 +208,7 @@ internal fun discoverBuildUnits(
     return units
 }
 
-// walkFileTree counts the root as depth 1, so 4 visits subdirectories 3 levels below root.
+// walkFileTree visits the root at maxDepth=1, so 4 reaches build directories 3 levels below root.
 private const val BUILD_UNIT_DISCOVERY_DEPTH = 4
 
 /** Returns `true` when any subdirectory of [dir] (up to depth 3) contains a `pom.xml`. */
@@ -250,6 +250,18 @@ internal fun resolveMavenCommand(projectDir: Path): String = when {
 }
 
 /**
+ * Returns the Maven executable for [projectDir], falling back to a wrapper at [rootDir] when a
+ * root-less build unit does not carry its own wrapper.
+ */
+internal fun resolveMavenCommand(projectDir: Path, rootDir: Path): String = when {
+    projectDir.resolve("mvnw").exists() -> "./mvnw"
+    projectDir.resolve("mvnw.cmd").exists() -> "mvnw.cmd"
+    rootDir.resolve("mvnw").exists() -> rootDir.resolve("mvnw").toAbsolutePath().toString()
+    rootDir.resolve("mvnw.cmd").exists() -> rootDir.resolve("mvnw.cmd").toAbsolutePath().toString()
+    else -> "mvn"
+}
+
+/**
  * Returns the Gradle executable to use for [projectDir]:
  * - `./gradlew` if a Unix wrapper is present
  * - `gradlew.bat` if a Windows wrapper is present
@@ -258,5 +270,22 @@ internal fun resolveMavenCommand(projectDir: Path): String = when {
 internal fun resolveGradleCommand(projectDir: Path): String = when {
     projectDir.resolve("gradlew").exists() -> "./gradlew"
     projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
+    else -> "gradle"
+}
+
+/**
+ * Returns the Gradle executable for [projectDir], falling back to a wrapper at [rootDir] when a
+ * root-less build unit does not carry its own wrapper.
+ */
+internal fun resolveGradleCommand(projectDir: Path, rootDir: Path): String = when {
+    projectDir.resolve("gradlew").exists() -> "./gradlew"
+
+    projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
+
+    rootDir.resolve("gradlew").exists() -> rootDir.resolve("gradlew").toAbsolutePath().toString()
+
+    rootDir.resolve("gradlew.bat").exists() ->
+        rootDir.resolve("gradlew.bat").toAbsolutePath().toString()
+
     else -> "gradle"
 }

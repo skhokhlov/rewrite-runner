@@ -92,13 +92,20 @@ class ProcessRunnerTest :
             assertEquals(setOf(BuildToolKind.MAVEN to "src/service"), unitPaths(units))
         }
 
-        test("discoverBuildUnits respects depth three boundary") {
+        test("discoverBuildUnits includes descriptors at depth three") {
             mkdir("one/two/three").resolve("pom.xml").writeText("<project/>")
-            mkdir("one/two/three/four").resolve("build.gradle.kts").writeText("")
 
             val units = discoverBuildUnits(projectDir, logger = NoOpRunnerLogger)
 
             assertEquals(setOf(BuildToolKind.MAVEN to "one/two/three"), unitPaths(units))
+        }
+
+        test("discoverBuildUnits excludes descriptors deeper than depth three") {
+            mkdir("one/two/three/four").resolve("pom.xml").writeText("<project/>")
+
+            val units = discoverBuildUnits(projectDir, logger = NoOpRunnerLogger)
+
+            assertTrue(units.isEmpty(), "Depth-four descriptors should not be discovered")
         }
 
         test("discoverBuildUnits caps units and warns when more units are present") {
@@ -132,6 +139,16 @@ class ProcessRunnerTest :
             assertEquals("./mvnw", resolveMavenCommand(projectDir))
         }
 
+        test("resolveMavenCommand can reuse root wrapper for subdirectory unit") {
+            val moduleDir = mkdir("services/api")
+            projectDir.resolve("mvnw").writeText("")
+
+            assertEquals(
+                projectDir.resolve("mvnw").toAbsolutePath().toString(),
+                resolveMavenCommand(moduleDir, projectDir)
+            )
+        }
+
         test("resolveGradleCommand prefers Unix wrapper then Windows wrapper then gradle") {
             assertEquals("gradle", resolveGradleCommand(projectDir))
 
@@ -140,6 +157,16 @@ class ProcessRunnerTest :
 
             projectDir.resolve("gradlew").writeText("")
             assertEquals("./gradlew", resolveGradleCommand(projectDir))
+        }
+
+        test("resolveGradleCommand can reuse root wrapper for subdirectory unit") {
+            val moduleDir = mkdir("services/api")
+            projectDir.resolve("gradlew").writeText("")
+
+            assertEquals(
+                projectDir.resolve("gradlew").toAbsolutePath().toString(),
+                resolveGradleCommand(moduleDir, projectDir)
+            )
         }
     })
 
