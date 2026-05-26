@@ -51,82 +51,19 @@ class PluginFirstIntegrationTest :
             )
         }
 
-        // Full protocol-validation fake mvnw, kept for the "flag protocol" test below.
-        // Validates that MavenPluginStrategy sends the unprefixed -DreportOutputDirectory=
-        // flag (not -Drewrite.reportOutputDirectory=) and -Drewrite.runPerSubmodule=false.
-        fun writeFakeMvnwWithProtocolChecks() {
-            val mvnw = projectDir.resolve("mvnw")
-            mvnw.writeText(
-                """
-                #!/bin/sh
-                LOG="$D(cd "$D(dirname "${D}0")" && pwd)/wrapper-calls.log"
-
-                goal=""
-                report_dir=""
-                has_run_per_submodule=0
-                has_wrong_prefix=0
-                has_unprefixed=0
-
-                for arg in "$D@"; do
-                  case "${D}arg" in
-                    *:dryRun)
-                      if [ -z "${D}goal" ]; then goal=dryRun; fi
-                      ;;
-                    *:run)
-                      if [ -z "${D}goal" ]; then goal=run; fi
-                      ;;
-                    -DreportOutputDirectory=*)
-                      report_dir="$D{arg#-DreportOutputDirectory=}"
-                      has_unprefixed=1
-                      ;;
-                    -Drewrite.reportOutputDirectory=*)
-                      has_wrong_prefix=1
-                      ;;
-                    -Drewrite.runPerSubmodule=false)
-                      has_run_per_submodule=1
-                      ;;
-                  esac
-                done
-
-                if [ -n "${D}goal" ]; then
-                  echo "${D}goal" >> "${D}LOG"
-                fi
-
-                if [ "${D}has_wrong_prefix" = "1" ]; then
-                  echo "FAIL: prefixed -Drewrite.reportOutputDirectory must not be used" 1>&2
-                  exit 2
-                fi
-                if [ "${D}has_unprefixed" = "0" ]; then
-                  echo "FAIL: -DreportOutputDirectory missing" 1>&2
-                  exit 2
-                fi
-                if [ "${D}has_run_per_submodule" = "0" ]; then
-                  echo "FAIL: -Drewrite.runPerSubmodule=false missing" 1>&2
-                  exit 2
-                fi
-
-                if [ "${D}goal" = "dryRun" ]; then
-                  mkdir -p "${D}report_dir"
-                  cat > "${D}report_dir/rewrite.patch" <<'PATCH'
-                diff --git a/src/App.java b/src/App.java
-                --- a/src/App.java
-                +++ b/src/App.java
-                @@ -1 +1 @@
-                -class App{}
-                +class App { }
-                PATCH
-                  exit 0
-                fi
-
-                if [ "${D}goal" = "run" ]; then
-                  printf 'class App { }\n' > src/App.java
-                  exit 0
-                fi
-
-                exit 1
-                """.trimIndent()
+        // Installs the protocol-validating fake mvnw derived from the scenario (see
+        // Path.writeFakeMvnwWithProtocolChecks). Assumes exactly one entry in
+        // scenario.expectedAfterFiles (single-file scenarios only).
+        fun setupFakeMvnwWithProtocolChecks(scenario: PluginScenario) {
+            scenario.setUpProject(projectDir)
+            val (relPath, afterContent) = scenario.expectedAfterFiles.entries.single()
+            val beforeContent = projectDir.resolve(relPath).readText()
+            projectDir.writeFakeMvnwWithProtocolChecks(
+                targetFile = relPath,
+                oldLine = beforeContent.trimEnd('\n'),
+                newLine = afterContent.trimEnd('\n'),
+                newContent = afterContent
             )
-            Files.setPosixFilePermissions(mvnw, posixExecutable)
         }
 
         test(
@@ -260,8 +197,7 @@ class PluginFirstIntegrationTest :
         test(
             "maven fake-wrapper flag protocol: unprefixed -DreportOutputDirectory and runPerSubmodule=false"
         ).config(enabled = !isWindows) {
-            PluginScenarios.mavenSingleFile.setUpProject(projectDir)
-            writeFakeMvnwWithProtocolChecks()
+            setupFakeMvnwWithProtocolChecks(PluginScenarios.mavenSingleFile)
 
             val result =
                 runCli(
@@ -276,7 +212,7 @@ class PluginFirstIntegrationTest :
                 )
 
             assertEquals(0, result.exitCode, "stderr=${result.stderr}\nstdout=${result.stdout}")
-            assertEquals("src/App.java", result.stdout.trim())
+            assertEquals("src/main/java/App.java", result.stdout.trim())
             // Ordering: dryRun must precede run, and run must run exactly once.
             assertEquals(
                 "dryRun\nrun\n",

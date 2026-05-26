@@ -147,8 +147,9 @@ fun Path.writeFakeGradlew(
  * extracts `-DreportOutputDirectory=<dir>`, and on `dryRun` writes a unified-diff patch there;
  * on `run` overwrites [targetFile] with [newContent].
  *
- * Does **not** validate Maven flag details — see `PluginFirstIntegrationTest.writeFakeMvnw` for
- * that level of protocol verification.
+ * Does **not** validate Maven flag details — see
+ * `PluginFirstIntegrationTest.writeFakeMvnwWithProtocolChecks` for that level of protocol
+ * verification.
  */
 fun Path.writeFakeMvnwSimple(
     targetFile: String,
@@ -179,6 +180,97 @@ fun Path.writeFakeMvnwSimple(
         fi
 
         if [ "${D}goal" = "dryRun" ] && [ -n "${D}report_dir" ]; then
+          mkdir -p "${D}report_dir"
+          cat > "${D}report_dir/rewrite.patch" <<'PATCH'
+        diff --git a/$targetFile b/$targetFile
+        --- a/$targetFile
+        +++ b/$targetFile
+        @@ -1 +1 @@
+        -$oldLine
+        +$newLine
+        PATCH
+          exit 0
+        fi
+
+        if [ "${D}goal" = "run" ]; then
+          printf '$printfContent' > $targetFile
+          exit 0
+        fi
+
+        exit 1
+        """.trimIndent()
+    )
+    if (!isWindows) Files.setPosixFilePermissions(mvnw, posixExecutable)
+}
+
+/**
+ * Writes a fake `mvnw` that validates the Maven flag protocol on top of the simple
+ * dry-run/run behaviour, asserting that MavenPluginStrategy sends:
+ *  - the unprefixed `-DreportOutputDirectory=` (not `-Drewrite.reportOutputDirectory=`), and
+ *  - `-Drewrite.runPerSubmodule=false`.
+ *
+ * A regression to the wrong flag format makes the wrapper exit 2. Patch paths and content are
+ * derived from [targetFile]/[oldLine]/[newLine]/[newContent] so the asserted file tracks the
+ * scenario layout instead of being hard-coded.
+ */
+fun Path.writeFakeMvnwWithProtocolChecks(
+    targetFile: String,
+    oldLine: String,
+    newLine: String,
+    newContent: String
+) {
+    val printfContent = newContent.replace("\n", "\\n")
+    val mvnw = resolve("mvnw")
+    mvnw.writeText(
+        """
+        #!/bin/sh
+        LOG="$D(cd "$D(dirname "${D}0")" && pwd)/wrapper-calls.log"
+
+        goal=""
+        report_dir=""
+        has_run_per_submodule=0
+        has_wrong_prefix=0
+        has_unprefixed=0
+
+        for arg in "$D@"; do
+          case "${D}arg" in
+            *:dryRun)
+              if [ -z "${D}goal" ]; then goal=dryRun; fi
+              ;;
+            *:run)
+              if [ -z "${D}goal" ]; then goal=run; fi
+              ;;
+            -DreportOutputDirectory=*)
+              report_dir="$D{arg#-DreportOutputDirectory=}"
+              has_unprefixed=1
+              ;;
+            -Drewrite.reportOutputDirectory=*)
+              has_wrong_prefix=1
+              ;;
+            -Drewrite.runPerSubmodule=false)
+              has_run_per_submodule=1
+              ;;
+          esac
+        done
+
+        if [ -n "${D}goal" ]; then
+          echo "${D}goal" >> "${D}LOG"
+        fi
+
+        if [ "${D}has_wrong_prefix" = "1" ]; then
+          echo "FAIL: prefixed -Drewrite.reportOutputDirectory must not be used" 1>&2
+          exit 2
+        fi
+        if [ "${D}has_unprefixed" = "0" ]; then
+          echo "FAIL: -DreportOutputDirectory missing" 1>&2
+          exit 2
+        fi
+        if [ "${D}has_run_per_submodule" = "0" ]; then
+          echo "FAIL: -Drewrite.runPerSubmodule=false missing" 1>&2
+          exit 2
+        fi
+
+        if [ "${D}goal" = "dryRun" ]; then
           mkdir -p "${D}report_dir"
           cat > "${D}report_dir/rewrite.patch" <<'PATCH'
         diff --git a/$targetFile b/$targetFile

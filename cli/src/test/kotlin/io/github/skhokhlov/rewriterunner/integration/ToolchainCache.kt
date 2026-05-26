@@ -31,6 +31,11 @@ import kotlin.io.path.exists
 object ToolchainCache {
     const val MAVEN_VERSION = "3.9.9"
 
+    private const val CONNECT_TIMEOUT_MS = 15_000
+    private const val READ_TIMEOUT_MS = 60_000
+    private const val MAX_DOWNLOAD_ATTEMPTS = 3
+    private const val RETRY_BACKOFF_MS = 1_000L
+
     /** Gradle distribution version used by real-plugin tests; sourced from the project wrapper. */
     val gradleVersion: String by lazy { resolveGradleVersion() }
 
@@ -112,7 +117,9 @@ object ToolchainCache {
                 val archivePath = cacheDir.resolve(archiveName)
                 downloadIfNeeded(archivePath, url)
                 extractZip(archivePath, cacheDir)
-                Files.createFile(markerFile)
+                // Idempotent marker write: a stale `.done` left behind without its extracted
+                // directory must not turn re-extraction into a FileAlreadyExistsException.
+                Files.write(markerFile, ByteArray(0))
             }
         }
         return extractedDir
@@ -122,25 +129,46 @@ object ToolchainCache {
         if (target.exists() && isValidZip(target)) return
         Files.deleteIfExists(target)
         val tmp = target.parent.resolve("${target.fileName}.tmp")
-        try {
-            URL(url).openStream().use { input ->
-                Files.copy(input, tmp, StandardCopyOption.REPLACE_EXISTING)
+        // Explicit timeouts so a stalled mirror fails fast instead of hanging the lane for the
+        // whole task timeout; retry with backoff so a single dropped connection on a cold CI
+        // run doesn't redden the lane outright.
+        var lastError: Exception? = null
+        repeat(MAX_DOWNLOAD_ATTEMPTS) { attempt ->
+            try {
+                val conn = URL(url).openConnection()
+                conn.connectTimeout = CONNECT_TIMEOUT_MS
+                conn.readTimeout = READ_TIMEOUT_MS
+                conn.getInputStream().use { input ->
+                    Files.copy(input, tmp, StandardCopyOption.REPLACE_EXISTING)
+                }
+                if (!isValidZip(tmp)) {
+                    throw IOException("Downloaded archive is not a valid ZIP: $url")
+                }
+                Files.move(
+                    tmp,
+                    target,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+                )
+                return
+            } catch (e: Exception) {
+                Files.deleteIfExists(tmp)
+                lastError = e
+                if (attempt < MAX_DOWNLOAD_ATTEMPTS - 1) {
+                    Thread.sleep(RETRY_BACKOFF_MS * (attempt + 1))
+                }
             }
-            if (!isValidZip(tmp)) throw IOException("Downloaded archive is not a valid ZIP: $url")
-            Files.move(
-                tmp,
-                target,
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-            )
-        } catch (e: Exception) {
-            Files.deleteIfExists(tmp)
-            throw e
         }
+        throw IOException(
+            "Failed to download $url after $MAX_DOWNLOAD_ATTEMPTS attempts",
+            lastError
+        )
     }
 
     private fun isValidZip(path: Path): Boolean = try {
-        ZipFile(path.toFile()).use { it.size() >= 0 }
+        // Opening succeeds only if the ZIP central directory is intact; a truncated download
+        // throws here. The entry count itself carries no signal (always >= 0).
+        ZipFile(path.toFile()).close()
         true
     } catch (_: ZipException) {
         false
