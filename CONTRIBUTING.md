@@ -32,7 +32,7 @@ Thank you for your interest in contributing! This document outlines the process 
 # Build fat JAR
 ./gradlew shadowJar
 
-# Run all tests
+# Run unit tests (fast; this is what `check` runs — see the Testing section)
 ./gradlew test
 
 # Run a single test class
@@ -169,7 +169,44 @@ Run `ktlintFormat` before committing to avoid CI failures. The `ktlintCheck` tas
 
 ## Testing
 
-- Use `@TempDir` (JUnit 5) for temporary directories
-- Use `kotlin.test` assertions (`assertEquals`, `assertTrue`, etc.)
-- Integration tests should use `BaseIntegrationTest.runCli()` to exercise the full CLI
-- Where environment variability exists (e.g., Maven not installed in CI), tests should accept both the success path and the expected fallback
+### Test lanes
+
+Tests are split into three lanes by Gradle `Test.filter` class-name pattern (no Kotest tags). All test code lives in one source set; the filter decides which classes run in each task. CI runs the three lanes as sequential jobs so a failure surfaces at the right stage.
+
+| Lane | Task | What it runs | Network |
+|------|------|--------------|---------|
+| Unit | `./gradlew test` | `core` module + `RunCommandTest`; **excludes** `*IntegrationTest`. Wired into `check`. | None |
+| Integration (fake wrappers) | `./gradlew :cli:testIntegration` | All `*IntegrationTest` classes **except** `PluginRealExecutionIntegrationTest` — per-language LST coverage plus Stage 0 orchestration driven by fake `gradlew`/`mvnw` shell scripts. | None (offline-safe) |
+| Integration (real plugins) | `./gradlew :cli:testRealPlugin` | `PluginRealExecutionIntegrationTest` only — exercises the real OpenRewrite Maven/Gradle plugins. `ToolchainCache` downloads the Maven/Gradle distributions on first run (cached under `cli/build/test-cache/toolchains/`) and the plugin artifacts come from Maven Central. | Maven Central + distribution mirrors |
+
+`check` runs **only** the unit lane (plus `ktlintCheck`); it does **not** depend on the two integration tasks. Run them explicitly:
+
+```bash
+# Fast offline verification before pushing:
+./gradlew check :cli:testIntegration
+
+# Full pass including the live-plugin lane (~5 min warm, <15 min cold):
+./gradlew :cli:testRealPlugin
+
+# Single real-plugin scenario, for iteration:
+./gradlew :cli:testRealPlugin --tests "*maven multi-module*"
+```
+
+The real-plugin lane skips itself (JUnit assumption, not a failure) when Maven Central is unreachable or on Windows.
+
+### Stage 0 plugin coverage
+
+Stage 0 (plugin-first execution) is covered by two complementary tiers that share the **same** scenario definitions in `PluginScenarios` so the fake and real lanes never drift:
+
+- **Fake-wrapper** (`PluginFirstIntegrationTest`, `testIntegration`) — fast/offline; shell scripts simulate plugin output and validate the exact CLI flag protocol the strategies emit.
+- **Real-wrapper** (`PluginRealExecutionIntegrationTest`, `testRealPlugin`) — replays the same scenarios against real Maven/Gradle, calls `RewriteRunner` directly, and asserts `RunResult.executionDiagnostics.stageUsed == UsedExecutionStage.PLUGIN` so a Stage 0 regression that silently falls through to the LST pipeline cannot pass on file-content checks alone.
+
+### Conventions
+
+- New integration test classes must end in `IntegrationTest` (enforced by `failOnNoMatchingTests = true` on the integration tasks — a typo surfaces immediately).
+- Use `@TempDir` (JUnit 5) for temporary directories.
+- Use `kotlin.test` assertions (`assertEquals`, `assertTrue`, etc.).
+- Integration tests should use `BaseIntegrationTest.runCli()` to exercise the full CLI.
+- Where environment variability exists (e.g., Maven not installed in CI), tests should accept both the success path and the expected fallback.
+
+See [`docs/testing.md`](docs/testing.md) for the full test file map and patterns.
