@@ -120,7 +120,7 @@ cli/src/
 
 - `InMemoryLargeSourceSet` is in `org.openrewrite.internal` (not the top-level package)
 - `ProjectBuildStage` and `DependencyResolutionStage` are `open` with `open` methods — subclass in tests instead of mocking
-- Stages 1 and 2 use `discoverBuildUnits` from `ProcessRunner.kt`: root descriptors keep one root invocation per tool, while root-less monorepos discover top-most subdirectory build units to depth 3, skip default excluded dirs, cap at 25 units, and merge partial successes. See `CONTEXT.md` and `docs/adr/0001-build-unit-classpath-resolution.md`.
+- Stages 1 and 2 use `discoverBuildUnits` from `ProcessRunner.kt`: root descriptors keep one root invocation per tool, while root-less monorepos discover top-most subdirectory build units to depth 3, skip default excluded dirs, sort candidates before the 25-unit cap, and require full discovered-unit coverage before a stage is considered complete. Partial or capped coverage falls through to later fallback stages. See `CONTEXT.md` and `docs/adr/0001-build-unit-classpath-resolution.md`.
 - `ResultFormatter` has a secondary constructor accepting `PrintWriter`; `RunCommand` passes picocli's `@Spec` output writer
 - Stage 0 tries the official Gradle/Maven OpenRewrite plugins first and returns `RunResult.rawDiffs` on success. Use `--skip-plugin-run` / `Builder.skipPluginRun(true)` when testing or debugging the in-process LST pipeline directly.
 - Path exclusion: `--exclude-paths` (CLI) overrides `parse.excludePaths` (YAML) when non-empty. The resolved value is forwarded to Stage 0 and to the LST fallback so both apply identical filtering. When no JVM source survives the exclusion, classpath resolution stages 1–4 are skipped.
