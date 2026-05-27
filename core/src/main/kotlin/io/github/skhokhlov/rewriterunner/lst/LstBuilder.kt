@@ -6,7 +6,7 @@ import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
-import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
+import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolType
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleDslClasspathResolver
@@ -764,7 +764,7 @@ open class LstBuilder(
             val gradleData = depResolutionStage.collectGradleProjectData(projectDir)
             if (gradleData == null &&
                 discoverBuildUnits(projectDir, logger = logger).any {
-                    it.tool == BuildToolKind.GRADLE
+                    it.tool == BuildToolType.Gradle
                 }
             ) {
                 logger.warn(

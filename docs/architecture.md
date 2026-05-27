@@ -91,6 +91,11 @@ When `--exclude-paths` (or `parse.excludePaths`) removes every JVM source file (
 
 `ProjectBuildStage` and `DependencyResolutionStage` remain injected into `LstBuilder` as `open` classes; the helper classes above are internal and are instantiated by `LstBuilder`.
 
+`ProcessRunner.kt` owns two separate build-tool concepts. `discoverBuildUnits` is non-exclusive and
+feeds classpath resolution; `detectBuildTool` is the exclusive marker verdict used by
+`MarkerFactory`. When both Maven and Gradle root descriptors exist, the marker verdict is Gradle
+with a warning, while Stages 1 and 2 still resolve both tools through build units.
+
 External process timeouts are configurable:
 
 | Timeout | Default | Applies to |

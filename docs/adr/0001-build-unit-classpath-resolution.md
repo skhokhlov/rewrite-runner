@@ -37,6 +37,12 @@ falls through to the next stage instead of reporting a build-tool or dependency-
 the whole project. Gradle project data from subdirectory units is re-keyed to root-relative Gradle
 paths such as `:services:api` so build-file markers can still be attached.
 
+Build-tool identity for provenance markers is a separate, exclusive verdict. `detectBuildTool`
+looks only at the project root and returns a single `BuildToolType`: Gradle, Maven, or None. If both
+Gradle and Maven root descriptors are present, the marker verdict is Gradle and rewrite-runner warns.
+This Gradle-first rule is marker-only; Stages 1 and 2 still use build-unit discovery and resolve both
+tools where both descriptors exist.
+
 ## Consequences
 
 Root-less Maven and Gradle monorepos can now use high-fidelity build-tool classpaths in Stages 1 and
@@ -45,3 +51,8 @@ subprocess per tool, preserving the previous cost profile for ordinary projects.
 
 Large root-less repositories may invoke more subprocesses than before. The 25-unit cap and Stage 3
 fallback limit the worst case while still improving the most common root-less layouts.
+
+Projects with both root `pom.xml` and Gradle descriptors now receive a Gradle `BuildTool` marker
+instead of the previous Maven-first marker, while classpath resolution remains non-exclusive. The
+official plugin-first runner keeps its own Gradle-then-Maven try-with-fallback flow and is not routed
+through the exclusive marker verdict.

@@ -23,13 +23,14 @@ internal typealias ProcessRunner = (
     logger: RunnerLogger
 ) -> Int?
 
-internal enum class BuildToolKind {
-    MAVEN,
-    GRADLE
+internal enum class BuildToolType {
+    Maven,
+    Gradle,
+    None
 }
 
 /** A directory to invoke a build tool in, with the tool to use there. */
-internal data class BuildUnit(val dir: Path, val tool: BuildToolKind)
+internal data class BuildUnit(val dir: Path, val tool: BuildToolType)
 
 /** Build units plus whether discovery found more candidates than the caller will process. */
 internal data class BuildUnitDiscoveryResult(val units: List<BuildUnit>, val truncated: Boolean)
@@ -128,6 +129,33 @@ internal fun hasBuildGradle(dir: Path): Boolean =
         dir.resolve("settings.gradle.kts").exists()
 
 /**
+ * Returns the single build-tool identity of [dir] for provenance/marker purposes.
+ *
+ * This verdict is intentionally exclusive and root-only. Classpath resolution remains
+ * non-exclusive through [discoverBuildUnits], so projects with both build files still resolve both
+ * tool classpaths while their provenance marker uses Gradle.
+ */
+internal fun detectBuildTool(dir: Path, logger: RunnerLogger): BuildToolType {
+    val hasGradle = hasBuildGradle(dir)
+    val hasMaven = dir.resolve("pom.xml").exists()
+    return when {
+        hasGradle && hasMaven -> {
+            logger.warn(
+                "Both Gradle and Maven build files in $dir - " +
+                    "treating as Gradle for provenance"
+            )
+            BuildToolType.Gradle
+        }
+
+        hasGradle -> BuildToolType.Gradle
+
+        hasMaven -> BuildToolType.Maven
+
+        else -> BuildToolType.None
+    }
+}
+
+/**
  * Discovers build-tool invocation roots under [dir].
  *
  * Root descriptors keep the historical single-root invocation for that tool. When a tool has no
@@ -152,8 +180,8 @@ internal fun discoverBuildUnitResult(
     val hasRootMaven = dir.resolve("pom.xml").exists()
     val hasRootGradle = hasBuildGradle(dir)
 
-    if (hasRootMaven) candidates += BuildUnit(dir, BuildToolKind.MAVEN)
-    if (hasRootGradle) candidates += BuildUnit(dir, BuildToolKind.GRADLE)
+    if (hasRootMaven) candidates += BuildUnit(dir, BuildToolType.Maven)
+    if (hasRootGradle) candidates += BuildUnit(dir, BuildToolType.Gradle)
 
     val discoverMavenSubdirs = !hasRootMaven
     val discoverGradleSubdirs = !hasRootGradle
@@ -181,11 +209,11 @@ internal fun discoverBuildUnitResult(
 
                     var foundUnit = false
                     if (discoverMavenSubdirs && current.resolve("pom.xml").exists()) {
-                        candidates += BuildUnit(current, BuildToolKind.MAVEN)
+                        candidates += BuildUnit(current, BuildToolType.Maven)
                         foundUnit = true
                     }
                     if (discoverGradleSubdirs && hasBuildGradle(current)) {
-                        candidates += BuildUnit(current, BuildToolKind.GRADLE)
+                        candidates += BuildUnit(current, BuildToolType.Gradle)
                         foundUnit = true
                     }
                     return if (foundUnit) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE
@@ -226,32 +254,6 @@ private fun capBuildUnits(
 
 private fun normalizedRelativePath(root: Path, path: Path): String =
     root.relativize(path).toString().replace('\\', '/')
-
-/** Returns `true` when any subdirectory of [dir] (up to depth 3) contains a `pom.xml`. */
-internal fun hasMavenPomInSubdir(dir: Path): Boolean = try {
-    Files.walk(dir, 3).use { stream ->
-        stream.anyMatch { path ->
-            path.parent != dir && path.fileName?.toString() == "pom.xml"
-        }
-    }
-} catch (_: Exception) {
-    false
-}
-
-/**
- * Returns `true` when any subdirectory of [dir] (up to depth 3) contains a
- * `build.gradle` or `build.gradle.kts` file.
- */
-internal fun hasGradleBuildInSubdir(dir: Path): Boolean = try {
-    Files.walk(dir, 3).use { stream ->
-        stream.anyMatch { path ->
-            val name = path.fileName?.toString() ?: return@anyMatch false
-            path.parent != dir && (name == "build.gradle" || name == "build.gradle.kts")
-        }
-    }
-} catch (_: Exception) {
-    false
-}
 
 /**
  * Returns the Maven executable to use for [projectDir]:

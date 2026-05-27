@@ -5,7 +5,7 @@ import io.github.skhokhlov.rewriterunner.MavenCoordinates
 import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
-import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
+import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolType
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleConfigData
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleProjectData
@@ -84,7 +84,7 @@ open class DependencyResolutionStage(
         commandRoot = projectDir
         try {
             val gradleUnits = discoverBuildUnits(projectDir, logger = logger)
-                .filter { it.tool == BuildToolKind.GRADLE }
+                .filter { it.tool == BuildToolType.Gradle }
             if (gradleUnits.isEmpty()) return null
 
             val merged = linkedMapOf<String, GradleProjectData>()
@@ -132,7 +132,7 @@ open class DependencyResolutionStage(
 
             discovery.units.forEach { unit ->
                 when (unit.tool) {
-                    BuildToolKind.MAVEN -> {
+                    BuildToolType.Maven -> {
                         logger.debug(
                             "Stage 2: Maven build unit at ${unit.dir} — running dependency:tree"
                         )
@@ -143,7 +143,7 @@ open class DependencyResolutionStage(
                         }
                     }
 
-                    BuildToolKind.GRADLE -> {
+                    BuildToolType.Gradle -> {
                         logger.debug(
                             "Stage 2: Gradle build unit at ${unit.dir} — running dependencies task"
                         )
@@ -163,6 +163,8 @@ open class DependencyResolutionStage(
                             }
                         }
                     }
+
+                    BuildToolType.None -> Unit
                 }
             }
 

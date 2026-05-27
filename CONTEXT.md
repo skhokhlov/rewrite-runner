@@ -3,7 +3,11 @@
 ## Glossary
 
 - **Build unit**: A directory where rewrite-runner invokes Maven or Gradle for classpath resolution,
-  paired with the build tool used there.
+  paired with the build tool used there. Build units are non-exclusive: a root with both Maven and
+  Gradle descriptors can produce one unit for each tool.
+- **Build-tool identity**: The exclusive, root-level build-tool verdict used only for provenance
+  markers. `detectBuildTool` returns Gradle, Maven, or None; Gradle wins with a warning when both
+  Maven and Gradle root descriptors exist.
 - **Root descriptor**: A build descriptor at the project root: `pom.xml` for Maven, or
   `settings.gradle(.kts)` / `build.gradle(.kts)` for Gradle.
 - **Root-less monorepo**: A repository whose project root has no build descriptor for a tool, but one
