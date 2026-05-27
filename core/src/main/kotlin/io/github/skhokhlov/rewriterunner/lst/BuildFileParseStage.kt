@@ -230,10 +230,14 @@ open class BuildFileParseStage(
         }
     }
 
-    /** Walks [projectDir] up to depth 3, collecting parent directories of found `pom.xml` files. */
+    /**
+     * Walks descriptor files under [projectDir], collecting parent directories of found `pom.xml`
+     * files. Descriptor files are one level below the build-unit directory, so the file-walk depth is
+     * one greater than the supported build-unit subdirectory depth.
+     */
     private fun walkForPomDirs(projectDir: Path, found: MutableSet<Path>) {
         try {
-            Files.walk(projectDir, 3).use { stream ->
+            Files.walk(projectDir, FALLBACK_DESCRIPTOR_FILE_WALK_DEPTH).use { stream ->
                 stream.filter { path -> !isInDescriptorDiscoveryExcludedDir(projectDir, path) }
                     .filter { path -> path.fileName?.toString() == "pom.xml" }
                     .forEach { pomFile -> found.add(pomFile.parent) }
@@ -244,15 +248,16 @@ open class BuildFileParseStage(
     }
 
     /**
-     * Walks [projectDir] up to depth 3, calling [StaticBuildFileParser.parseGradleDependenciesStatically]
-     * for each subdirectory containing a `build.gradle` or `build.gradle.kts` file.
+     * Walks descriptor files under [projectDir], calling
+     * [StaticBuildFileParser.parseGradleDependenciesStatically] for each subdirectory containing a
+     * `build.gradle` or `build.gradle.kts` file.
      *
      * Used when there is no root build file but build files exist in subdirectories.
      */
     private fun parseGradleSubdirs(projectDir: Path): List<String> {
         val coords = mutableListOf<String>()
         try {
-            Files.walk(projectDir, 3).use { stream ->
+            Files.walk(projectDir, FALLBACK_DESCRIPTOR_FILE_WALK_DEPTH).use { stream ->
                 stream.filter { path ->
                     if (isInDescriptorDiscoveryExcludedDir(projectDir, path)) return@filter false
                     val name = path.fileName?.toString() ?: return@filter false
@@ -275,3 +280,8 @@ open class BuildFileParseStage(
         }
     }
 }
+
+private const val FALLBACK_DESCRIPTOR_DIR_DEPTH = 3
+
+// Descriptor files live inside the build-unit directory, so include one extra file level.
+private const val FALLBACK_DESCRIPTOR_FILE_WALK_DEPTH = FALLBACK_DESCRIPTOR_DIR_DEPTH + 1

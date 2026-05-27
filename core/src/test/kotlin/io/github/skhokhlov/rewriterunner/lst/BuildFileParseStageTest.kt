@@ -240,7 +240,7 @@ class BuildFileParseStageTest :
 
         test("Maven fallback discovery keeps real pom.xml files at depth three") {
             resetTracking()
-            val apiDir = projectDir.resolve("services/api").also { it.createDirectories() }
+            val apiDir = projectDir.resolve("one/two/three").also { it.createDirectories() }
             apiDir.resolve("pom.xml").writeText(
                 """
                 <project>
@@ -453,6 +453,23 @@ class BuildFileParseStageTest :
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
+        }
+
+        test("Gradle fallback discovery keeps real build files at depth three") {
+            resetTracking()
+            val appDir = projectDir.resolve("one/two/three").also { it.createDirectories() }
+            appDir.resolve("build.gradle.kts").writeText(
+                """
+                dependencies {
+                    implementation("org.slf4j:slf4j-api:2.0.0")
+                }
+                """.trimIndent()
+            )
+
+            fakeStage().resolveClasspath(projectDir)
+
+            assertTrue(traversalCalled)
+            assertTrue(capturedCoords.any { it == "org.slf4j:slf4j-api:2.0.0" })
         }
 
         test("Gradle fallback discovery ignores build files in build output dirs") {

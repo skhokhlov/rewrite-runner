@@ -6,14 +6,14 @@ import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleDslClasspathResolver
 import io.github.skhokhlov.rewriterunner.lst.utils.MarkerFactory
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.github.skhokhlov.rewriterunner.lst.utils.VersionDetector
-import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
-import io.github.skhokhlov.rewriterunner.lst.utils.hasGradleBuildInSubdir
+import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnits
 import java.nio.file.FileVisitOption
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -763,7 +763,9 @@ open class LstBuilder(
             logger.info("Stage 1 succeeded: ${stage1.size} JAR(s)")
             val gradleData = depResolutionStage.collectGradleProjectData(projectDir)
             if (gradleData == null &&
-                (hasBuildGradle(projectDir) || hasGradleBuildInSubdir(projectDir))
+                discoverBuildUnits(projectDir, logger = logger).any {
+                    it.tool == BuildToolKind.GRADLE
+                }
             ) {
                 logger.warn(
                     "GradleProject markers could not be built — " +

@@ -59,10 +59,17 @@ Recipe JARs are cached under the tool's own `cacheDir` so they never pollute the
 | 3 | `BuildFileParseStage` | Static `pom.xml` parse + POM traversal | Static `build.gradle(.kts)` + version catalog parse + POM traversal |
 | 4 | `LocalRepositoryStage` | Local `~/.m2` cache scan | Local `~/.gradle/caches` scan |
 
-- **Stage 1** (`ProjectBuildStage`): Runs the project's own build tool to extract the exact compile classpath. Falls through on failure.
-- **Stage 2** (`DependencyResolutionStage`): Runs `mvn dependency:tree` / `gradle dependencies` subprocesses and resolves downloaded JARs directly via Aether. Supports Maven-only, Gradle-only, and mixed projects. Falls through when subprocesses fail.
+- **Stage 1** (`ProjectBuildStage`): Runs the project's own build tool to extract the exact compile classpath. It iterates discovered build units, so root-less monorepos with module-local build files can still use build-tool classpaths. Falls through on failure.
+- **Stage 2** (`DependencyResolutionStage`): Runs `mvn dependency:tree` / `gradle dependencies` subprocesses per discovered build unit and resolves downloaded JARs directly via Aether. Supports Maven-only, Gradle-only, mixed, and root-less projects. Falls through when subprocesses fail.
 - **Stage 3** (`BuildFileParseStage`): Parses `pom.xml` and `build.gradle(.kts)` statically (no subprocess) for all discovered modules, then resolves via full Maven Resolver POM traversal to obtain transitive dependencies. Falls through when no build files exist or resolution fails.
 - **Stage 4** (`LocalRepositoryStage`): Scans `~/.m2` and `~/.gradle/caches` for already-cached JARs. Always succeeds (possibly empty).
+
+Stages 1 and 2 use the build-unit model recorded in
+[`docs/adr/0001-build-unit-classpath-resolution.md`](adr/0001-build-unit-classpath-resolution.md).
+A build unit is a Maven or Gradle invocation directory. Root descriptors preserve the historical
+single-root invocation for that tool; when a root descriptor is absent, top-most subdirectory build
+files are discovered to depth 3, default excluded directories are skipped, and at most 25 units are
+processed before warning and relying on later fallback stages.
 
 The resolved classpath is **shared across all language parsers** — `JavaParser`, `KotlinParser`, and `GroovyParser` all receive the same project classpath so cross-language type references resolve correctly.
 

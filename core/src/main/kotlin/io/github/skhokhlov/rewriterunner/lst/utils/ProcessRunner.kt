@@ -5,8 +5,11 @@ import io.github.skhokhlov.rewriterunner.config.DurationParser
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import java.io.IOException
 import java.io.InputStream
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
@@ -19,6 +22,17 @@ internal typealias ProcessRunner = (
     timeoutName: String,
     logger: RunnerLogger
 ) -> Int?
+
+internal enum class BuildToolKind {
+    MAVEN,
+    GRADLE
+}
+
+/** A directory to invoke a build tool in, with the tool to use there. */
+internal data class BuildUnit(val dir: Path, val tool: BuildToolKind)
+
+/** Build units plus whether discovery found more candidates than the caller will process. */
+internal data class BuildUnitDiscoveryResult(val units: List<BuildUnit>, val truncated: Boolean)
 
 /**
  * Runs an external process in [workDir] and waits up to [timeout] for it to finish.
@@ -113,6 +127,106 @@ internal fun hasBuildGradle(dir: Path): Boolean =
         dir.resolve("settings.gradle").exists() ||
         dir.resolve("settings.gradle.kts").exists()
 
+/**
+ * Discovers build-tool invocation roots under [dir].
+ *
+ * Root descriptors keep the historical single-root invocation for that tool. When a tool has no
+ * root descriptor, discovery falls back to top-most subdirectory descriptors up to depth 3,
+ * skipping [FileCollector.DEFAULT_EXCLUDED_DIRS] and pruning below the first build unit found.
+ */
+internal fun discoverBuildUnits(
+    dir: Path,
+    maxUnits: Int = 25,
+    logger: RunnerLogger
+): List<BuildUnit> = discoverBuildUnitResult(dir, maxUnits, logger).units
+
+internal fun discoverBuildUnitResult(
+    dir: Path,
+    maxUnits: Int = 25,
+    logger: RunnerLogger
+): BuildUnitDiscoveryResult {
+    if (maxUnits <= 0) return BuildUnitDiscoveryResult(emptyList(), truncated = false)
+
+    val candidates = mutableListOf<BuildUnit>()
+
+    val hasRootMaven = dir.resolve("pom.xml").exists()
+    val hasRootGradle = hasBuildGradle(dir)
+
+    if (hasRootMaven) candidates += BuildUnit(dir, BuildToolKind.MAVEN)
+    if (hasRootGradle) candidates += BuildUnit(dir, BuildToolKind.GRADLE)
+
+    val discoverMavenSubdirs = !hasRootMaven
+    val discoverGradleSubdirs = !hasRootGradle
+    if (!discoverMavenSubdirs && !discoverGradleSubdirs) {
+        return capBuildUnits(candidates, dir, maxUnits, logger)
+    }
+
+    try {
+        Files.walkFileTree(
+            dir,
+            emptySet(),
+            BUILD_UNIT_DISCOVERY_WALK_MAX_DEPTH,
+            object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(
+                    current: Path,
+                    attrs: BasicFileAttributes
+                ): FileVisitResult {
+                    if (current != dir &&
+                        current.fileName?.toString() in FileCollector.DEFAULT_EXCLUDED_DIRS
+                    ) {
+                        return FileVisitResult.SKIP_SUBTREE
+                    }
+
+                    if (current == dir) return FileVisitResult.CONTINUE
+
+                    var foundUnit = false
+                    if (discoverMavenSubdirs && current.resolve("pom.xml").exists()) {
+                        candidates += BuildUnit(current, BuildToolKind.MAVEN)
+                        foundUnit = true
+                    }
+                    if (discoverGradleSubdirs && hasBuildGradle(current)) {
+                        candidates += BuildUnit(current, BuildToolKind.GRADLE)
+                        foundUnit = true
+                    }
+                    return if (foundUnit) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE
+                }
+            }
+        )
+    } catch (e: Exception) {
+        logger.warn("Could not discover build units under $dir: ${e.message}")
+    }
+
+    return capBuildUnits(candidates, dir, maxUnits, logger)
+}
+
+private const val BUILD_UNIT_DISCOVERY_SUBDIR_DEPTH = 3
+
+// walkFileTree visits the root at maxDepth=1, so add one to reach subdirectories at depth 3.
+private const val BUILD_UNIT_DISCOVERY_WALK_MAX_DEPTH = BUILD_UNIT_DISCOVERY_SUBDIR_DEPTH + 1
+
+private fun capBuildUnits(
+    candidates: List<BuildUnit>,
+    dir: Path,
+    maxUnits: Int,
+    logger: RunnerLogger
+): BuildUnitDiscoveryResult {
+    val sorted = candidates.sortedWith(
+        compareBy<BuildUnit> { normalizedRelativePath(dir, it.dir) }
+            .thenBy { it.tool.ordinal }
+    )
+    val truncated = sorted.size > maxUnits
+    if (truncated) {
+        logger.warn(
+            "Discovered more than $maxUnits build unit(s) under $dir; " +
+                "using the first $maxUnits by root-relative path and leaving the rest to later stages"
+        )
+    }
+    return BuildUnitDiscoveryResult(sorted.take(maxUnits), truncated)
+}
+
+private fun normalizedRelativePath(root: Path, path: Path): String =
+    root.relativize(path).toString().replace('\\', '/')
+
 /** Returns `true` when any subdirectory of [dir] (up to depth 3) contains a `pom.xml`. */
 internal fun hasMavenPomInSubdir(dir: Path): Boolean = try {
     Files.walk(dir, 3).use { stream ->
@@ -152,6 +266,18 @@ internal fun resolveMavenCommand(projectDir: Path): String = when {
 }
 
 /**
+ * Returns the Maven executable for [projectDir], falling back to a wrapper at [rootDir] when a
+ * root-less build unit does not carry its own wrapper.
+ */
+internal fun resolveMavenCommand(projectDir: Path, rootDir: Path): String = when {
+    projectDir.resolve("mvnw").exists() -> "./mvnw"
+    projectDir.resolve("mvnw.cmd").exists() -> "mvnw.cmd"
+    rootDir.resolve("mvnw").exists() -> rootDir.resolve("mvnw").toAbsolutePath().toString()
+    rootDir.resolve("mvnw.cmd").exists() -> rootDir.resolve("mvnw.cmd").toAbsolutePath().toString()
+    else -> "mvn"
+}
+
+/**
  * Returns the Gradle executable to use for [projectDir]:
  * - `./gradlew` if a Unix wrapper is present
  * - `gradlew.bat` if a Windows wrapper is present
@@ -160,5 +286,22 @@ internal fun resolveMavenCommand(projectDir: Path): String = when {
 internal fun resolveGradleCommand(projectDir: Path): String = when {
     projectDir.resolve("gradlew").exists() -> "./gradlew"
     projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
+    else -> "gradle"
+}
+
+/**
+ * Returns the Gradle executable for [projectDir], falling back to a wrapper at [rootDir] when a
+ * root-less build unit does not carry its own wrapper.
+ */
+internal fun resolveGradleCommand(projectDir: Path, rootDir: Path): String = when {
+    projectDir.resolve("gradlew").exists() -> "./gradlew"
+
+    projectDir.resolve("gradlew.bat").exists() -> "gradlew.bat"
+
+    rootDir.resolve("gradlew").exists() -> rootDir.resolve("gradlew").toAbsolutePath().toString()
+
+    rootDir.resolve("gradlew.bat").exists() ->
+        rootDir.resolve("gradlew.bat").toAbsolutePath().toString()
+
     else -> "gradle"
 }
