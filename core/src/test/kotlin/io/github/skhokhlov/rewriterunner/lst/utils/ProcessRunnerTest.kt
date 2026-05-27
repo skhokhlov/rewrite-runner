@@ -164,6 +164,42 @@ class ProcessRunnerTest :
             assertTrue(units.isEmpty())
         }
 
+        test("detectBuildTool returns Maven for a root pom") {
+            projectDir.resolve("pom.xml").writeText("<project/>")
+
+            assertEquals(BuildToolKind.MAVEN, detectBuildTool(projectDir, NoOpRunnerLogger))
+        }
+
+        test("detectBuildTool returns Gradle for a root build file") {
+            projectDir.resolve("build.gradle.kts").writeText("")
+
+            assertEquals(BuildToolKind.GRADLE, detectBuildTool(projectDir, NoOpRunnerLogger))
+        }
+
+        test("detectBuildTool returns Gradle for settings only") {
+            projectDir.resolve("settings.gradle").writeText("pluginManagement {}")
+
+            assertEquals(BuildToolKind.GRADLE, detectBuildTool(projectDir, NoOpRunnerLogger))
+        }
+
+        test("detectBuildTool returns Gradle and warns when Maven and Gradle are both present") {
+            projectDir.resolve("pom.xml").writeText("<project/>")
+            projectDir.resolve("build.gradle.kts").writeText("")
+            val logger = CapturingLogger()
+
+            val tool = detectBuildTool(projectDir, logger)
+
+            assertEquals(BuildToolKind.GRADLE, tool)
+            assertTrue(
+                logger.warns.any { "Both Gradle and Maven build files" in it },
+                "Expected both-build-files warning, got ${logger.warns}"
+            )
+        }
+
+        test("detectBuildTool returns None when no root descriptor is present") {
+            assertEquals(BuildToolKind.NONE, detectBuildTool(projectDir, NoOpRunnerLogger))
+        }
+
         test("resolveMavenCommand prefers Unix wrapper then Windows wrapper then mvn") {
             assertEquals("mvn", resolveMavenCommand(projectDir))
 

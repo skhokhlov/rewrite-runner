@@ -5,7 +5,6 @@ import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import java.nio.file.Path
 import java.time.Duration
 import java.util.UUID
-import kotlin.io.path.exists
 import org.openrewrite.SourceFile
 import org.openrewrite.gradle.marker.GradleDependencyConfiguration
 import org.openrewrite.gradle.marker.GradleProject
@@ -58,19 +57,20 @@ internal class MarkerFactory(
      * Detects the build tool type and version for attaching a [org.openrewrite.marker.BuildTool] marker.
      * Returns null when no build tool is found at [projectDir].
      */
-    fun detectBuildToolMarker(projectDir: Path): BuildTool? = when {
-        projectDir.resolve("pom.xml").exists() -> {
-            val version = detectMavenVersion(projectDir)
-            BuildTool(UUID.randomUUID(), BuildTool.Type.Maven, version)
-        }
+    fun detectBuildToolMarker(projectDir: Path): BuildTool? =
+        when (detectBuildTool(projectDir, logger)) {
+            BuildToolKind.GRADLE -> {
+                val version = detectGradleWrapperVersion(projectDir) ?: "unknown"
+                BuildTool(UUID.randomUUID(), BuildTool.Type.Gradle, version)
+            }
 
-        hasBuildGradle(projectDir) -> {
-            val version = detectGradleWrapperVersion(projectDir) ?: "unknown"
-            BuildTool(UUID.randomUUID(), BuildTool.Type.Gradle, version)
-        }
+            BuildToolKind.MAVEN -> {
+                val version = detectMavenVersion(projectDir)
+                BuildTool(UUID.randomUUID(), BuildTool.Type.Maven, version)
+            }
 
-        else -> null
-    }
+            BuildToolKind.NONE -> null
+        }
 
     /**
      * Attaches a [org.openrewrite.gradle.marker.GradleProject] marker to [sf] when [resolutionResult] contains project data

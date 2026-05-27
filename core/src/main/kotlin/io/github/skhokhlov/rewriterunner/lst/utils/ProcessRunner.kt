@@ -25,7 +25,8 @@ internal typealias ProcessRunner = (
 
 internal enum class BuildToolKind {
     MAVEN,
-    GRADLE
+    GRADLE,
+    NONE
 }
 
 /** A directory to invoke a build tool in, with the tool to use there. */
@@ -128,6 +129,33 @@ internal fun hasBuildGradle(dir: Path): Boolean =
         dir.resolve("settings.gradle.kts").exists()
 
 /**
+ * Returns the single build-tool identity of [dir] for provenance/marker purposes.
+ *
+ * This verdict is intentionally exclusive and root-only. Classpath resolution remains
+ * non-exclusive through [discoverBuildUnits], so projects with both build files still resolve both
+ * tool classpaths while their provenance marker uses Gradle.
+ */
+internal fun detectBuildTool(dir: Path, logger: RunnerLogger): BuildToolKind {
+    val hasGradle = hasBuildGradle(dir)
+    val hasMaven = dir.resolve("pom.xml").exists()
+    return when {
+        hasGradle && hasMaven -> {
+            logger.warn(
+                "Both Gradle and Maven build files in $dir - " +
+                    "treating as Gradle for provenance"
+            )
+            BuildToolKind.GRADLE
+        }
+
+        hasGradle -> BuildToolKind.GRADLE
+
+        hasMaven -> BuildToolKind.MAVEN
+
+        else -> BuildToolKind.NONE
+    }
+}
+
+/**
  * Discovers build-tool invocation roots under [dir].
  *
  * Root descriptors keep the historical single-root invocation for that tool. When a tool has no
@@ -226,32 +254,6 @@ private fun capBuildUnits(
 
 private fun normalizedRelativePath(root: Path, path: Path): String =
     root.relativize(path).toString().replace('\\', '/')
-
-/** Returns `true` when any subdirectory of [dir] (up to depth 3) contains a `pom.xml`. */
-internal fun hasMavenPomInSubdir(dir: Path): Boolean = try {
-    Files.walk(dir, 3).use { stream ->
-        stream.anyMatch { path ->
-            path.parent != dir && path.fileName?.toString() == "pom.xml"
-        }
-    }
-} catch (_: Exception) {
-    false
-}
-
-/**
- * Returns `true` when any subdirectory of [dir] (up to depth 3) contains a
- * `build.gradle` or `build.gradle.kts` file.
- */
-internal fun hasGradleBuildInSubdir(dir: Path): Boolean = try {
-    Files.walk(dir, 3).use { stream ->
-        stream.anyMatch { path ->
-            val name = path.fileName?.toString() ?: return@anyMatch false
-            path.parent != dir && (name == "build.gradle" || name == "build.gradle.kts")
-        }
-    }
-} catch (_: Exception) {
-    false
-}
 
 /**
  * Returns the Maven executable to use for [projectDir]:

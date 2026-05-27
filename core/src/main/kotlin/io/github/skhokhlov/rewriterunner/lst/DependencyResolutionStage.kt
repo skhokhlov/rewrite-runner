@@ -163,6 +163,8 @@ open class DependencyResolutionStage(
                             }
                         }
                     }
+
+                    BuildToolKind.NONE -> Unit
                 }
             }
 

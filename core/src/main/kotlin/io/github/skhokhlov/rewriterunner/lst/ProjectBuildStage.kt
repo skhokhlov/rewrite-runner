@@ -82,6 +82,7 @@ open class ProjectBuildStage(
             val unitClasspath = when (unit.tool) {
                 BuildToolKind.MAVEN -> extractMavenClasspath(unit.dir, projectDir)
                 BuildToolKind.GRADLE -> extractGradleClasspath(unit.dir, projectDir)
+                BuildToolKind.NONE -> null
             }
             if (unitClasspath != null) {
                 completedUnits++
@@ -240,6 +241,8 @@ open class ProjectBuildStage(
                     logger.debug("Gradle build unit found at ${unit.dir} -> attempting compilation")
                     tryGradleCompile(unit.dir, projectDir)
                 }
+
+                BuildToolKind.NONE -> false
             }
             compiledAny = compiledAny || compiled
         }
