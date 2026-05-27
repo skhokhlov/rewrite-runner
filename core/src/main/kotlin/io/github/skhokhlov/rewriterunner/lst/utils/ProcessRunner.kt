@@ -170,7 +170,7 @@ internal fun discoverBuildUnits(
         Files.walkFileTree(
             dir,
             emptySet(),
-            BUILD_UNIT_DISCOVERY_DEPTH,
+            BUILD_UNIT_DISCOVERY_WALK_MAX_DEPTH,
             object : SimpleFileVisitor<Path>() {
                 override fun preVisitDirectory(
                     current: Path,
@@ -208,8 +208,10 @@ internal fun discoverBuildUnits(
     return units
 }
 
-// walkFileTree visits the root at maxDepth=1, so 4 reaches build directories 3 levels below root.
-private const val BUILD_UNIT_DISCOVERY_DEPTH = 4
+private const val BUILD_UNIT_DISCOVERY_SUBDIR_DEPTH = 3
+
+// walkFileTree visits the root at maxDepth=1, so add one to reach subdirectories at depth 3.
+private const val BUILD_UNIT_DISCOVERY_WALK_MAX_DEPTH = BUILD_UNIT_DISCOVERY_SUBDIR_DEPTH + 1
 
 /** Returns `true` when any subdirectory of [dir] (up to depth 3) contains a `pom.xml`. */
 internal fun hasMavenPomInSubdir(dir: Path): Boolean = try {
