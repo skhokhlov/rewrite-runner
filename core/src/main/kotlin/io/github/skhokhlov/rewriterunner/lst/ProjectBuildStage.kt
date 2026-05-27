@@ -3,6 +3,7 @@ package io.github.skhokhlov.rewriterunner.lst
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
+import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnitResult
 import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnits
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
@@ -42,9 +43,10 @@ import kotlin.io.path.exists
  * present; otherwise the system `gradle` command is used.
  *
  * **Failure behaviour:** Per-unit failures — non-zero exit code, process timeout,
- * missing build tool, or unexpected exception — are logged as warnings. [extractClasspath] returns
- * the merged classpath if any unit yields JARs; otherwise it returns `null` and the pipeline falls
- * through to [DependencyResolutionStage] (Stage 2).
+ * missing build tool, unexpected exception, or capped discovery — are logged as warnings.
+ * [extractClasspath] returns the merged classpath only when every discovered unit completes.
+ * Partial coverage returns `null` so the pipeline falls through to [DependencyResolutionStage]
+ * (Stage 2).
  *
  * **Compilation:** After a successful Stage 1, [tryCompile] is called if the
  * project has no pre-compiled class directories. Compiled `.class` files are then
@@ -71,17 +73,33 @@ open class ProjectBuildStage(
      */
     open fun extractClasspath(projectDir: Path): List<Path>? {
         val classpath = linkedSetOf<Path>()
-        val units = discoverBuildUnits(projectDir, logger = logger)
+        val discovery = discoverBuildUnitResult(projectDir, logger = logger)
+        val units = discovery.units
         if (units.isEmpty()) return null
 
+        var completedUnits = 0
         units.forEach { unit ->
             val unitClasspath = when (unit.tool) {
                 BuildToolKind.MAVEN -> extractMavenClasspath(unit.dir, projectDir)
                 BuildToolKind.GRADLE -> extractGradleClasspath(unit.dir, projectDir)
             }
-            if (!unitClasspath.isNullOrEmpty()) {
+            if (unitClasspath != null) {
+                completedUnits++
                 classpath += unitClasspath
             }
+        }
+
+        if (discovery.truncated || completedUnits != units.size) {
+            val reason = if (discovery.truncated) {
+                "discovery was capped at ${units.size} build unit(s)"
+            } else {
+                "only $completedUnits/${units.size} build unit(s) completed"
+            }
+            logger.warn(
+                "Stage 1 did not cover the full project: $reason; " +
+                    "falling through to Stage 2"
+            )
+            return null
         }
 
         return classpath.takeIf { it.isNotEmpty() }?.toList()
@@ -115,7 +133,7 @@ open class ProjectBuildStage(
             }
 
             val content = outputFile.toFile().readText().trim()
-            if (content.isEmpty()) return null
+            if (content.isEmpty()) return emptyList()
 
             return content.split(java.io.File.pathSeparator).map {
                 Path.of(it)

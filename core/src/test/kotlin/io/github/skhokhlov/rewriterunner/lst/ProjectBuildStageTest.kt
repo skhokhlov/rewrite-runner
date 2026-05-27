@@ -289,7 +289,7 @@ class ProjectBuildStageTest :
             assertEquals(setOf(mavenJar, gradleJar), result?.toSet())
         }
 
-        test("extractClasspath keeps classpath from succeeding root-less units") {
+        test("extractClasspath falls through when any root-less unit fails") {
             val failingModule = mkdir("services/failing")
             failingModule.resolve("pom.xml").writeText("<project/>")
             val workingModule = mkdir("services/working")
@@ -301,7 +301,7 @@ class ProjectBuildStageTest :
 
             val result = stage.extractClasspath(projectDir)
 
-            assertEquals(listOf(jar), result)
+            assertNull(result, "Partial build-unit coverage should fall through to Stage 2")
         }
 
         test("tryCompile compiles each root-less build unit and succeeds on partial success") {

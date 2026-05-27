@@ -404,6 +404,37 @@ class DependencyResolutionStageResolveClasspathTest :
             )
         }
 
+        test("resolveClasspath falls through when any root-less unit fails") {
+            val api = mkdir("services/api")
+            api.resolve("pom.xml").writeText("<project/>")
+            val worker = mkdir("services/worker")
+            worker.resolve("pom.xml").writeText("<project/>")
+
+            var resolveCalled = false
+            val stage =
+                object : DependencyResolutionStage(
+                    AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
+                    NoOpRunnerLogger
+                ) {
+                    override fun runMavenDependencyTreeOutput(projectDir: Path): String? =
+                        if (projectDir == api) {
+                            "[INFO] +- org.example:api:jar:1.0.0:compile\n"
+                        } else {
+                            null
+                        }
+
+                    override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> {
+                        resolveCalled = true
+                        return listOf(cacheDir.resolve("api.jar"))
+                    }
+                }
+
+            val result = stage.resolveClasspath(projectDir)
+
+            assertTrue(result.classpath.isEmpty())
+            assertFalse(resolveCalled, "Partial build-unit coverage should fall through to Stage 3")
+        }
+
         test("resolveClasspath merges Gradle project data from root-less build units") {
             val api = mkdir("services/api")
             api.resolve("build.gradle.kts").writeText("")

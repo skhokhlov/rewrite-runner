@@ -22,6 +22,11 @@ class ProcessRunnerTest :
                 unit.tool to projectDir.relativize(unit.dir).toString().replace('\\', '/')
             }.toSet()
 
+        fun orderedUnitPaths(units: List<BuildUnit>): List<Pair<BuildToolKind, String>> =
+            units.map { unit ->
+                unit.tool to projectDir.relativize(unit.dir).toString().replace('\\', '/')
+            }
+
         fun mkdir(relative: String): Path =
             projectDir.resolve(relative).also { Files.createDirectories(it) }
 
@@ -121,6 +126,36 @@ class ProcessRunnerTest :
                 logger.warns.any { "25" in it && "build unit" in it },
                 "Expected cap warning, got ${logger.warns}"
             )
+        }
+
+        test("discoverBuildUnits sorts candidates before applying cap") {
+            mkdir("z-service").resolve("pom.xml").writeText("<project/>")
+            mkdir("a-service").resolve("pom.xml").writeText("<project/>")
+            mkdir("m-service").resolve("pom.xml").writeText("<project/>")
+
+            val units = discoverBuildUnits(projectDir, maxUnits = 2, logger = NoOpRunnerLogger)
+
+            assertEquals(
+                listOf(
+                    BuildToolKind.MAVEN to "a-service",
+                    BuildToolKind.MAVEN to "m-service"
+                ),
+                orderedUnitPaths(units)
+            )
+        }
+
+        test("discoverBuildUnitResult reports truncated discovery") {
+            mkdir("a-service").resolve("pom.xml").writeText("<project/>")
+            mkdir("b-service").resolve("pom.xml").writeText("<project/>")
+
+            val result = discoverBuildUnitResult(
+                projectDir,
+                maxUnits = 1,
+                logger = NoOpRunnerLogger
+            )
+
+            assertEquals(1, result.units.size)
+            assertTrue(result.truncated)
         }
 
         test("discoverBuildUnits returns empty list for empty directory") {

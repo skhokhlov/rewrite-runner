@@ -31,6 +31,9 @@ internal enum class BuildToolKind {
 /** A directory to invoke a build tool in, with the tool to use there. */
 internal data class BuildUnit(val dir: Path, val tool: BuildToolKind)
 
+/** Build units plus whether discovery found more candidates than the caller will process. */
+internal data class BuildUnitDiscoveryResult(val units: List<BuildUnit>, val truncated: Boolean)
+
 /**
  * Runs an external process in [workDir] and waits up to [timeout] for it to finish.
  *
@@ -135,36 +138,28 @@ internal fun discoverBuildUnits(
     dir: Path,
     maxUnits: Int = 25,
     logger: RunnerLogger
-): List<BuildUnit> {
-    if (maxUnits <= 0) return emptyList()
+): List<BuildUnit> = discoverBuildUnitResult(dir, maxUnits, logger).units
 
-    val units = mutableListOf<BuildUnit>()
-    var capWarned = false
+internal fun discoverBuildUnitResult(
+    dir: Path,
+    maxUnits: Int = 25,
+    logger: RunnerLogger
+): BuildUnitDiscoveryResult {
+    if (maxUnits <= 0) return BuildUnitDiscoveryResult(emptyList(), truncated = false)
 
-    fun addUnit(unit: BuildUnit): Boolean {
-        if (units.size >= maxUnits) {
-            if (!capWarned) {
-                logger.warn(
-                    "Discovered more than $maxUnits build unit(s) under $dir; " +
-                        "using the first $maxUnits and leaving the rest to later stages"
-                )
-                capWarned = true
-            }
-            return false
-        }
-        units += unit
-        return true
-    }
+    val candidates = mutableListOf<BuildUnit>()
 
     val hasRootMaven = dir.resolve("pom.xml").exists()
     val hasRootGradle = hasBuildGradle(dir)
 
-    if (hasRootMaven && !addUnit(BuildUnit(dir, BuildToolKind.MAVEN))) return units
-    if (hasRootGradle && !addUnit(BuildUnit(dir, BuildToolKind.GRADLE))) return units
+    if (hasRootMaven) candidates += BuildUnit(dir, BuildToolKind.MAVEN)
+    if (hasRootGradle) candidates += BuildUnit(dir, BuildToolKind.GRADLE)
 
     val discoverMavenSubdirs = !hasRootMaven
     val discoverGradleSubdirs = !hasRootGradle
-    if (!discoverMavenSubdirs && !discoverGradleSubdirs) return units
+    if (!discoverMavenSubdirs && !discoverGradleSubdirs) {
+        return capBuildUnits(candidates, dir, maxUnits, logger)
+    }
 
     try {
         Files.walkFileTree(
@@ -186,15 +181,11 @@ internal fun discoverBuildUnits(
 
                     var foundUnit = false
                     if (discoverMavenSubdirs && current.resolve("pom.xml").exists()) {
-                        if (!addUnit(BuildUnit(current, BuildToolKind.MAVEN))) {
-                            return FileVisitResult.TERMINATE
-                        }
+                        candidates += BuildUnit(current, BuildToolKind.MAVEN)
                         foundUnit = true
                     }
                     if (discoverGradleSubdirs && hasBuildGradle(current)) {
-                        if (!addUnit(BuildUnit(current, BuildToolKind.GRADLE))) {
-                            return FileVisitResult.TERMINATE
-                        }
+                        candidates += BuildUnit(current, BuildToolKind.GRADLE)
                         foundUnit = true
                     }
                     return if (foundUnit) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE
@@ -205,13 +196,36 @@ internal fun discoverBuildUnits(
         logger.warn("Could not discover build units under $dir: ${e.message}")
     }
 
-    return units
+    return capBuildUnits(candidates, dir, maxUnits, logger)
 }
 
 private const val BUILD_UNIT_DISCOVERY_SUBDIR_DEPTH = 3
 
 // walkFileTree visits the root at maxDepth=1, so add one to reach subdirectories at depth 3.
 private const val BUILD_UNIT_DISCOVERY_WALK_MAX_DEPTH = BUILD_UNIT_DISCOVERY_SUBDIR_DEPTH + 1
+
+private fun capBuildUnits(
+    candidates: List<BuildUnit>,
+    dir: Path,
+    maxUnits: Int,
+    logger: RunnerLogger
+): BuildUnitDiscoveryResult {
+    val sorted = candidates.sortedWith(
+        compareBy<BuildUnit> { normalizedRelativePath(dir, it.dir) }
+            .thenBy { it.tool.ordinal }
+    )
+    val truncated = sorted.size > maxUnits
+    if (truncated) {
+        logger.warn(
+            "Discovered more than $maxUnits build unit(s) under $dir; " +
+                "using the first $maxUnits by root-relative path and leaving the rest to later stages"
+        )
+    }
+    return BuildUnitDiscoveryResult(sorted.take(maxUnits), truncated)
+}
+
+private fun normalizedRelativePath(root: Path, path: Path): String =
+    root.relativize(path).toString().replace('\\', '/')
 
 /** Returns `true` when any subdirectory of [dir] (up to depth 3) contains a `pom.xml`. */
 internal fun hasMavenPomInSubdir(dir: Path): Boolean = try {

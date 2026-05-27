@@ -10,6 +10,7 @@ import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleConfigData
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleProjectData
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
+import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnitResult
 import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnits
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
@@ -51,9 +52,10 @@ import org.eclipse.aether.resolution.ArtifactResolutionException
  * were resolved. Missing types appear as `JavaType.Unknown` in the LST rather than
  * causing a hard failure.
  *
- * **Failure behaviour:** When no subprocess succeeds, or when Maven Resolver
- * produces an empty result, [resolveClasspath] returns an empty list, causing
- * [LstBuilder] to fall through to [BuildFileParseStage] (Stage 3).
+ * **Failure behaviour:** When no subprocess succeeds, capped discovery leaves some units
+ * uncovered, any discovered unit fails, or Maven Resolver produces an empty result,
+ * [resolveClasspath] returns an empty list, causing [LstBuilder] to fall through to
+ * [BuildFileParseStage] (Stage 3).
  *
  * **Extensibility:** The class is `open` with `open` / `protected open` methods so
  * tests can subclass it to inject a fake classpath without triggering network access.
@@ -125,7 +127,10 @@ open class DependencyResolutionStage(
             val coords = mutableListOf<String>()
             val gradleProjectData = linkedMapOf<String, GradleProjectData>()
 
-            discoverBuildUnits(projectDir, logger = logger).forEach { unit ->
+            val discovery = discoverBuildUnitResult(projectDir, logger = logger)
+            var completedUnits = 0
+
+            discovery.units.forEach { unit ->
                 when (unit.tool) {
                     BuildToolKind.MAVEN -> {
                         logger.debug(
@@ -133,6 +138,7 @@ open class DependencyResolutionStage(
                         )
                         val rawOutput = runMavenDependencyTreeOutput(unit.dir)
                         if (rawOutput != null) {
+                            completedUnits++
                             coords += parseMavenDependencyTreeOutput(rawOutput)
                         }
                     }
@@ -143,6 +149,7 @@ open class DependencyResolutionStage(
                         )
                         val rawOutput = runGradleDependenciesRawOutput(unit.dir)
                         if (rawOutput != null) {
+                            completedUnits++
                             val gradleCoords = parseGradleDependencyTaskOutput(rawOutput)
                             if (gradleCoords.isNotEmpty()) {
                                 coords += gradleCoords
@@ -157,6 +164,22 @@ open class DependencyResolutionStage(
                         }
                     }
                 }
+            }
+
+            if (discovery.truncated || completedUnits != discovery.units.size) {
+                val reason = if (discovery.truncated) {
+                    "discovery was capped at ${discovery.units.size} build unit(s)"
+                } else {
+                    "only $completedUnits/${discovery.units.size} build unit(s) completed"
+                }
+                logger.warn(
+                    "Stage 2 did not cover the full project: $reason; " +
+                        "falling through to Stage 3"
+                )
+                return ClasspathResolutionResult(
+                    emptyList(),
+                    gradleProjectData.takeIf { it.isNotEmpty() }
+                )
             }
 
             if (coords.isEmpty()) {

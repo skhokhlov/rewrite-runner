@@ -26,14 +26,16 @@ A build unit is a directory where rewrite-runner invokes a build tool, paired wi
 - No root Gradle descriptor: discover top-most subdirectory Gradle descriptors as Gradle units.
 
 Discovery prunes below the first descriptor directory, skips the same default excluded directory names
-as file collection, scans to a maximum subdirectory depth of 3, and caps processing at 25 units. When
-more than 25 units are discovered, rewrite-runner warns and leaves the remaining coverage to later
-fallback stages.
+as file collection, scans to a maximum subdirectory depth of 3, sorts candidates by root-relative path,
+and caps processing at 25 units. When more than 25 units are discovered, rewrite-runner warns and does
+not treat Stage 1 or Stage 2 as complete, so later fallback stages provide full-project coverage.
 
-Stage 1 unions distinct JAR paths from successful unit classpath extractions. Stage 2 accumulates
-coordinates from successful Maven and Gradle dependency subprocesses, then resolves the distinct
-coordinate set. Gradle project data from subdirectory units is re-keyed to root-relative Gradle paths
-such as `:services:api` so build-file markers can still be attached.
+Stage 1 unions distinct JAR paths from unit classpath extractions only when every discovered unit
+completes. Stage 2 accumulates coordinates from Maven and Gradle dependency subprocesses only when
+every discovered unit completes, then resolves the distinct coordinate set. Partial per-unit coverage
+falls through to the next stage instead of reporting a build-tool or dependency-resolution success for
+the whole project. Gradle project data from subdirectory units is re-keyed to root-relative Gradle
+paths such as `:services:api` so build-file markers can still be attached.
 
 ## Consequences
 
