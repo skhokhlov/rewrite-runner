@@ -17,12 +17,12 @@ class ProcessRunnerTest :
 
         afterEach { projectDir.toFile().deleteRecursively() }
 
-        fun unitPaths(units: List<BuildUnit>): Set<Pair<BuildToolType, String>> =
+        fun unitPaths(units: List<BuildUnit>): Set<Pair<BuildToolKind, String>> =
             units.map { unit ->
                 unit.tool to projectDir.relativize(unit.dir).toString().replace('\\', '/')
             }.toSet()
 
-        fun orderedUnitPaths(units: List<BuildUnit>): List<Pair<BuildToolType, String>> =
+        fun orderedUnitPaths(units: List<BuildUnit>): List<Pair<BuildToolKind, String>> =
             units.map { unit ->
                 unit.tool to projectDir.relativize(unit.dir).toString().replace('\\', '/')
             }
@@ -36,7 +36,7 @@ class ProcessRunnerTest :
 
             val units = discoverBuildUnits(projectDir, logger = NoOpRunnerLogger)
 
-            assertEquals(setOf(BuildToolType.Maven to ""), unitPaths(units))
+            assertEquals(setOf(BuildToolKind.Maven to ""), unitPaths(units))
         }
 
         test("discoverBuildUnits returns root Gradle unit when root settings exists") {
@@ -45,7 +45,7 @@ class ProcessRunnerTest :
 
             val units = discoverBuildUnits(projectDir, logger = NoOpRunnerLogger)
 
-            assertEquals(setOf(BuildToolType.Gradle to ""), unitPaths(units))
+            assertEquals(setOf(BuildToolKind.Gradle to ""), unitPaths(units))
         }
 
         test("discoverBuildUnits finds top-most Maven subdir units when root has no pom") {
@@ -56,8 +56,8 @@ class ProcessRunnerTest :
 
             assertEquals(
                 setOf(
-                    BuildToolType.Maven to "services/api",
-                    BuildToolType.Maven to "services/worker"
+                    BuildToolKind.Maven to "services/api",
+                    BuildToolKind.Maven to "services/worker"
                 ),
                 unitPaths(units)
             )
@@ -71,8 +71,8 @@ class ProcessRunnerTest :
 
             assertEquals(
                 setOf(
-                    BuildToolType.Maven to "java-api",
-                    BuildToolType.Gradle to "kotlin-api"
+                    BuildToolKind.Maven to "java-api",
+                    BuildToolKind.Gradle to "kotlin-api"
                 ),
                 unitPaths(units)
             )
@@ -84,7 +84,7 @@ class ProcessRunnerTest :
 
             val units = discoverBuildUnits(projectDir, logger = NoOpRunnerLogger)
 
-            assertEquals(setOf(BuildToolType.Maven to "platform"), unitPaths(units))
+            assertEquals(setOf(BuildToolKind.Maven to "platform"), unitPaths(units))
         }
 
         test("discoverBuildUnits skips excluded directories") {
@@ -94,7 +94,7 @@ class ProcessRunnerTest :
 
             val units = discoverBuildUnits(projectDir, logger = NoOpRunnerLogger)
 
-            assertEquals(setOf(BuildToolType.Maven to "src/service"), unitPaths(units))
+            assertEquals(setOf(BuildToolKind.Maven to "src/service"), unitPaths(units))
         }
 
         test("discoverBuildUnits includes descriptors at depth three") {
@@ -102,7 +102,7 @@ class ProcessRunnerTest :
 
             val units = discoverBuildUnits(projectDir, logger = NoOpRunnerLogger)
 
-            assertEquals(setOf(BuildToolType.Maven to "one/two/three"), unitPaths(units))
+            assertEquals(setOf(BuildToolKind.Maven to "one/two/three"), unitPaths(units))
         }
 
         test("discoverBuildUnits excludes descriptors deeper than depth three") {
@@ -137,8 +137,8 @@ class ProcessRunnerTest :
 
             assertEquals(
                 listOf(
-                    BuildToolType.Maven to "a-service",
-                    BuildToolType.Maven to "m-service"
+                    BuildToolKind.Maven to "a-service",
+                    BuildToolKind.Maven to "m-service"
                 ),
                 orderedUnitPaths(units)
             )
@@ -167,19 +167,19 @@ class ProcessRunnerTest :
         test("detectBuildTool returns Maven for a root pom") {
             projectDir.resolve("pom.xml").writeText("<project/>")
 
-            assertEquals(BuildToolType.Maven, detectBuildTool(projectDir, NoOpRunnerLogger))
+            assertEquals(BuildToolKind.Maven, detectBuildTool(projectDir, NoOpRunnerLogger))
         }
 
         test("detectBuildTool returns Gradle for a root build file") {
             projectDir.resolve("build.gradle.kts").writeText("")
 
-            assertEquals(BuildToolType.Gradle, detectBuildTool(projectDir, NoOpRunnerLogger))
+            assertEquals(BuildToolKind.Gradle, detectBuildTool(projectDir, NoOpRunnerLogger))
         }
 
         test("detectBuildTool returns Gradle for settings only") {
             projectDir.resolve("settings.gradle").writeText("pluginManagement {}")
 
-            assertEquals(BuildToolType.Gradle, detectBuildTool(projectDir, NoOpRunnerLogger))
+            assertEquals(BuildToolKind.Gradle, detectBuildTool(projectDir, NoOpRunnerLogger))
         }
 
         test("detectBuildTool returns Gradle and warns when Maven and Gradle are both present") {
@@ -189,7 +189,7 @@ class ProcessRunnerTest :
 
             val tool = detectBuildTool(projectDir, logger)
 
-            assertEquals(BuildToolType.Gradle, tool)
+            assertEquals(BuildToolKind.Gradle, tool)
             assertTrue(
                 logger.warns.any { "Both Gradle and Maven build files" in it },
                 "Expected both-build-files warning, got ${logger.warns}"
@@ -197,7 +197,7 @@ class ProcessRunnerTest :
         }
 
         test("detectBuildTool returns None when no root descriptor is present") {
-            assertEquals(BuildToolType.None, detectBuildTool(projectDir, NoOpRunnerLogger))
+            assertEquals(BuildToolKind.None, detectBuildTool(projectDir, NoOpRunnerLogger))
         }
 
         test("resolveMavenCommand prefers Unix wrapper then Windows wrapper then mvn") {

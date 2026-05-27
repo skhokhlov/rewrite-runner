@@ -2,7 +2,7 @@ package io.github.skhokhlov.rewriterunner.lst
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
-import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolType
+import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
 import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnitResult
 import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnits
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
@@ -80,9 +80,9 @@ open class ProjectBuildStage(
         var completedUnits = 0
         units.forEach { unit ->
             val unitClasspath = when (unit.tool) {
-                BuildToolType.Maven -> extractMavenClasspath(unit.dir, projectDir)
-                BuildToolType.Gradle -> extractGradleClasspath(unit.dir, projectDir)
-                BuildToolType.None -> null
+                BuildToolKind.Maven -> extractMavenClasspath(unit.dir, projectDir)
+                BuildToolKind.Gradle -> extractGradleClasspath(unit.dir, projectDir)
+                BuildToolKind.None -> null
             }
             if (unitClasspath != null) {
                 completedUnits++
@@ -232,17 +232,17 @@ open class ProjectBuildStage(
         var compiledAny = false
         units.forEach { unit ->
             val compiled = when (unit.tool) {
-                BuildToolType.Maven -> {
+                BuildToolKind.Maven -> {
                     logger.debug("Maven build unit found at ${unit.dir} -> attempting compilation")
                     tryMavenCompile(unit.dir, projectDir)
                 }
 
-                BuildToolType.Gradle -> {
+                BuildToolKind.Gradle -> {
                     logger.debug("Gradle build unit found at ${unit.dir} -> attempting compilation")
                     tryGradleCompile(unit.dir, projectDir)
                 }
 
-                BuildToolType.None -> false
+                BuildToolKind.None -> false
             }
             compiledAny = compiledAny || compiled
         }

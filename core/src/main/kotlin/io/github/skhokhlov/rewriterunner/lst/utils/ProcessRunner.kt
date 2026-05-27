@@ -23,14 +23,14 @@ internal typealias ProcessRunner = (
     logger: RunnerLogger
 ) -> Int?
 
-internal enum class BuildToolType {
+internal enum class BuildToolKind {
     Maven,
     Gradle,
     None
 }
 
 /** A directory to invoke a build tool in, with the tool to use there. */
-internal data class BuildUnit(val dir: Path, val tool: BuildToolType)
+internal data class BuildUnit(val dir: Path, val tool: BuildToolKind)
 
 /** Build units plus whether discovery found more candidates than the caller will process. */
 internal data class BuildUnitDiscoveryResult(val units: List<BuildUnit>, val truncated: Boolean)
@@ -135,7 +135,7 @@ internal fun hasBuildGradle(dir: Path): Boolean =
  * non-exclusive through [discoverBuildUnits], so projects with both build files still resolve both
  * tool classpaths while their provenance marker uses Gradle.
  */
-internal fun detectBuildTool(dir: Path, logger: RunnerLogger): BuildToolType {
+internal fun detectBuildTool(dir: Path, logger: RunnerLogger): BuildToolKind {
     val hasGradle = hasBuildGradle(dir)
     val hasMaven = dir.resolve("pom.xml").exists()
     return when {
@@ -144,14 +144,14 @@ internal fun detectBuildTool(dir: Path, logger: RunnerLogger): BuildToolType {
                 "Both Gradle and Maven build files in $dir - " +
                     "treating as Gradle for provenance"
             )
-            BuildToolType.Gradle
+            BuildToolKind.Gradle
         }
 
-        hasGradle -> BuildToolType.Gradle
+        hasGradle -> BuildToolKind.Gradle
 
-        hasMaven -> BuildToolType.Maven
+        hasMaven -> BuildToolKind.Maven
 
-        else -> BuildToolType.None
+        else -> BuildToolKind.None
     }
 }
 
@@ -180,8 +180,8 @@ internal fun discoverBuildUnitResult(
     val hasRootMaven = dir.resolve("pom.xml").exists()
     val hasRootGradle = hasBuildGradle(dir)
 
-    if (hasRootMaven) candidates += BuildUnit(dir, BuildToolType.Maven)
-    if (hasRootGradle) candidates += BuildUnit(dir, BuildToolType.Gradle)
+    if (hasRootMaven) candidates += BuildUnit(dir, BuildToolKind.Maven)
+    if (hasRootGradle) candidates += BuildUnit(dir, BuildToolKind.Gradle)
 
     val discoverMavenSubdirs = !hasRootMaven
     val discoverGradleSubdirs = !hasRootGradle
@@ -209,11 +209,11 @@ internal fun discoverBuildUnitResult(
 
                     var foundUnit = false
                     if (discoverMavenSubdirs && current.resolve("pom.xml").exists()) {
-                        candidates += BuildUnit(current, BuildToolType.Maven)
+                        candidates += BuildUnit(current, BuildToolKind.Maven)
                         foundUnit = true
                     }
                     if (discoverGradleSubdirs && hasBuildGradle(current)) {
-                        candidates += BuildUnit(current, BuildToolType.Gradle)
+                        candidates += BuildUnit(current, BuildToolKind.Gradle)
                         foundUnit = true
                     }
                     return if (foundUnit) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE

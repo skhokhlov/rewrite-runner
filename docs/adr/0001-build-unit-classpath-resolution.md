@@ -38,7 +38,7 @@ the whole project. Gradle project data from subdirectory units is re-keyed to ro
 paths such as `:services:api` so build-file markers can still be attached.
 
 Build-tool identity for provenance markers is a separate, exclusive verdict. `detectBuildTool`
-looks only at the project root and returns a single `BuildToolType`: Gradle, Maven, or None. If both
+looks only at the project root and returns a single `BuildToolKind`: Gradle, Maven, or None. If both
 Gradle and Maven root descriptors are present, the marker verdict is Gradle and rewrite-runner warns.
 This Gradle-first rule is marker-only; Stages 1 and 2 still use build-unit discovery and resolve both
 tools where both descriptors exist.
