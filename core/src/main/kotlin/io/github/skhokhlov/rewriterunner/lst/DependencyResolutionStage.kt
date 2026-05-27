@@ -84,7 +84,7 @@ open class DependencyResolutionStage(
         commandRoot = projectDir
         try {
             val gradleUnits = discoverBuildUnits(projectDir, logger = logger)
-                .filter { it.tool == BuildToolKind.Gradle }
+                .filter { it.tool == BuildToolKind.GRADLE }
             if (gradleUnits.isEmpty()) return null
 
             val merged = linkedMapOf<String, GradleProjectData>()
@@ -132,7 +132,7 @@ open class DependencyResolutionStage(
 
             discovery.units.forEach { unit ->
                 when (unit.tool) {
-                    BuildToolKind.Maven -> {
+                    BuildToolKind.MAVEN -> {
                         logger.debug(
                             "Stage 2: Maven build unit at ${unit.dir} — running dependency:tree"
                         )
@@ -143,7 +143,7 @@ open class DependencyResolutionStage(
                         }
                     }
 
-                    BuildToolKind.Gradle -> {
+                    BuildToolKind.GRADLE -> {
                         logger.debug(
                             "Stage 2: Gradle build unit at ${unit.dir} — running dependencies task"
                         )
@@ -164,7 +164,7 @@ open class DependencyResolutionStage(
                         }
                     }
 
-                    BuildToolKind.None -> Unit
+                    BuildToolKind.NONE -> Unit
                 }
             }
 

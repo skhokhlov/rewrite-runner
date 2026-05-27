@@ -59,17 +59,17 @@ internal class MarkerFactory(
      */
     fun detectBuildToolMarker(projectDir: Path): BuildTool? =
         when (detectBuildTool(projectDir, logger)) {
-            BuildToolKind.Gradle -> {
+            BuildToolKind.GRADLE -> {
                 val version = detectGradleWrapperVersion(projectDir) ?: "unknown"
                 BuildTool(UUID.randomUUID(), BuildTool.Type.Gradle, version)
             }
 
-            BuildToolKind.Maven -> {
+            BuildToolKind.MAVEN -> {
                 val version = detectMavenVersion(projectDir)
                 BuildTool(UUID.randomUUID(), BuildTool.Type.Maven, version)
             }
 
-            BuildToolKind.None -> null
+            BuildToolKind.NONE -> null
         }
 
     /**

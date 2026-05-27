@@ -80,9 +80,9 @@ open class ProjectBuildStage(
         var completedUnits = 0
         units.forEach { unit ->
             val unitClasspath = when (unit.tool) {
-                BuildToolKind.Maven -> extractMavenClasspath(unit.dir, projectDir)
-                BuildToolKind.Gradle -> extractGradleClasspath(unit.dir, projectDir)
-                BuildToolKind.None -> null
+                BuildToolKind.MAVEN -> extractMavenClasspath(unit.dir, projectDir)
+                BuildToolKind.GRADLE -> extractGradleClasspath(unit.dir, projectDir)
+                BuildToolKind.NONE -> null
             }
             if (unitClasspath != null) {
                 completedUnits++
@@ -232,17 +232,17 @@ open class ProjectBuildStage(
         var compiledAny = false
         units.forEach { unit ->
             val compiled = when (unit.tool) {
-                BuildToolKind.Maven -> {
+                BuildToolKind.MAVEN -> {
                     logger.debug("Maven build unit found at ${unit.dir} -> attempting compilation")
                     tryMavenCompile(unit.dir, projectDir)
                 }
 
-                BuildToolKind.Gradle -> {
+                BuildToolKind.GRADLE -> {
                     logger.debug("Gradle build unit found at ${unit.dir} -> attempting compilation")
                     tryGradleCompile(unit.dir, projectDir)
                 }
 
-                BuildToolKind.None -> false
+                BuildToolKind.NONE -> false
             }
             compiledAny = compiledAny || compiled
         }

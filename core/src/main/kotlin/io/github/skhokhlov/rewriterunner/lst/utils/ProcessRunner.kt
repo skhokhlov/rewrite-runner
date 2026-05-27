@@ -24,9 +24,9 @@ internal typealias ProcessRunner = (
 ) -> Int?
 
 internal enum class BuildToolKind {
-    Maven,
-    Gradle,
-    None
+    MAVEN,
+    GRADLE,
+    NONE
 }
 
 /** A directory to invoke a build tool in, with the tool to use there. */
@@ -144,14 +144,14 @@ internal fun detectBuildTool(dir: Path, logger: RunnerLogger): BuildToolKind {
                 "Both Gradle and Maven build files in $dir - " +
                     "treating as Gradle for provenance"
             )
-            BuildToolKind.Gradle
+            BuildToolKind.GRADLE
         }
 
-        hasGradle -> BuildToolKind.Gradle
+        hasGradle -> BuildToolKind.GRADLE
 
-        hasMaven -> BuildToolKind.Maven
+        hasMaven -> BuildToolKind.MAVEN
 
-        else -> BuildToolKind.None
+        else -> BuildToolKind.NONE
     }
 }
 
@@ -180,8 +180,8 @@ internal fun discoverBuildUnitResult(
     val hasRootMaven = dir.resolve("pom.xml").exists()
     val hasRootGradle = hasBuildGradle(dir)
 
-    if (hasRootMaven) candidates += BuildUnit(dir, BuildToolKind.Maven)
-    if (hasRootGradle) candidates += BuildUnit(dir, BuildToolKind.Gradle)
+    if (hasRootMaven) candidates += BuildUnit(dir, BuildToolKind.MAVEN)
+    if (hasRootGradle) candidates += BuildUnit(dir, BuildToolKind.GRADLE)
 
     val discoverMavenSubdirs = !hasRootMaven
     val discoverGradleSubdirs = !hasRootGradle
@@ -209,11 +209,11 @@ internal fun discoverBuildUnitResult(
 
                     var foundUnit = false
                     if (discoverMavenSubdirs && current.resolve("pom.xml").exists()) {
-                        candidates += BuildUnit(current, BuildToolKind.Maven)
+                        candidates += BuildUnit(current, BuildToolKind.MAVEN)
                         foundUnit = true
                     }
                     if (discoverGradleSubdirs && hasBuildGradle(current)) {
-                        candidates += BuildUnit(current, BuildToolKind.Gradle)
+                        candidates += BuildUnit(current, BuildToolKind.GRADLE)
                         foundUnit = true
                     }
                     return if (foundUnit) FileVisitResult.SKIP_SUBTREE else FileVisitResult.CONTINUE

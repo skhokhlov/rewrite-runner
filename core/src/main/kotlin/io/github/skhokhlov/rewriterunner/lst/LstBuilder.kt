@@ -764,7 +764,7 @@ open class LstBuilder(
             val gradleData = depResolutionStage.collectGradleProjectData(projectDir)
             if (gradleData == null &&
                 discoverBuildUnits(projectDir, logger = logger).any {
-                    it.tool == BuildToolKind.Gradle
+                    it.tool == BuildToolKind.GRADLE
                 }
             ) {
                 logger.warn(
