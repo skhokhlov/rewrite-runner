@@ -64,14 +64,14 @@ jobs:
         uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
 
       - name: Cache Maven local repository
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v4
         with:
           path: ~/.m2/repository
           key: maven-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
           restore-keys: maven-${{ runner.os }}-
 
       - name: Cache test toolchains (Maven/Gradle distributions)
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v4
         with:
           # The Gradle distribution version baked into this cache is determined by the project's
           # own gradle-wrapper.properties. The hashFiles entry below ensures bumping the wrapper
