@@ -145,6 +145,10 @@ successfully parsed:
   `StackOverflowError`, …) are deliberately **not** caught; they propagate so the
   run fails fast on an invalid JVM state.
 
+The LST build also records `ExecutionDiagnostics.parsedFileCount`, counting only real
+parsed source files and excluding `ParseError` stubs. This lets callers distinguish a
+total parse wipeout from a clean no-op recipe run or an empty/excluded project.
+
 Two paths preserve their existing fallback behaviour on top of recording:
 
 - **Maven POMs** — only `MavenParser` throws whose cause chain contains a

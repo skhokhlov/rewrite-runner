@@ -1372,6 +1372,43 @@ class LstBuilderTest :
             )
         }
 
+        test("executionDiagnostics parsedFileCount counts successfully parsed files") {
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+            projectDir.resolve("config.yaml").writeText("key: value")
+
+            val lstBuildResult =
+                lstBuilder().build(
+                    projectDir = projectDir
+                )
+
+            assertEquals(
+                2,
+                lstBuildResult.executionDiagnostics.parsedFileCount,
+                "Two parseable files should be counted as successfully parsed"
+            )
+        }
+
+        test("executionDiagnostics parsedFileCount is zero when everything is excluded") {
+            projectDir.resolve("Hello.java").writeText("class Hello {}")
+            projectDir.resolve("config.yaml").writeText("key: value")
+
+            val lstBuildResult =
+                lstBuilder().build(
+                    projectDir = projectDir,
+                    excludePaths = listOf("Hello.java", "config.yaml")
+                )
+
+            assertEquals(
+                0,
+                lstBuildResult.executionDiagnostics.parsedFileCount,
+                "Excluded files should leave a measured count of zero"
+            )
+            assertTrue(
+                lstBuildResult.executionDiagnostics.parseFailures.isEmpty(),
+                "Empty scope should not look like a parse failure"
+            )
+        }
+
         test("executionDiagnostics stageUsed is LOCAL_REPOSITORY when only stage 4 finds JARs") {
             val fakeJar = projectDir.resolve("cached.jar").also { it.writeText("") }
             val noOpDepStage =
@@ -1543,6 +1580,11 @@ class LstBuilderTest :
                 result.sourceFiles.any { it is ParseError },
                 "ParseError SourceFile should remain in the LST"
             )
+            assertEquals(
+                0,
+                result.executionDiagnostics.parsedFileCount,
+                "ParseError stubs should not be counted as successfully parsed files"
+            )
         }
 
         test("silently dropped Java input is recorded as a ParseFailure") {
@@ -1611,6 +1653,26 @@ class LstBuilderTest :
             assertTrue(
                 result.sourceFiles.any { it.sourcePath.toString().endsWith("config.yaml") },
                 "config.yaml should still be parsed when JavaParser throws"
+            )
+        }
+
+        test("executionDiagnostics parsedFileCount is zero when every file fails parsing") {
+            projectDir.resolve("Boom.java").writeText("class Boom {}")
+
+            val builder = lstBuilderWithJavaStub(
+                stubParser { _, _ -> throw IllegalStateException("boom") }
+            )
+
+            val result = builder.build(projectDir = projectDir)
+
+            assertEquals(
+                0,
+                result.executionDiagnostics.parsedFileCount,
+                "A total parse wipeout should be distinguishable from a no-op recipe run"
+            )
+            assertTrue(
+                result.executionDiagnostics.parseFailures.isNotEmpty(),
+                "A total parse wipeout should carry at least one parse failure"
             )
         }
 

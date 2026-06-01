@@ -295,9 +295,44 @@ class ResultFormatterTest :
                 json.readTree(reportDir.resolve("openrewrite-report.json").readText())
             assertEquals(1, tree["totalChanged"].asInt())
             assertEquals("Foo.java", tree["results"][0]["filePath"].asText())
+            assertTrue(
+                tree.has("parsedFileCount"),
+                "Raw plugin report should expose parsedFileCount"
+            )
+            assertTrue(
+                tree["parsedFileCount"].isNull,
+                "Plugin path does not build an in-process LST, so parsedFileCount is null"
+            )
         }
 
         // ─── parseFailures in REPORT JSON ─────────────────────────────────────────
+
+        test("REPORT mode includes parsedFileCount from executionDiagnostics") {
+            val runResult =
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = emptyList(),
+                    projectDir = reportDir,
+                    executionDiagnostics =
+                        ExecutionDiagnostics(
+                            stageUsed = null,
+                            resolvedJarCount = 0,
+                            parsedFileCount = 3
+                        )
+                )
+
+            captureOutput { pw ->
+                ResultFormatter(OutputMode.REPORT, pw).format(runResult)
+            }
+
+            val tree =
+                json.readTree(reportDir.resolve("openrewrite-report.json").readText())
+            assertTrue(
+                tree.has("parsedFileCount"),
+                "REPORT JSON should expose parsedFileCount"
+            )
+            assertEquals(3, tree["parsedFileCount"].asInt())
+        }
 
         test("REPORT mode includes parseFailures from executionDiagnostics") {
             val runResult =

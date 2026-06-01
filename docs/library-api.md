@@ -75,6 +75,7 @@ data class ExecutionDiagnostics(
     val stageUsed: UsedExecutionStage?,
     val resolvedJarCount: Int,
     val parseFailures: List<ParseFailure> = emptyList(),
+    val parsedFileCount: Int? = null,
 )
 
 data class ParseFailure(val path: String, val reason: String, val parser: String)
@@ -85,6 +86,7 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
 | `stageUsed` | The stage that produced the classpath, or `null` when every LST stage produced an empty classpath (recipe ran semantically blind) |
 | `resolvedJarCount` | Number of `.jar` entries on the LST classpath (project class directories excluded). `0` when `stageUsed` is `PLUGIN` or `null` |
 | `parseFailures` | Per-file parse failures across every parser the LST pipeline ran (see [Parse failures](#parse-failures) below). Empty when every file parsed cleanly. |
+| `parsedFileCount` | Count of successfully parsed source files in the in-process LST path, excluding `ParseError` stubs. `null` when the plugin path ran because no in-process LST was built. |
 
 ### Detecting a blind run
 
@@ -111,6 +113,18 @@ The LST pipeline never aborts on per-file parse failures. Instead, every signal 
 trouble — from any parser the pipeline ran — is collected into
 `executionDiagnostics.parseFailures` so callers can decide whether to log, ignore, or
 fail their own build.
+
+Use `parsedFileCount` with `parseFailures` and `results` to classify LST-path runs:
+
+| Signal | Meaning |
+|--------|---------|
+| `parsedFileCount == 0` and `parseFailures.isNotEmpty()` | Total parse failure; the recipe ran over an empty LST |
+| `parsedFileCount == 0` and `parseFailures.isEmpty()` | Nothing was in scope, usually because the project was empty or every file was excluded |
+| `parsedFileCount > 0` and `results.isEmpty()` | The recipe ran and found nothing to change |
+| `parsedFileCount > 0` and `results.isNotEmpty()` | The recipe made changes |
+
+When `parsedFileCount == null`, the Stage 0 plugin path produced the run; use
+`hasChanges` and `rawDiffs` instead.
 
 Three signals end up here:
 
@@ -172,9 +186,9 @@ the whole execution. If every coordinate was malformed, the recipe classpath end
 up empty and any subsequent failure (e.g. "recipe not found") surfaces as the
 usual `IllegalArgumentException` from `run()`.
 
-In `--output report` mode the same data is serialized as a top-level `parseFailures`
-array in `openrewrite-report.json` (see [README](../README.md#output-modes) for the
-JSON schema).
+In `--output report` mode the same data is serialized as top-level
+`parsedFileCount` and `parseFailures` fields in `openrewrite-report.json` (see
+[README](../README.md#output-modes) for the JSON schema).
 
 Each `org.openrewrite.Result` in `results` exposes:
 - `before` — the source file before the recipe (`null` for newly created files)

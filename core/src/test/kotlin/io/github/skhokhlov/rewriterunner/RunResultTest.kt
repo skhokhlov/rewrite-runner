@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Paths
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private val emptyDiagnostics = ExecutionDiagnostics.EMPTY
@@ -101,5 +102,12 @@ class RunResultTest :
                 )
             assertEquals(2, result.changedFiles.size)
             assertTrue(result.changedFiles.contains(Paths.get("/tmp/a.java")))
+        }
+
+        test("plugin diagnostics leave parsedFileCount unmeasured") {
+            assertNull(
+                ExecutionDiagnostics.PLUGIN.parsedFileCount,
+                "Stage 0 plugin execution does not build an in-process LST"
+            )
         }
     })
