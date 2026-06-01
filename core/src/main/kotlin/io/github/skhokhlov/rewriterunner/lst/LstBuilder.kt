@@ -544,10 +544,12 @@ open class LstBuilder(
         }
 
         val resolvedJarCount = classpath.count { it.toString().endsWith(".jar") }
+        val parsedFileCount = withMarkers.count { it !is ParseError }
         val diagnostics = ExecutionDiagnostics(
             stageUsed = resolutionResult.stageUsed,
             resolvedJarCount = resolvedJarCount,
-            parseFailures = parseFailures.toList()
+            parseFailures = parseFailures.toList(),
+            parsedFileCount = parsedFileCount
         )
         return LstBuildResult(withMarkers, diagnostics)
     }

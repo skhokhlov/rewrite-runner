@@ -173,6 +173,9 @@ result.changedFiles.forEach { path -> println("Written: $path") }
 result.executionDiagnostics.parseFailures.forEach { failure ->
     println("${failure.parser} could not handle ${failure.path}: ${failure.reason}")
 }
+
+// Null means the plugin path ran and no in-process LST count was measured.
+println("Parsed files: ${result.executionDiagnostics.parsedFileCount}")
 ```
 
 Per-file parse failures are collected into `executionDiagnostics.parseFailures`
@@ -366,6 +369,7 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
       "isDeletedFile": false
     }
   ],
+  "parsedFileCount": 1,
   "parseFailures": [
     {
       "path": "src/main/java/Broken.java",
@@ -375,6 +379,10 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
   ]
 }
 ```
+
+`parsedFileCount` is the number of successfully parsed source files in the LST path,
+excluding `ParseError` stubs. It is `null` for plugin-first runs because the in-process
+LST was not built.
 
 `parseFailures` is empty when every file parsed cleanly. Each entry names the producer
 that gave up on the entry along with a short reason. Two kinds of producers appear:

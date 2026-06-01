@@ -180,6 +180,7 @@ class ResultFormatter(
                     "diff" to r.diff()
                 )
             },
+            "parsedFileCount" to diagnostics?.parsedFileCount,
             "parseFailures" to parseFailuresJson(diagnostics)
         )
         json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
@@ -202,6 +203,7 @@ class ResultFormatter(
                     "diff" to diff
                 )
             },
+            "parsedFileCount" to diagnostics?.parsedFileCount,
             "parseFailures" to parseFailuresJson(diagnostics)
         )
         json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)

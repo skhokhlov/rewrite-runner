@@ -77,11 +77,21 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  *   instead of being silently downgraded. Only URI-class MavenParser failures fall
  *   back to `XmlParser` (and are recorded here); every other parser's batch throws
  *   are caught and recorded.
+ * @property parsedFileCount Count of successfully parsed source files in the
+ *   in-process LST path, excluding [org.openrewrite.tree.ParseError] stubs. `null`
+ *   means the count was not measured, which is currently true for the Stage 0 plugin
+ *   path where no in-process LST is built.
+ *
+ *   Use this with [parseFailures] and recipe results to classify LST-path outcomes:
+ *   `0` with failures means total parse failure; `0` without failures means nothing
+ *   was in scope; greater than `0` with empty results means the recipe found nothing
+ *   to change; greater than `0` with non-empty results means the recipe made changes.
  */
 data class ExecutionDiagnostics(
     val stageUsed: UsedExecutionStage?,
     val resolvedJarCount: Int,
-    val parseFailures: List<ParseFailure> = emptyList()
+    val parseFailures: List<ParseFailure> = emptyList(),
+    val parsedFileCount: Int? = null
 ) {
     companion object {
         val PLUGIN = ExecutionDiagnostics(UsedExecutionStage.PLUGIN, 0)
