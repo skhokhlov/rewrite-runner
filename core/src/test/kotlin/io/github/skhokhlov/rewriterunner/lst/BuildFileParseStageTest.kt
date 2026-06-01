@@ -10,6 +10,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -83,7 +84,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled, "resolveWithPomTraversal should be called")
             assertTrue(
@@ -153,7 +154,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -183,7 +184,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -228,7 +229,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -259,7 +260,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it == "org.slf4j:slf4j-api:2.0.0" })
@@ -267,7 +268,7 @@ class BuildFileParseStageTest :
 
         // ─── Maven: traversal returns JARs ────────────────────────────────────────
 
-        test("Maven: resolveWithPomTraversal returns JARs → resolveClasspath returns them") {
+        test("Maven: resolveWithPomTraversal returns JARs through resolve") {
             resetTracking()
             val fakeJar = cacheDir.resolve("fake.jar").also { it.writeText("") }
             projectDir.resolve("pom.xml").writeText(
@@ -288,9 +289,9 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            val result = fakeStage(listOf(fakeJar)).resolveClasspath(projectDir)
+            val result = fakeStage(listOf(fakeJar)).resolve(projectDir, mutableListOf())
 
-            assertEquals(listOf(fakeJar), result)
+            assertEquals(listOf(fakeJar), result?.classpath)
         }
 
         // ─── Maven: traversal returns empty ───────────────────────────────────────
@@ -315,9 +316,9 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            val result = fakeStage().resolveClasspath(projectDir)
+            val result = fakeStage().resolve(projectDir, mutableListOf())
 
-            assertTrue(result.isEmpty())
+            assertNull(result)
         }
 
         // ─── Gradle single-module ─────────────────────────────────────────────────
@@ -332,7 +333,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -359,7 +360,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -389,7 +390,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -412,7 +413,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it == "org.slf4j:slf4j-api:2.0.7" })
@@ -430,7 +431,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -449,7 +450,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -466,7 +467,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it == "org.slf4j:slf4j-api:2.0.0" })
@@ -491,7 +492,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(capturedCoords.any { it.contains("commons-lang3") })
@@ -530,7 +531,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             assertTrue(
@@ -548,9 +549,9 @@ class BuildFileParseStageTest :
             resetTracking()
             // Empty project dir — no pom.xml, no build.gradle
 
-            val result = fakeStage().resolveClasspath(projectDir)
+            val result = fakeStage().resolve(projectDir, mutableListOf())
 
-            assertTrue(result.isEmpty())
+            assertNull(result)
             assertFalse(traversalCalled, "resolveWithPomTraversal should NOT be called")
         }
 
@@ -597,7 +598,7 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            fakeStage().resolveClasspath(projectDir)
+            fakeStage().resolve(projectDir, mutableListOf())
 
             assertTrue(traversalCalled)
             val commonsCount = capturedCoords.count { it.contains("commons-lang3") }
@@ -614,9 +615,9 @@ class BuildFileParseStageTest :
                 """.trimIndent()
             )
 
-            val result = fakeStage().resolveClasspath(projectDir)
+            val result = fakeStage().resolve(projectDir, mutableListOf())
 
-            assertTrue(result.isEmpty())
+            assertNull(result)
         }
 
         // ─── Malformed Maven coordinate handling ─────────────────────────────────
@@ -624,7 +625,7 @@ class BuildFileParseStageTest :
         /**
          * Variant of [fakeStage] that overrides `gatherAllCoordinates` to inject crafted
          * coordinate strings — bypassing the static parser, whose regex would otherwise
-         * filter out an obviously malformed coord before [resolveClasspath]'s filter
+         * filter out an obviously malformed coord before [resolve]'s filter
          * could see it.
          */
         fun fakeStageWithCoords(
@@ -643,7 +644,7 @@ class BuildFileParseStageTest :
             }
         }
 
-        test("resolveClasspath skips malformed coordinates and records ParseFailure") {
+        test("resolve skips malformed coordinates and records ParseFailure") {
             resetTracking()
             val failures = mutableListOf<ParseFailure>()
             val stage = fakeStageWithCoords(
@@ -654,7 +655,7 @@ class BuildFileParseStageTest :
                 traversalResult = listOf(Path.of("/fake/commons-lang3.jar"))
             )
 
-            val result = stage.resolveClasspath(projectDir, failures)
+            val result = stage.resolve(projectDir, failures)
 
             assertTrue(traversalCalled, "POM traversal should still run for the good coordinate")
             assertEquals(
@@ -668,11 +669,11 @@ class BuildFileParseStageTest :
                 "Malformed coordinate should be recorded once"
             )
             assertEquals("BuildFileParseStage", failures.single().parser)
-            assertEquals(1, result.size, "Good coordinate should still resolve")
+            assertEquals(1, result?.classpath?.size, "Good coordinate should still resolve")
         }
 
         test(
-            "resolveClasspath returns empty without calling traversal when every coordinate is malformed"
+            "resolve returns null without calling traversal when every coordinate is malformed"
         ) {
             resetTracking()
             val failures = mutableListOf<ParseFailure>()
@@ -680,13 +681,13 @@ class BuildFileParseStageTest :
                 coords = listOf("com.example:bad name:1.0", "com.example:also bad:2.0")
             )
 
-            val result = stage.resolveClasspath(projectDir, failures)
+            val result = stage.resolve(projectDir, failures)
 
             assertFalse(
                 traversalCalled,
                 "POM traversal should be skipped when every coordinate is malformed"
             )
-            assertTrue(result.isEmpty())
+            assertNull(result)
             assertEquals(2, failures.size, "Each malformed coordinate should be recorded")
             assertTrue(failures.all { it.parser == "BuildFileParseStage" })
         }

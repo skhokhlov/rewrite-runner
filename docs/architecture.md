@@ -50,7 +50,9 @@ Recipe JARs are cached under the tool's own `cacheDir` so they never pollute the
 
 ## 4-Stage LST Classpath Resolution
 
-`LstBuilder` runs these stages in order, falling through on failure:
+`LstBuilder` runs an ordered list of `ClasspathStage` implementations. Each stage receives the
+project directory plus the parse-failure accumulator and returns either a
+`ClasspathResolutionResult` to terminate resolution or `null` to fall through to the next stage:
 
 | Stage | Class | Maven | Gradle |
 |---|---|---|---|
@@ -59,10 +61,10 @@ Recipe JARs are cached under the tool's own `cacheDir` so they never pollute the
 | 3 | `BuildFileParseStage` | Static `pom.xml` parse + POM traversal | Static `build.gradle(.kts)` + version catalog parse + POM traversal |
 | 4 | `LocalRepositoryStage` | Local `~/.m2` cache scan | Local `~/.gradle/caches` scan |
 
-- **Stage 1** (`ProjectBuildStage`): Runs the project's own build tool to extract the exact compile classpath. It iterates discovered build units, so root-less monorepos with module-local build files can still use build-tool classpaths. Falls through on failure.
-- **Stage 2** (`DependencyResolutionStage`): Runs `mvn dependency:tree` / `gradle dependencies` subprocesses per discovered build unit and resolves downloaded JARs directly via Aether. Supports Maven-only, Gradle-only, mixed, and root-less projects. Falls through when subprocesses fail.
+- **Stage 1** (`ProjectBuildStage`): Runs the project's own build tool to extract the exact compile classpath. It iterates discovered build units, so root-less monorepos with module-local build files can still use build-tool classpaths. On success, it also attempts compilation when no project class dirs exist yet and collects Gradle project data for markers.
+- **Stage 2** (`DependencyResolutionStage`): Runs `mvn dependency:tree` / `gradle dependencies` subprocesses per discovered build unit and resolves downloaded JARs directly via Aether. Supports Maven-only, Gradle-only, mixed, and root-less projects. Falls through when subprocesses fail or resolve no JARs.
 - **Stage 3** (`BuildFileParseStage`): Parses `pom.xml` and `build.gradle(.kts)` statically (no subprocess) for all discovered modules, then resolves via full Maven Resolver POM traversal to obtain transitive dependencies. Falls through when no build files exist or resolution fails.
-- **Stage 4** (`LocalRepositoryStage`): Scans `~/.m2` and `~/.gradle/caches` for already-cached JARs. Always succeeds (possibly empty).
+- **Stage 4** (`LocalRepositoryStage` adapter): Scans `~/.m2` and `~/.gradle/caches` for already-cached JARs matching Stage 3's declared coordinates. Falls through when no cached JARs are found, leaving the orchestrator to produce the single empty result.
 
 Stages 1 and 2 use the build-unit model recorded in
 [`docs/adr/0001-build-unit-classpath-resolution.md`](adr/0001-build-unit-classpath-resolution.md).
@@ -73,7 +75,15 @@ processed before warning and relying on later fallback stages.
 
 The resolved classpath is **shared across all language parsers** — `JavaParser`, `KotlinParser`, and `GroovyParser` all receive the same project classpath so cross-language type references resolve correctly.
 
-`LstBuilder` also adds project class directories (`target/classes`, `build/classes/java/main`, etc.) to the classpath for cross-module type resolution.
+`LstBuilder` appends project class directories (`target/classes`, `build/classes/java/main`, etc.)
+to the winning stage's classpath once, after the `ClasspathStage` list has selected a result. When
+Stage 1 triggered compilation, this single append picks up any class dirs it produced.
+
+Gradle project data belongs only to the winning stage. Stage 1 collects it via Stage 2's metadata
+collector, and Stage 2 includes it when Stage 2 itself wins. If Stage 2 gathers Gradle data but
+falls through with an empty classpath, a later Stage 3 or Stage 4 win does not inherit that data, so
+GradleProject markers are not attached on that path. See
+[`docs/adr/0002-classpath-stage-seam.md`](adr/0002-classpath-stage-seam.md).
 
 When `--exclude-paths` (or `parse.excludePaths`) removes every JVM source file (`.java`, `.kt`, `.kts`, `.groovy`, `.gradle`) from scope, all four classpath stages are **skipped entirely** — there is no `mvn`/`gradle` subprocess, no POM walk, no local-repo scan. The build emits a single `INFO` line (`"No JVM source files in scope — skipping classpath resolution stages."`) and proceeds directly to the language parsers, which run with an empty classpath. This optimization keeps non-JVM workflows (e.g. running a YAML-only recipe) fast.
 
@@ -83,13 +93,16 @@ When `--exclude-paths` (or `parse.excludePaths`) removes every JVM source file (
 
 | Class | Responsibility |
 |-------|---------------|
-| `LstBuilder` | Orchestration, 4-stage classpath pipeline, parser dispatch |
+| `LstBuilder` | Orchestration, `ClasspathStage` list, parser dispatch |
+| `ClasspathStage` | Unified classpath-stage seam; `resolve(...)` returns null to fall through |
 | `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions; extension set is fixed (`DEFAULT_EXTENSIONS`) |
 | `VersionDetector` | Java/Kotlin JVM-version walk-up, `normalizeJvmVersion`, `parseGradleVersionFromWrapper` |
 | `GradleDslClasspathResolver` | Locate Gradle installation (`GRADLE_HOME`, wrapper, `~/.gradle/wrapper/dists/`) |
 | `MarkerFactory` | `BuildTool`, `GitProvenance`, `OperatingSystemProvenance`, `BuildEnvironment`, `GradleProject` markers |
 
-`ProjectBuildStage` and `DependencyResolutionStage` remain injected into `LstBuilder` as `open` classes; the helper classes above are internal and are instantiated by `LstBuilder`.
+`ProjectBuildStage`, `DependencyResolutionStage`, and `BuildFileParseStage` remain injected into
+`LstBuilder` as `open` `ClasspathStage` implementations; the helper classes above are internal and
+are instantiated by `LstBuilder`.
 
 `ProcessRunner.kt` owns two separate build-tool concepts. `discoverBuildUnits` is non-exclusive and
 feeds classpath resolution; `detectBuildTool` is the exclusive marker verdict used by

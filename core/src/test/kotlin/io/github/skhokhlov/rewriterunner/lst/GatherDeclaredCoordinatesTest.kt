@@ -68,8 +68,10 @@ class GatherDeclaredCoordinatesTest :
                         ),
                         NoOpRunnerLogger
                     ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        ClasspathResolutionResult(emptyList())
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
                 }
 
             val coords = lstBuilder(noOpDepStage).gatherDeclaredCoordinates(projectDir)
@@ -147,8 +149,10 @@ class GatherDeclaredCoordinatesTest :
                         ),
                         NoOpRunnerLogger
                     ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        ClasspathResolutionResult(emptyList())
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
                 }
 
             val coords = lstBuilder(noOpDepStage).gatherDeclaredCoordinates(projectDir)
@@ -183,8 +187,10 @@ class GatherDeclaredCoordinatesTest :
                         ),
                         NoOpRunnerLogger
                     ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        ClasspathResolutionResult(emptyList())
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
                 }
 
             val coords = lstBuilder(noOpDepStage).gatherDeclaredCoordinates(projectDir)
@@ -221,8 +227,10 @@ class GatherDeclaredCoordinatesTest :
                         ),
                         NoOpRunnerLogger
                     ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        ClasspathResolutionResult(emptyList())
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
                 }
 
             val coords = lstBuilder(noOpDepStage).gatherDeclaredCoordinates(projectDir)
@@ -241,8 +249,10 @@ class GatherDeclaredCoordinatesTest :
                         ),
                         NoOpRunnerLogger
                     ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        throw RuntimeException("Simulated failure")
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = throw RuntimeException("Simulated failure")
                 }
 
             // gatherDeclaredCoordinates must not propagate the exception
@@ -274,8 +284,10 @@ class GatherDeclaredCoordinatesTest :
                         ),
                         NoOpRunnerLogger
                     ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        ClasspathResolutionResult(emptyList())
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
                 }
 
             val coords = lstBuilder(noOpDepStage).gatherDeclaredCoordinates(projectDir)

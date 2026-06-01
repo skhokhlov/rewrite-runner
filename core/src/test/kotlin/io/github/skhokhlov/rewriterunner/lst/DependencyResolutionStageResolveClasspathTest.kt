@@ -11,10 +11,11 @@ import java.nio.file.Path
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Tests for [DependencyResolutionStage.resolveClasspath] — the high-level orchestration
+ * Tests for [DependencyResolutionStage.resolve] — the high-level orchestration
  * method that selects between Maven and Gradle parsing and delegates to Maven Resolver.
  *
  * Resolution calls are intercepted via subclassing so no network is required.
@@ -37,27 +38,21 @@ class DependencyResolutionStageResolveClasspathTest :
         fun mkdir(relative: String): Path =
             projectDir.resolve(relative).also { Files.createDirectories(it) }
 
-        // ─── resolveClasspath routing ─────────────────────────────────────────────
+        // ─── resolve routing ─────────────────────────────────────────────────────
 
-        test("resolveClasspath returns empty list when no build file is present") {
-            // A real DependencyResolutionStage with no pom.xml / build.gradle returns empty
+        test("resolve returns null when no build file is present") {
+            // A real DependencyResolutionStage with no pom.xml / build.gradle falls through.
             val stage =
-                object : DependencyResolutionStage(
+                DependencyResolutionStage(
                     AetherContext.build(cacheDir.resolve("repository"), logger = NoOpRunnerLogger),
                     NoOpRunnerLogger
-                ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        super.resolveClasspath(projectDir)
-                }
+                )
             // Empty directory: no pom.xml, no build.gradle
-            val result = stage.resolveClasspath(projectDir)
-            assertTrue(
-                result.classpath.isEmpty(),
-                "Should return empty list when no build descriptor exists"
-            )
+            val result = stage.resolve(projectDir, mutableListOf())
+            assertNull(result, "Should fall through when no build descriptor exists")
         }
 
-        test("resolveClasspath routes to Maven when pom_xml present") {
+        test("resolve routes to Maven when pom_xml present") {
             projectDir.resolve("pom.xml").writeText(
                 """
                 <project>
@@ -80,14 +75,14 @@ class DependencyResolutionStageResolveClasspathTest :
                         return null
                     }
                 }
-            stage.resolveClasspath(projectDir)
+            stage.resolve(projectDir, mutableListOf())
             assertTrue(
                 mavenSubprocessCalled,
                 "Maven subprocess should be invoked for pom.xml project"
             )
         }
 
-        test("resolveClasspath routes to Gradle when build_gradle_kts present") {
+        test("resolve routes to Gradle when build_gradle_kts present") {
             projectDir.resolve("build.gradle.kts").writeText(
                 """
                 plugins { kotlin("jvm") version "2.3.0" }
@@ -105,7 +100,7 @@ class DependencyResolutionStageResolveClasspathTest :
                         return null
                     }
                 }
-            stage.resolveClasspath(projectDir)
+            stage.resolve(projectDir, mutableListOf())
             assertTrue(gradleCalled, "build.gradle.kts should trigger the Gradle subprocess")
         }
 
@@ -204,9 +199,9 @@ class DependencyResolutionStageResolveClasspathTest :
             assertTrue(coords.contains("org.apache.commons:commons-lang3:3.12.0"))
         }
 
-        // ─── resolveClasspath POM-skip routing ───────────────────────────────────
+        // ─── resolve POM-skip routing ───────────────────────────────────
 
-        test("resolveClasspath calls resolveArtifactsDirectly when gradle task returns coords") {
+        test("resolve calls resolveArtifactsDirectly when gradle task returns coords") {
             projectDir.resolve("build.gradle.kts").writeText("plugins { kotlin(\"jvm\") }")
 
             var directCalled = false
@@ -223,7 +218,7 @@ class DependencyResolutionStageResolveClasspathTest :
                         return emptyList()
                     }
                 }
-            stage.resolveClasspath(projectDir)
+            stage.resolve(projectDir, mutableListOf())
             assertTrue(
                 directCalled,
                 "resolveArtifactsDirectly should be called for gradle task output"
@@ -254,15 +249,12 @@ class DependencyResolutionStageResolveClasspathTest :
                         return emptyList()
                     }
                 }
-            val result = stage.resolveClasspath(projectDir)
+            val result = stage.resolve(projectDir, mutableListOf())
             assertFalse(
                 directCalled,
                 "resolveArtifactsDirectly should NOT be called — no static fallback in Stage 2"
             )
-            assertTrue(
-                result.classpath.isEmpty(),
-                "Stage 2 should return empty when subprocess fails"
-            )
+            assertNull(result, "Stage 2 should fall through when subprocess fails")
         }
 
         test(
@@ -293,14 +285,11 @@ class DependencyResolutionStageResolveClasspathTest :
                 ) {
                     override fun runMavenDependencyTreeOutput(projectDir: Path): String? = null
                 }
-            val result = stage.resolveClasspath(projectDir)
-            assertTrue(
-                result.classpath.isEmpty(),
-                "Stage 2 should return empty when dependency:tree subprocess fails"
-            )
+            val result = stage.resolve(projectDir, mutableListOf())
+            assertNull(result, "Stage 2 should fall through when dependency:tree subprocess fails")
         }
 
-        test("resolveClasspath runs Maven dependency:tree when pom.xml present") {
+        test("resolve runs Maven dependency:tree when pom.xml present") {
             projectDir.resolve("pom.xml").writeText(
                 """
                 <project>
@@ -326,7 +315,7 @@ class DependencyResolutionStageResolveClasspathTest :
                         return emptyList()
                     }
                 }
-            stage.resolveClasspath(projectDir)
+            stage.resolve(projectDir, mutableListOf())
             assertTrue(
                 directCalled,
                 "resolveArtifactsDirectly should be called with parsed Maven coords"
@@ -334,7 +323,7 @@ class DependencyResolutionStageResolveClasspathTest :
         }
 
         test(
-            "resolveClasspath runs both Maven and Gradle subprocess when both build files present"
+            "resolve runs both Maven and Gradle subprocess when both build files present"
         ) {
             projectDir.resolve("pom.xml").writeText(
                 """
@@ -365,12 +354,12 @@ class DependencyResolutionStageResolveClasspathTest :
                         return null
                     }
                 }
-            stage.resolveClasspath(projectDir)
+            stage.resolve(projectDir, mutableListOf())
             assertTrue(mavenCalled, "Maven subprocess should be attempted for mixed project")
             assertTrue(gradleCalled, "Gradle subprocess should be attempted for mixed project")
         }
 
-        test("resolveClasspath aggregates Maven coordinates from root-less build units") {
+        test("resolve aggregates Maven coordinates from root-less build units") {
             val api = mkdir("services/api")
             api.resolve("pom.xml").writeText("<project/>")
             val worker = mkdir("services/worker")
@@ -395,7 +384,7 @@ class DependencyResolutionStageResolveClasspathTest :
                     }
                 }
 
-            stage.resolveClasspath(projectDir)
+            stage.resolve(projectDir, mutableListOf())
 
             assertEquals(setOf(api, worker), calledDirs.toSet())
             assertEquals(
@@ -404,7 +393,7 @@ class DependencyResolutionStageResolveClasspathTest :
             )
         }
 
-        test("resolveClasspath falls through when any root-less unit fails") {
+        test("resolve falls through when any root-less unit fails") {
             val api = mkdir("services/api")
             api.resolve("pom.xml").writeText("<project/>")
             val worker = mkdir("services/worker")
@@ -429,13 +418,13 @@ class DependencyResolutionStageResolveClasspathTest :
                     }
                 }
 
-            val result = stage.resolveClasspath(projectDir)
+            val result = stage.resolve(projectDir, mutableListOf())
 
-            assertTrue(result.classpath.isEmpty())
+            assertNull(result)
             assertFalse(resolveCalled, "Partial build-unit coverage should fall through to Stage 3")
         }
 
-        test("resolveClasspath merges Gradle project data from root-less build units") {
+        test("resolve merges Gradle project data from root-less build units") {
             val api = mkdir("services/api")
             api.resolve("build.gradle.kts").writeText("")
             val worker = mkdir("services/worker")
@@ -458,15 +447,15 @@ class DependencyResolutionStageResolveClasspathTest :
                     }
 
                     override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> =
-                        emptyList()
+                        listOf(cacheDir.resolve("gradle.jar"))
                 }
 
-            val result = stage.resolveClasspath(projectDir)
+            val result = stage.resolve(projectDir, mutableListOf())
 
             assertEquals(setOf(api, worker), calledDirs.toSet())
             assertEquals(
                 setOf(":services:api", ":services:worker"),
-                result.gradleProjectData?.keys
+                result?.gradleProjectData?.keys
             )
         }
 
@@ -499,7 +488,7 @@ class DependencyResolutionStageResolveClasspathTest :
             assertEquals(setOf(":services:api", ":services:worker"), result?.keys)
         }
 
-        test("resolveClasspath reuses root wrappers for root-less build units").config(
+        test("resolve reuses root wrappers for root-less build units").config(
             enabled = !System.getProperty("os.name", "").lowercase().contains("windows")
         ) {
             val mavenModule = mkdir("services/api")
@@ -548,7 +537,7 @@ class DependencyResolutionStageResolveClasspathTest :
                     }
                 }
 
-            stage.resolveClasspath(projectDir)
+            stage.resolve(projectDir, mutableListOf())
 
             val calls = callLog.toFile().readText()
             assertTrue("maven:${mavenModule.toRealPath()}" in calls, calls)
@@ -579,10 +568,10 @@ class DependencyResolutionStageResolveClasspathTest :
                     ),
                     NoOpRunnerLogger
                 )
-            // Accessing the stage without an actual resolve call; we can call resolveClasspath
+            // Accessing the stage without an actual resolve call; call resolve
             // on an empty dir to exercise the lazy initializers (repos are built on first use)
-            val result = stage.resolveClasspath(projectDir)
-            assertTrue(result.classpath.isEmpty(), "Empty project → empty classpath")
+            val result = stage.resolve(projectDir, mutableListOf())
+            assertNull(result, "Empty project should fall through")
         }
 
         test("stage accepts extra repositories without credentials") {
@@ -603,7 +592,7 @@ class DependencyResolutionStageResolveClasspathTest :
                     ),
                     NoOpRunnerLogger
                 )
-            val result = stage.resolveClasspath(projectDir)
-            assertTrue(result.classpath.isEmpty())
+            val result = stage.resolve(projectDir, mutableListOf())
+            assertNull(result)
         }
     })

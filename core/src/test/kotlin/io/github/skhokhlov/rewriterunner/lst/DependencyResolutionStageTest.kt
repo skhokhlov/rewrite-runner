@@ -14,6 +14,8 @@ import java.util.jar.JarOutputStream
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.eclipse.aether.ConfigurationProperties
 import org.eclipse.aether.repository.LocalRepository
@@ -51,7 +53,7 @@ class DependencyResolutionStageTest :
 
         fun staticParser() = StaticBuildFileParser(NoOpRunnerLogger)
 
-        test("resolveClasspath honors configured process timeout") {
+        test("resolve honors configured process timeout") {
             projectDir.resolve("pom.xml").writeText("<project/>")
             val mvnw = projectDir.resolve("mvnw").toFile()
             mvnw.writeText(
@@ -70,10 +72,10 @@ class DependencyResolutionStageTest :
                 )
 
             val start = System.currentTimeMillis()
-            val result = timedStage.resolveClasspath(projectDir)
+            val result = timedStage.resolve(projectDir, mutableListOf())
             val elapsed = System.currentTimeMillis() - start
 
-            assertTrue(result.classpath.isEmpty(), "Timed-out Stage 2 should return no classpath")
+            assertNull(result, "Timed-out Stage 2 should fall through")
             assertTrue(
                 elapsed < 4_000,
                 "Configured 1s timeout should stop dependency:tree promptly, took ${elapsed}ms"
@@ -881,7 +883,7 @@ class DependencyResolutionStageTest :
         // ─── Maven Resolver session configuration ─────────────────────────────────
 
         test(
-            "resolveClasspath resolves artifact from local repository without 'No local repository manager' error"
+            "resolve resolves artifact from local repository without 'No local repository manager' error"
         ) {
             // Regression test: newSession() previously closed the bootstrap session via .use{}
             // which could invalidate the LocalRepositoryManager, resulting in
@@ -889,7 +891,7 @@ class DependencyResolutionStageTest :
             // artifact — so Stage 2 always produced an empty classpath.
             //
             // We seed a minimal JAR into cacheDir/repository at the expected Maven path,
-            // declare it as a dependency in pom.xml, and verify resolveClasspath finds it.
+            // declare it as a dependency in pom.xml, and verify resolve finds it.
 
             val group = "com.example.test"
             val artifact = "fake-lib"
@@ -933,7 +935,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val resolved = stage().resolveClasspath(projectDir)
+            val resolved = assertNotNull(stage().resolve(projectDir, mutableListOf()))
             assertTrue(
                 resolved.classpath.any { it.fileName.toString() == "$artifact-$version.jar" },
                 "Should resolve the local artifact; resolved: ${resolved.classpath}"
@@ -943,9 +945,9 @@ class DependencyResolutionStageTest :
         // ─── Conflict resolution (single-pass batch resolution) ──────────────────
 
         test(
-            "resolveClasspath resolves only declared direct deps — transitive shared-util is absent"
+            "resolve resolves only declared direct deps — transitive shared-util is absent"
         ) {
-            // resolveClasspath uses resolveArtifactsDirectly for all coordinate sources,
+            // resolve uses resolveArtifactsDirectly for all coordinate sources,
             // so only the explicitly declared dep JARs are downloaded (no POM traversal).
             // Transitive dependencies (like shared-util) are intentionally omitted to
             // avoid the overhead of POM downloads; OpenRewrite handles JavaType.Unknown for
@@ -1039,10 +1041,12 @@ class DependencyResolutionStageTest :
                 )
             val ctx = AetherContext(system, session, fakeRemoteRepo)
 
-            val resolved = DependencyResolutionStage(
-                ctx,
-                NoOpRunnerLogger
-            ).resolveClasspath(projectDir)
+            val resolved = assertNotNull(
+                DependencyResolutionStage(
+                    ctx,
+                    NoOpRunnerLogger
+                ).resolve(projectDir, mutableListOf())
+            )
 
             // Only the two direct deps should be resolved — no transitive shared-util
             val depAlphaJars = resolved.classpath.filter {
@@ -1197,9 +1201,9 @@ class DependencyResolutionStageTest :
             assertTrue(result.containsKey(":"), "Should be keyed as root ':'")
         }
 
-        // ─── resolveClasspath returns ClasspathResolutionResult ──────────────────
+        // ─── resolve returns ClasspathResolutionResult ──────────────────
 
-        test("resolveClasspath returns ClasspathResolutionResult for Maven project") {
+        test("resolve returns ClasspathResolutionResult for Maven project") {
             val group = "com.example.test"
             val artifact = "fake-maven-lib"
             val version = "1.0"
@@ -1229,7 +1233,7 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val result = stage().resolveClasspath(projectDir)
+            val result = assertNotNull(stage().resolve(projectDir, mutableListOf()))
             assertTrue(
                 result.classpath.any { it.fileName.toString() == "$artifact-$version.jar" },
                 "Classpath should contain the resolved JAR"

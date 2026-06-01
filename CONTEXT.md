@@ -8,6 +8,9 @@
 - **Build-tool identity**: The exclusive, root-level build-tool verdict used only for provenance
   markers. `detectBuildTool` returns Gradle, Maven, or None; Gradle wins with a warning when both
   Maven and Gradle root descriptors exist.
+- **Classpath stage**: A `ClasspathStage` implementation in the ordered LST classpath-resolution
+  chain. `resolve(projectDir, parseFailures)` returns a `ClasspathResolutionResult` to win or
+  `null` to fall through to the next stage.
 - **Root descriptor**: A build descriptor at the project root: `pom.xml` for Maven, or
   `settings.gradle(.kts)` / `build.gradle(.kts)` for Gradle.
 - **Root-less monorepo**: A repository whose project root has no build descriptor for a tool, but one

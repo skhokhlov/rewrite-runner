@@ -3,6 +3,7 @@ package io.github.skhokhlov.rewriterunner.lst
 import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleConfigData
@@ -70,14 +71,21 @@ class GradleProjectMarkerTest :
                 )
             val depStage =
                 object : DependencyResolutionStage(aether, NoOpRunnerLogger) {
-                    override fun resolveClasspath(
+                    override fun resolve(
                         projectDir: Path,
                         parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
-                    ) = ClasspathResolutionResult(emptyList(), minimalGradleData)
+                    ) = ClasspathResolutionResult(
+                        listOf(projectDir.resolve("stage2.jar").also { it.writeText("") }),
+                        minimalGradleData,
+                        stageUsed = UsedExecutionStage.DEPENDENCY_RESOLUTION
+                    )
                 }
             val buildFileStage =
                 object : BuildFileParseStage(aether, NoOpRunnerLogger) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
                 }
             return object :
                 LstBuilder(
@@ -110,6 +118,62 @@ class GradleProjectMarkerTest :
             }
         }
 
+        fun lstBuilderWithStage2EmptyDataAndStage3Win(
+            fakeJar: Path,
+            throwOnKtsParser: Boolean = false
+        ): LstBuilder {
+            val failingBuildTool =
+                object : ProjectBuildStage(NoOpRunnerLogger) {
+                    override fun extractClasspath(projectDir: Path): List<Path>? = null
+                }
+            val aether =
+                AetherContext.build(
+                    projectDir.resolve("cache/repository"),
+                    logger = NoOpRunnerLogger
+                )
+            val depStage =
+                object : DependencyResolutionStage(aether, NoOpRunnerLogger) {
+                    override fun runGradleDependenciesRawOutput(projectDir: Path): String =
+                        """
+                        > Task :dependencies
+                        compileClasspath - Compile classpath for source set 'main'.
+                        +--- org.example:lib:1.0.0
+                        """.trimIndent()
+
+                    override fun resolveArtifactsDirectly(coordinates: List<String>): List<Path> =
+                        emptyList()
+                }
+            val buildFileStage =
+                object : BuildFileParseStage(aether, NoOpRunnerLogger) {
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult = ClasspathResolutionResult(
+                        listOf(fakeJar),
+                        stageUsed = UsedExecutionStage.DIRECT_PARSE
+                    )
+                }
+            return object :
+                LstBuilder(
+                    logger = NoOpRunnerLogger,
+                    cacheDir = projectDir.resolve("cache"),
+                    toolConfig = toolConfig,
+                    projectBuildStage = failingBuildTool,
+                    depResolutionStage = depStage,
+                    buildFileParseStage = buildFileStage
+                ) {
+                override fun buildGradleKtsParser(
+                    classpath: List<Path>,
+                    gradleDslClasspath: List<Path>,
+                    typeCache: JavaTypeCache
+                ): GradleParser = if (throwOnKtsParser) {
+                    throw RuntimeException("forced KTS parse failure for test")
+                } else {
+                    super.buildGradleKtsParser(classpath, gradleDslClasspath, typeCache)
+                }
+            }
+        }
+
         /**
          * Builds an [LstBuilder] where Stage 1 succeeds (returns an empty classpath) and
          * [DependencyResolutionStage.collectGradleProjectData] returns [gradleData].
@@ -119,7 +183,7 @@ class GradleProjectMarkerTest :
             logger: RunnerLogger = NoOpRunnerLogger
         ): LstBuilder {
             val stage1BuildTool =
-                object : ProjectBuildStage(NoOpRunnerLogger) {
+                object : ProjectBuildStage(logger) {
                     override fun extractClasspath(projectDir: Path): List<Path> = emptyList()
                 }
             val aether =
@@ -133,7 +197,10 @@ class GradleProjectMarkerTest :
                 }
             val buildFileStage =
                 object : BuildFileParseStage(aether, NoOpRunnerLogger) {
-                    override fun resolveClasspath(projectDir: Path): List<Path> = emptyList()
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
                 }
             return LstBuilder(
                 logger = logger,
@@ -142,6 +209,23 @@ class GradleProjectMarkerTest :
                 projectBuildStage = stage1BuildTool,
                 depResolutionStage = depStage,
                 buildFileParseStage = buildFileStage
+            )
+        }
+
+        test("GradleProject marker is absent when Stage 2 only collected data and Stage 3 wins") {
+            val fakeJar = projectDir.resolve("stage3.jar").also { it.writeText("") }
+            projectDir.resolve("build.gradle.kts").writeText("// empty build")
+
+            val sources =
+                lstBuilderWithStage2EmptyDataAndStage3Win(
+                    fakeJar = fakeJar,
+                    throwOnKtsParser = true
+                ).build(projectDir).sourceFiles
+
+            assertTrue(sources.isNotEmpty(), "Expected at least one parsed source file")
+            assertFalse(
+                sources.any { it.markers.findFirst(GradleProject::class.java).isPresent },
+                "Stage 3 wins must not inherit GradleProject data from a Stage 2 fall-through"
             )
         }
 
