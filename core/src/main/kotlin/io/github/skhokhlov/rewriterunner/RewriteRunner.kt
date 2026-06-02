@@ -5,6 +5,7 @@ import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.lst.LstBuildResult
 import io.github.skhokhlov.rewriterunner.lst.LstBuilder
+import io.github.skhokhlov.rewriterunner.lst.SpecializedOwnership
 import io.github.skhokhlov.rewriterunner.plugin.PluginRecipeRunner
 import io.github.skhokhlov.rewriterunner.plugin.PluginRunResult
 import io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver
@@ -15,6 +16,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.time.Duration
 import kotlin.io.path.exists
+import org.openrewrite.Result
 
 /**
  * Programmatic entry point for running OpenRewrite recipes from library code.
@@ -110,77 +112,7 @@ class RewriteRunner private constructor(private val config: Builder) {
             config.excludePaths.ifEmpty { toolConfig.parse.excludePaths }
         val effectivePlainTextMasks: List<String> =
             toolConfig.resolvedPlainTextMasks(config.plainTextMasks)
-
-        // Stage 0: let the project's own build tool run the official OpenRewrite plugin first.
-        if (!config.skipPluginRun) {
-            logger.lifecycle("[0/7] Attempting plugin-first recipe execution")
-            val pluginResult =
-                PluginRecipeRunner(
-                    logger = logger,
-                    timeout = effectivePluginTimeout,
-                    rewriteGradlePluginVersion = toolConfig.rewriteGradlePluginVersion,
-                    rewriteMavenPluginVersion = toolConfig.rewriteMavenPluginVersion
-                ).run(
-                    projectDir = config.projectDir,
-                    activeRecipe = config.activeRecipe,
-                    recipeArtifacts = config.recipeArtifacts,
-                    rewriteConfig = config.rewriteConfig,
-                    rewriteConfigContent = config.rewriteConfigContent,
-                    dryRun = config.dryRun,
-                    includeMavenCentral = config.includeMavenCentral
-                        ?: toolConfig.includeMavenCentral,
-                    artifactRepositories =
-                        toolConfig.resolvedArtifactRepositories() + config.artifactRepositories,
-                    excludePaths = effectiveExcludePaths,
-                    plainTextMasks = effectivePlainTextMasks
-                )
-            when (pluginResult) {
-                is PluginRunResult.Success -> {
-                    logger.lifecycle(
-                        "      Plugin complete: ${pluginResult.diffs.size} file(s) changed"
-                    )
-                    return RunResult(
-                        results = emptyList(),
-                        changedFiles = pluginResult.changedFiles,
-                        projectDir = config.projectDir,
-                        rawDiffs = pluginResult.diffs,
-                        executionDiagnostics =
-                            ExecutionDiagnostics(
-                                UsedExecutionStage.PLUGIN,
-                                0,
-                                estimatedTimeSaved = pluginResult.estimatedTimeSaved
-                            )
-                    )
-                }
-
-                PluginRunResult.NoChanges -> {
-                    logger.lifecycle("      Plugin complete: no changes")
-                    return RunResult(
-                        results = emptyList(),
-                        changedFiles = emptyList(),
-                        projectDir = config.projectDir,
-                        executionDiagnostics =
-                            ExecutionDiagnostics(
-                                UsedExecutionStage.PLUGIN,
-                                0,
-                                estimatedTimeSaved = Duration.ZERO
-                            )
-                    )
-                }
-
-                is PluginRunResult.Failed ->
-                    logger.info("      Plugin failed: ${pluginResult.reason}")
-
-                is PluginRunResult.Skipped ->
-                    logger.info("      Plugin skipped: ${pluginResult.reason}")
-            }
-        }
-
-        // 1. Load tool config
-        logger.lifecycle("[1/7] Loading configuration")
-        val effectiveCacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).also {
-            logger.info("      Cache dir: $it")
-        }
+        val effectiveCacheDir = config.cacheDir ?: toolConfig.resolvedCacheDir()
         val effectiveToolConfig =
             toolConfig.copy(
                 subprocessRunTimeout = effectiveProcessTimeout,
@@ -194,6 +126,87 @@ class RewriteRunner private constructor(private val config: Builder) {
             config.artifactDownloadThreads ?: toolConfig.artifactDownloadThreads
         val effectiveRepositories =
             toolConfig.resolvedArtifactRepositories() + config.artifactRepositories
+
+        // Stage 0: let the project's own build tool run the official OpenRewrite plugin first.
+        if (!config.skipPluginRun) {
+            logger.lifecycle("[0/7] Attempting plugin-first recipe execution")
+            val stage0ExcludePaths = effectiveExcludePaths + SpecializedOwnership.stage0ExcludeGlobs
+            val pluginResult =
+                PluginRecipeRunner(
+                    logger = logger,
+                    timeout = effectivePluginTimeout,
+                    rewriteGradlePluginVersion = toolConfig.rewriteGradlePluginVersion,
+                    rewriteMavenPluginVersion = toolConfig.rewriteMavenPluginVersion
+                ).run(
+                    projectDir = config.projectDir,
+                    activeRecipe = config.activeRecipe,
+                    recipeArtifacts = config.recipeArtifacts,
+                    rewriteConfig = config.rewriteConfig,
+                    rewriteConfigContent = config.rewriteConfigContent,
+                    dryRun = config.dryRun,
+                    includeMavenCentral = effectiveIncludeMavenCentral,
+                    artifactRepositories = effectiveRepositories,
+                    excludePaths = stage0ExcludePaths,
+                    plainTextMasks = effectivePlainTextMasks
+                )
+            when (pluginResult) {
+                is PluginRunResult.Success -> {
+                    logger.lifecycle(
+                        "      Plugin complete: ${pluginResult.diffs.size} file(s) changed"
+                    )
+                    return runSpecializedPass(
+                        logger = logger,
+                        projectDir = config.projectDir,
+                        activeRecipe = config.activeRecipe,
+                        recipeArtifacts = config.recipeArtifacts,
+                        rewriteConfig = config.rewriteConfig,
+                        rewriteConfigContent = config.rewriteConfigContent,
+                        dryRun = config.dryRun,
+                        effectiveExcludePaths = effectiveExcludePaths,
+                        pluginResult = pluginResult,
+                        effectiveToolConfig = effectiveToolConfig,
+                        effectiveCacheDir = effectiveCacheDir,
+                        effectiveRepositories = effectiveRepositories,
+                        effectiveIncludeMavenCentral = effectiveIncludeMavenCentral,
+                        effectiveDownloadThreads = effectiveDownloadThreads,
+                        effectiveResolverConnectTimeout = effectiveResolverConnectTimeout,
+                        effectiveResolverRequestTimeout = effectiveResolverRequestTimeout
+                    )
+                }
+
+                PluginRunResult.NoChanges -> {
+                    logger.lifecycle("      Plugin complete: no changes")
+                    return runSpecializedPass(
+                        logger = logger,
+                        projectDir = config.projectDir,
+                        activeRecipe = config.activeRecipe,
+                        recipeArtifacts = config.recipeArtifacts,
+                        rewriteConfig = config.rewriteConfig,
+                        rewriteConfigContent = config.rewriteConfigContent,
+                        dryRun = config.dryRun,
+                        effectiveExcludePaths = effectiveExcludePaths,
+                        pluginResult = pluginResult,
+                        effectiveToolConfig = effectiveToolConfig,
+                        effectiveCacheDir = effectiveCacheDir,
+                        effectiveRepositories = effectiveRepositories,
+                        effectiveIncludeMavenCentral = effectiveIncludeMavenCentral,
+                        effectiveDownloadThreads = effectiveDownloadThreads,
+                        effectiveResolverConnectTimeout = effectiveResolverConnectTimeout,
+                        effectiveResolverRequestTimeout = effectiveResolverRequestTimeout
+                    )
+                }
+
+                is PluginRunResult.Failed ->
+                    logger.info("      Plugin failed: ${pluginResult.reason}")
+
+                is PluginRunResult.Skipped ->
+                    logger.info("      Plugin skipped: ${pluginResult.reason}")
+            }
+        }
+
+        // 1. Load tool config
+        logger.lifecycle("[1/7] Loading configuration")
+        logger.info("      Cache dir: $effectiveCacheDir")
         // Recipe artifacts are isolated in the tool's own cache so they never mix with
         // the project's build artifacts in the user's Maven local repository.
         val recipeLocalRepoDir = effectiveCacheDir.resolve("repository")
@@ -297,42 +310,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                     " in ${System.currentTimeMillis() - recipeStart}ms"
             )
 
-            // 6. Apply changes (unless dryRun)
-            val writtenFiles = mutableListOf<Path>()
-            if (!config.dryRun) {
-                logger.lifecycle("[6/7] Writing changes to disk")
-                for (result in results) {
-                    if (result.after == null) {
-                        // Recipe deleted this file — remove it from disk
-                        val beforePath =
-                            result.before?.let { config.projectDir.resolve(it.sourcePath) }
-                        if (beforePath != null) {
-                            try {
-                                Files.deleteIfExists(beforePath)
-                                logger.info("      Deleted ${result.before!!.sourcePath}")
-                            } catch (e: Exception) {
-                                logger.warn("Failed to delete file $beforePath: ${e.message}")
-                            }
-                        }
-                    } else {
-                        val after = result.after!!
-                        val target = config.projectDir.resolve(after.sourcePath)
-                        Files.createDirectories(target.parent)
-                        target.toFile().writeText(after.printAll(), Charsets.UTF_8)
-                        writtenFiles.add(target)
-                        logger.info("      Wrote ${after.sourcePath}")
-                    }
-                }
-                if (results.isEmpty()) {
-                    logger.lifecycle("      No changes — nothing to write")
-                } else {
-                    logger.lifecycle("      Done: ${writtenFiles.size} file(s) written")
-                }
-            } else {
-                logger.lifecycle(
-                    "[6/7] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
-                )
-            }
+            val writtenFiles =
+                applyResults(results, config.projectDir, config.dryRun, logger)
 
             val timeSaved = results.fold(Duration.ZERO) { total, result ->
                 total.plus(result.timeSavings)
@@ -347,17 +326,216 @@ class RewriteRunner private constructor(private val config: Builder) {
         }
     }
 
+    private fun runSpecializedPass(
+        logger: RunnerLogger,
+        projectDir: Path,
+        activeRecipe: String,
+        recipeArtifacts: List<String>,
+        rewriteConfig: Path?,
+        rewriteConfigContent: String?,
+        dryRun: Boolean,
+        effectiveExcludePaths: List<String>,
+        pluginResult: PluginRunResult,
+        effectiveToolConfig: ToolConfig,
+        effectiveCacheDir: Path,
+        effectiveRepositories: List<RepositoryConfig>,
+        effectiveIncludeMavenCentral: Boolean,
+        effectiveDownloadThreads: Int,
+        effectiveResolverConnectTimeout: Duration,
+        effectiveResolverRequestTimeout: Duration
+    ): RunResult {
+        logger.lifecycle("[0/7] Running specialized non-JVM parser pass (Docker/HCL/Proto)")
+        val lstBuilder =
+            LstBuilder(
+                logger = logger,
+                cacheDir = effectiveCacheDir,
+                toolConfig = effectiveToolConfig,
+                aetherContext =
+                    AetherContext.build(
+                        localRepoDir =
+                            Paths.get(System.getProperty("user.home"), ".m2", "repository"),
+                        extraRepositories = effectiveRepositories,
+                        connectTimeout = effectiveResolverConnectTimeout,
+                        requestTimeout = effectiveResolverRequestTimeout,
+                        downloadThreads = effectiveDownloadThreads,
+                        includeMavenCentral = effectiveIncludeMavenCentral,
+                        logger = logger
+                    )
+            )
+        val lstBuildResult =
+            lstBuilder.build(
+                projectDir = projectDir,
+                excludePaths = effectiveExcludePaths,
+                plainTextMasks = emptyList(),
+                restrictToExtensions = SpecializedOwnership.extensions
+            )
+        val sourceFileCount = lstBuildResult.sourceFiles.size
+        if (sourceFileCount == 0) {
+            return pluginOnlyResult(pluginResult, projectDir)
+        }
+        logger.lifecycle(
+            "      Found ${lstBuildResult.sourceFiles.size} Docker/HCL/Proto file(s)"
+        )
+        logger.lifecycle("[3/7] Loading recipe '$activeRecipe'")
+        val recipe =
+            RecipeLoader(logger).use { recipeLoader ->
+                val recipeJars =
+                    if (recipeArtifacts.isNotEmpty()) {
+                        val recipeAetherContext =
+                            AetherContext.build(
+                                localRepoDir =
+                                    effectiveCacheDir.resolve("repository"),
+                                extraRepositories = effectiveRepositories,
+                                connectTimeout = effectiveResolverConnectTimeout,
+                                requestTimeout = effectiveResolverRequestTimeout,
+                                downloadThreads = effectiveDownloadThreads,
+                                includeMavenCentral = effectiveIncludeMavenCentral,
+                                logger = logger
+                            )
+                        RecipeArtifactResolver(
+                            recipeAetherContext,
+                            logger
+                        ).resolveAll(recipeArtifacts)
+                    } else {
+                        emptyList()
+                    }
+                if (rewriteConfigContent != null) {
+                    recipeLoader.load(
+                        recipeJars = recipeJars,
+                        activeRecipeName = activeRecipe,
+                        rewriteYamlContent = rewriteConfigContent
+                    )
+                } else {
+                    val effectiveRewriteConfig =
+                        rewriteConfig
+                            ?: projectDir.resolve("rewrite.yaml").takeIf { it.exists() }
+                            ?: projectDir.resolve("rewrite.yml")
+                    recipeLoader.load(
+                        recipeJars = recipeJars,
+                        activeRecipeName = activeRecipe,
+                        rewriteYaml = effectiveRewriteConfig
+                    )
+                }
+            }
+        logger.info("      Recipe ready: ${recipe.name}")
+        logger.lifecycle(
+            "[5/7] Running recipe '${recipe.name}' against ${lstBuildResult.sourceFiles.size} file(s)"
+        )
+        val results = RecipeRunner(logger).run(recipe, lstBuildResult.sourceFiles)
+        logger.lifecycle("      Recipe complete: ${results.size} file(s) changed")
+        val writtenFiles = applyResults(results, projectDir, dryRun, logger)
+        val runResult =
+            RunResult(
+                results = results,
+                changedFiles = writtenFiles,
+                projectDir = projectDir,
+                executionDiagnostics =
+                    lstBuildResult.executionDiagnostics.copy(
+                        stageUsed = UsedExecutionStage.PLUGIN
+                    )
+            )
+        return mergePluginAndSpecializedResults(runResult, pluginResult)
+    }
+
+    private fun applyResults(
+        results: List<Result>,
+        projectDir: Path,
+        dryRun: Boolean,
+        logger: RunnerLogger
+    ): List<Path> {
+        if (dryRun) {
+            logger.lifecycle(
+                "[6/7] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
+            )
+            return emptyList()
+        }
+
+        logger.lifecycle("[6/7] Writing changes to disk")
+        val writtenFiles = mutableListOf<Path>()
+        for (result in results) {
+            if (result.after == null) {
+                val beforePath = result.before?.let { projectDir.resolve(it.sourcePath) }
+                if (beforePath != null) {
+                    try {
+                        Files.deleteIfExists(beforePath)
+                        logger.info("      Deleted ${result.before!!.sourcePath}")
+                    } catch (e: Exception) {
+                        logger.warn("Failed to delete file $beforePath: ${e.message}")
+                    }
+                }
+            } else {
+                val after = result.after!!
+                val target = projectDir.resolve(after.sourcePath)
+                Files.createDirectories(target.parent)
+                target.toFile().writeText(after.printAll(), Charsets.UTF_8)
+                writtenFiles.add(target)
+                logger.info("      Wrote ${after.sourcePath}")
+            }
+        }
+        if (results.isEmpty()) {
+            logger.lifecycle("      No changes — nothing to write")
+        } else {
+            logger.lifecycle("      Done: ${writtenFiles.size} file(s) written")
+        }
+        return writtenFiles
+    }
+
+    private fun pluginOnlyResult(pluginResult: PluginRunResult, projectDir: Path): RunResult =
+        when (pluginResult) {
+            is PluginRunResult.Success ->
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = pluginResult.changedFiles,
+                    projectDir = projectDir,
+                    rawDiffs = pluginResult.diffs,
+                    executionDiagnostics =
+                        ExecutionDiagnostics.PLUGIN.copy(
+                            estimatedTimeSaved = pluginResult.estimatedTimeSaved
+                        )
+                )
+
+            PluginRunResult.NoChanges ->
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = emptyList(),
+                    projectDir = projectDir,
+                    executionDiagnostics =
+                        ExecutionDiagnostics.PLUGIN.copy(estimatedTimeSaved = Duration.ZERO)
+                )
+
+            is PluginRunResult.Failed,
+            is PluginRunResult.Skipped ->
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = emptyList(),
+                    projectDir = projectDir,
+                    executionDiagnostics = ExecutionDiagnostics.PLUGIN
+                )
+        }
+
+    private fun mergePluginAndSpecializedResults(
+        specializedResult: RunResult,
+        pluginResult: PluginRunResult
+    ): RunResult {
+        val pluginOnly = pluginOnlyResult(pluginResult, specializedResult.projectDir)
+        return RunResult(
+            results = specializedResult.results,
+            changedFiles =
+                (pluginOnly.changedFiles + specializedResult.changedFiles).distinct(),
+            projectDir = specializedResult.projectDir,
+            rawDiffs = pluginOnly.rawDiffs + specializedResult.rawDiffs,
+            executionDiagnostics =
+                specializedResult.executionDiagnostics.copy(
+                    stageUsed = UsedExecutionStage.PLUGIN,
+                    // Preserve the plugin's estimated time saved (#205) through the merge;
+                    // the specialized LST pass does not produce its own estimate.
+                    estimatedTimeSaved = pluginOnly.executionDiagnostics.estimatedTimeSaved
+                )
+        )
+    }
+
     /**
      * Builder for [RewriteRunner].
-     *
-     * All setter methods return `this` for fluent chaining. The only required properties
-     * are [projectDir] and [activeRecipe].
-     *
-     * Defaults mirror the CLI defaults:
-     * - [projectDir] defaults to the current working directory.
-     * - [dryRun] defaults to `false`.
-     * - All list properties default to empty (meaning: use values from [configFile] if
-     *   present, or built-in defaults).
      */
     class Builder {
         internal var projectDir: Path = Paths.get(".")

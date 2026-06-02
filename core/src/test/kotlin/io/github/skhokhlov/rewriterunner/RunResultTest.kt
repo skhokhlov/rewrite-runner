@@ -6,12 +6,55 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.openrewrite.ExecutionContext
+import org.openrewrite.InMemoryExecutionContext
+import org.openrewrite.Recipe
+import org.openrewrite.Result
+import org.openrewrite.SourceFile
+import org.openrewrite.TreeVisitor
+import org.openrewrite.internal.InMemoryLargeSourceSet
+import org.openrewrite.text.PlainText
+import org.openrewrite.text.PlainTextParser
+import org.openrewrite.text.PlainTextVisitor
 
 private val emptyDiagnostics = ExecutionDiagnostics.EMPTY
 
 class RunResultTest :
     FunSpec({
         val projectDir = Paths.get("/tmp/project")
+        val ctx = InMemoryExecutionContext {}
+
+        fun makeResult(): Result {
+            val sourceFiles: List<SourceFile> =
+                PlainTextParser()
+                    .parse(ctx, "before\n")
+                    .map {
+                        (it as PlainText).withSourcePath(
+                            Paths.get("Specialized.txt")
+                        ) as SourceFile
+                    }.toList()
+
+            val replaceRecipe =
+                object : Recipe() {
+                    override fun getDisplayName() = "ReplaceText"
+
+                    override fun getDescription() = "Replaces text for RunResult tests"
+
+                    override fun getVisitor(): TreeVisitor<*, ExecutionContext> =
+                        object : PlainTextVisitor<ExecutionContext>() {
+                            override fun visitText(
+                                text: PlainText,
+                                p: ExecutionContext
+                            ): PlainText = text.withText("after\n")
+                        }
+                }
+
+            return replaceRecipe
+                .run(InMemoryLargeSourceSet(sourceFiles), ctx)
+                .changeset
+                .allResults
+                .single()
+        }
 
         test("hasChanges returns false when results is empty") {
             val result =
@@ -62,6 +105,24 @@ class RunResultTest :
                 )
             assertTrue(result.hasChanges)
             assertEquals(1, result.changeCount)
+        }
+
+        test("changeCount includes OpenRewrite results and raw diffs") {
+            val result =
+                RunResult(
+                    results = listOf(makeResult()),
+                    changedFiles = emptyList(),
+                    projectDir = projectDir,
+                    rawDiffs =
+                        mapOf(
+                            Paths.get("App.java") to "diff --git a/App.java b/App.java\n",
+                            Paths.get("Other.java") to "diff --git a/Other.java b/Other.java\n"
+                        ),
+                    executionDiagnostics = emptyDiagnostics
+                )
+
+            assertTrue(result.hasChanges)
+            assertEquals(3, result.changeCount)
         }
 
         test("data class equals and copy work correctly") {

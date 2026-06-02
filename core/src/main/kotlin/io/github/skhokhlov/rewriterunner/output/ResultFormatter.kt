@@ -81,36 +81,20 @@ class ResultFormatter(
 
     /**
      * Write formatted output for a full [RunResult], including plugin-first raw diffs
-     * when no OpenRewrite [Result] objects were produced in-process.
+     * and in-process OpenRewrite [Result] objects when both are present.
      *
      * In [OutputMode.REPORT] mode the emitted JSON additionally carries the
      * [ExecutionDiagnostics.parseFailures] collected during the LST build, so library
      * consumers can see which files the parsers could not handle.
      */
     fun format(runResult: RunResult) {
-        // In-process recipe results and plugin-first raw diffs are mutually exclusive
-        // for normal runner output. Prefer Result objects if a future path supplies both.
-        if (runResult.results.isNotEmpty() || runResult.rawDiffs.isEmpty()) {
-            when (outputMode) {
-                OutputMode.DIFF -> printDiffs(runResult.results)
-
-                OutputMode.FILES -> printFiles(runResult.results)
-
-                OutputMode.REPORT -> writeReport(
-                    runResult.results,
-                    runResult.projectDir,
-                    runResult.executionDiagnostics
-                )
-            }
-            return
-        }
-
         when (outputMode) {
-            OutputMode.DIFF -> printRawDiffs(runResult.rawDiffs)
+            OutputMode.DIFF -> printRunResultDiffs(runResult)
 
-            OutputMode.FILES -> printRawFiles(runResult.rawDiffs.keys)
+            OutputMode.FILES -> printRunResultFiles(runResult)
 
-            OutputMode.REPORT -> writeRawReport(
+            OutputMode.REPORT -> writeRunResultReport(
+                runResult.results,
                 runResult.rawDiffs,
                 runResult.projectDir,
                 runResult.executionDiagnostics
@@ -141,6 +125,20 @@ class ResultFormatter(
         rawDiffs.values.forEach { out.println(it.trimEnd()) }
     }
 
+    private fun printRunResultDiffs(runResult: RunResult) {
+        if (runResult.results.isEmpty() && runResult.rawDiffs.isEmpty()) {
+            out.println("No changes produced.")
+            return
+        }
+        runResult.rawDiffs.values.forEach { out.println(it.trimEnd()) }
+        for (result in runResult.results) {
+            val diff = result.diff()
+            if (diff.isNotBlank()) {
+                out.println(diff)
+            }
+        }
+    }
+
     // ─── files ────────────────────────────────────────────────────────────────
 
     private fun printFiles(results: List<Result>) {
@@ -155,6 +153,23 @@ class ResultFormatter(
     }
 
     private fun printRawFiles(paths: Set<Path>) {
+        if (paths.isEmpty()) {
+            out.println("No files changed.")
+            return
+        }
+        paths.forEach { out.println(it) }
+    }
+
+    private fun printRunResultFiles(runResult: RunResult) {
+        val paths =
+            buildList {
+                addAll(runResult.rawDiffs.keys.map { it.toString() })
+                addAll(
+                    runResult.results.mapNotNull { result ->
+                        (result.after?.sourcePath ?: result.before?.sourcePath)?.toString()
+                    }
+                )
+            }.distinct()
         if (paths.isEmpty()) {
             out.println("No files changed.")
             return
@@ -203,6 +218,41 @@ class ResultFormatter(
                     "diff" to diff
                 )
             },
+            "parsedFileCount" to diagnostics?.parsedFileCount,
+            "parseFailures" to parseFailuresJson(diagnostics)
+        )
+        json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
+        out.println("Report written to: ${reportFile.absolutePath}")
+    }
+
+    private fun writeRunResultReport(
+        results: List<Result>,
+        rawDiffs: Map<Path, String>,
+        reportDir: Path,
+        diagnostics: ExecutionDiagnostics? = null
+    ) {
+        val reportFile = reportDir.resolve("openrewrite-report.json").toFile()
+        val rawEntries =
+            rawDiffs.map { (path, diff) ->
+                mapOf(
+                    "filePath" to path.toString(),
+                    "isNewFile" to diff.contains("\n--- /dev/null\n"),
+                    "isDeletedFile" to diff.contains("\n+++ /dev/null\n"),
+                    "diff" to diff
+                )
+            }
+        val resultEntries =
+            results.map { r ->
+                mapOf(
+                    "filePath" to (r.after?.sourcePath ?: r.before?.sourcePath)?.toString(),
+                    "isNewFile" to (r.before == null),
+                    "isDeletedFile" to (r.after == null),
+                    "diff" to r.diff()
+                )
+            }
+        val report = mapOf(
+            "totalChanged" to (rawDiffs.size + results.size),
+            "results" to (rawEntries + resultEntries),
             "parsedFileCount" to diagnostics?.parsedFileCount,
             "parseFailures" to parseFailuresJson(diagnostics)
         )

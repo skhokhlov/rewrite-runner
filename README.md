@@ -156,7 +156,7 @@ public class Example {
 val result = runner.run()
 
 println("Changed: ${result.hasChanges}")         // true/false
-println("Files changed: ${result.changeCount}")   // number of changed files
+println("Files changed: ${result.changeCount}")   // results.size + rawDiffs.size
 
 // Iterate raw OpenRewrite results
 result.results.forEach { r ->
@@ -165,6 +165,10 @@ result.results.forEach { r ->
     println(r.diff())           // unified diff string
     println(r.after?.sourcePath)  // relative path of the changed file
 }
+
+// Plugin-first raw diffs may be populated alongside results when the
+// Stage 0 specialized ownership pass also changed Docker/HCL/protobuf files.
+result.rawDiffs.forEach { (path, diff) -> println("$path\n$diff") }
 
 // changedFiles: paths written to disk (empty in dry-run mode)
 result.changedFiles.forEach { path -> println("Written: $path") }
@@ -177,7 +181,7 @@ result.executionDiagnostics.parseFailures.forEach { failure ->
 // OpenRewrite's estimate of manual effort avoided, or null when unavailable.
 println("Estimated time saved: ${result.executionDiagnostics.estimatedTimeSaved}")
 
-// Null means the plugin path ran and no in-process LST count was measured.
+// Null means a plugin-only path ran and no in-process LST count was measured.
 println("Parsed files: ${result.executionDiagnostics.parsedFileCount}")
 ```
 
@@ -218,7 +222,7 @@ ResultFormatter(OutputMode.REPORT).format(result)
 | `FILES` | Prints one changed-file path per line to stdout |
 | `REPORT` | Writes `openrewrite-report.json` to the `reportDir` argument (defaults to `.`) |
 
-Library consumers that only need to inspect changes programmatically can skip `ResultFormatter` entirely and work with `RunResult.results` directly.
+Library consumers that only need to inspect changes programmatically can skip `ResultFormatter` entirely and work with `RunResult.results` / `RunResult.rawDiffs` directly.
 
 ### Logging
 
@@ -339,7 +343,7 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
 | `--plugin-run-timeout`                | Timeout for plugin-first Gradle/Maven invocations. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `10m` |
 | `--artifact-resolver-connect-timeout` | TCP connection timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `30s` |
 | `--artifact-resolver-request-timeout` | Socket read/request timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `60s` |
-| `--exclude-paths`                     | Comma-separated glob patterns of files to skip (e.g. `**/generated/**,**/*.md`). Forwarded to both the Stage 0 plugin (Maven: `-Drewrite.exclusions=…`; Gradle: `exclusion(...)` DSL) and to the LST fallback pipeline. | — |
+| `--exclude-paths`                     | Comma-separated glob patterns of files to skip (e.g. `**/generated/**,**/*.md`). Forwarded to both the Stage 0 plugin (Maven: `-Drewrite.exclusions=…`; Gradle: `exclusion(...)` DSL) and to the LST fallback pipeline. Stage 0 also receives Docker/HCL/protobuf ownership exclusions. | — |
 | `--plain-text-masks`                  | Comma-separated glob patterns of otherwise-unhandled files to parse as plain text (e.g. `**/CODEOWNERS,**/*.txt`). Replaces the upstream default mask list when specified and is forwarded to both Stage 0 and the LST fallback pipeline. | upstream defaults |
 | `--no-maven-central`                  | Disable Maven Central; use only repositories from the config file | `false` |
 | `--info`                              | Enable INFO-level logging to stderr | `false` |
@@ -557,7 +561,7 @@ Unresolved types appear as `JavaType.Unknown` in the LST, but all structural, te
 | `.dockerfile`, `.containerfile`, `Dockerfile*`, `Containerfile*` | `DockerParser` (matched both by extension and by filename prefix) |
 | Plain text mask matches, e.g. `CODEOWNERS`, `*.md`, `*.sh`, `*.txt` | `PlainTextParser` |
 
-All supported extensions and the upstream default plain-text masks are parsed by default. Use `--exclude-paths` (CLI), `parse.excludePaths` (YAML), or `Builder.excludePaths(...)` (library) to skip specific paths via glob patterns. Use `--plain-text-masks`, `parse.plainTextMasks`, or `Builder.plainTextMasks(...)` to replace the plain-text mask list. Exclusions win, and specialized parsers take precedence over plain-text masks on the LST path. The resolved values are forwarded to the Stage 0 plugin invocation and to the LST fallback pipeline.
+All supported extensions and the upstream default plain-text masks are parsed by default. Use `--exclude-paths` (CLI), `parse.excludePaths` (YAML), or `Builder.excludePaths(...)` (library) to skip specific paths via glob patterns. Use `--plain-text-masks`, `parse.plainTextMasks`, or `Builder.plainTextMasks(...)` to replace the plain-text mask list. Exclusions win, and specialized parsers take precedence over plain-text masks on the LST path. The resolved values are forwarded to the Stage 0 plugin invocation and to the LST fallback pipeline. On Stage 0 success, Docker/HCL/protobuf files are excluded from the plugin and handled by rewrite-runner's restricted specialized parser pass.
 
 ### Automatically excluded directories
 

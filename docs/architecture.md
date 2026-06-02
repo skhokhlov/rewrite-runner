@@ -13,7 +13,7 @@ Orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`:
 
 | Step | Class | Description |
 |------|-------|-------------|
-| 0 | `PluginRecipeRunner` | Try official Gradle/Maven OpenRewrite plugin first; short-circuit on success |
+| 0 | `PluginRecipeRunner` | Try official Gradle/Maven OpenRewrite plugin first for build-owned files |
 | 1 | `ToolConfig` | Load YAML config (env var interpolation, tilde expansion) |
 | 2 | `RecipeArtifactResolver` | Resolve recipe JARs from Maven coordinates for the fallback path |
 | 3 | `RecipeLoader` | Load recipe from JARs + optional `rewrite.yaml` |
@@ -35,12 +35,20 @@ The dry-run goal always runs first so `PatchParser` can split `rewrite.patch` fi
 
 Stage 0 also populates `ExecutionDiagnostics.estimatedTimeSaved` when OpenRewrite reports it. The structured path reads the latest exported `SourcesFileResults` data table; current plugin versions may only log the same value as `Estimate time saved: ...`, so the runner captures plugin stdout/stderr and falls back to that line. The value is not derived from patch contents.
 
-If plugin execution is skipped or fails (no build file, non-zero exit, process start failure, timeout, missing recipe/plugin), the runner logs at info level and falls through to the LST pipeline. `--skip-plugin-run` / `Builder.skipPluginRun(true)` bypasses Stage 0.
+When Stage 0 succeeds, rewrite-runner still runs a lightweight in-process LST pass over its
+specialized owned set: Dockerfile/Containerfile, HCL/Terraform, and protobuf files. These formats are
+excluded from the plugin invocation up front, parsed classpath-free by rewrite-runner, and then merged
+with the plugin raw diffs in `RunResult` (`rawDiffs` from Stage 0 plus `results` from the specialized
+pass). If no owned files are found, the runner returns the same plugin-only result shape as before.
+The pass is best-effort: an unresolvable recipe degrades to plugin-only results with a warning.
+See [ADR 0005](adr/0005-stage0-specialized-parser-ownership.md).
+
+If plugin execution is skipped or fails (no build file, non-zero exit, process start failure, timeout, missing recipe/plugin), the runner logs at info level and falls through to the full LST pipeline. `--skip-plugin-run` / `Builder.skipPluginRun(true)` bypasses Stage 0.
 
 Path exclusions and plain-text masks are resolved once by `RewriteRunner` and forwarded to Stage 0
-and to the LST fallback so both paths select the same files. Stage 0 still short-circuits the run on
-success; see [ADR 0002](adr/0002-stage0-specialized-parser-gap.md) for the deferred gap where
-classpath-free specialized parsers only run on the fallback path.
+and to the LST fallback so both paths select the same files. Stage 0 also receives the specialized
+owned-set exclusions unconditionally; the specialized pass receives only user/YAML exclusions so it
+can own those files beside a successful plugin run.
 
 ## Maven Local Repository Strategy
 

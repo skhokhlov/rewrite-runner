@@ -305,6 +305,85 @@ class ResultFormatterTest :
             )
         }
 
+        test("format RunResult diff mode emits raw diffs and OpenRewrite result diffs") {
+            val specializedResult =
+                makeResult("Dockerfile", "FROM ubuntu:22.04\n", "FROM ubuntu:24.04\n")
+            val output =
+                captureOutput { pw ->
+                    ResultFormatter(OutputMode.DIFF, pw).format(
+                        RunResult(
+                            results = listOf(specializedResult),
+                            changedFiles = emptyList(),
+                            projectDir = reportDir,
+                            rawDiffs =
+                                mapOf(
+                                    Path.of("src/main/java/App.java") to
+                                        "diff --git a/src/main/java/App.java b/src/main/java/App.java\n"
+                                ),
+                            executionDiagnostics = ExecutionDiagnostics.PLUGIN
+                        )
+                    )
+                }
+
+            assertTrue(
+                output.contains("diff --git a/src/main/java/App.java b/src/main/java/App.java")
+            )
+            assertTrue(output.contains("Dockerfile"))
+            assertTrue(output.contains("ubuntu:24.04"))
+        }
+
+        test("format RunResult files mode emits raw diff paths and OpenRewrite result paths") {
+            val specializedResult = makeResult("main.tf", "old\n", "new\n")
+            val output =
+                captureOutput { pw ->
+                    ResultFormatter(OutputMode.FILES, pw).format(
+                        RunResult(
+                            results = listOf(specializedResult),
+                            changedFiles = emptyList(),
+                            projectDir = reportDir,
+                            rawDiffs = mapOf(Path.of("src/main/java/App.java") to "diff"),
+                            executionDiagnostics = ExecutionDiagnostics.PLUGIN
+                        )
+                    )
+                }
+            val lines = output.trim().lines()
+
+            assertEquals(listOf("src/main/java/App.java", "main.tf"), lines)
+        }
+
+        test("format RunResult report mode combines raw diffs and OpenRewrite results") {
+            val specializedResult = makeResult("hello.proto", "message A {}\n", "message B {}\n")
+            captureOutput { pw ->
+                ResultFormatter(OutputMode.REPORT, pw).format(
+                    RunResult(
+                        results = listOf(specializedResult),
+                        changedFiles = emptyList(),
+                        projectDir = reportDir,
+                        rawDiffs =
+                            mapOf(
+                                Path.of("src/main/java/App.java") to
+                                    "diff --git a/src/main/java/App.java b/src/main/java/App.java\n"
+                            ),
+                        executionDiagnostics =
+                            ExecutionDiagnostics(
+                                stageUsed = null,
+                                resolvedJarCount = 0,
+                                parsedFileCount = 1
+                            )
+                    )
+                )
+            }
+            val tree =
+                json.readTree(reportDir.resolve("openrewrite-report.json").readText())
+
+            assertEquals(2, tree["totalChanged"].asInt())
+            val resultsNode = tree["results"]
+            val paths = (0 until resultsNode.size())
+                .map { index -> resultsNode[index]["filePath"].asText() }
+            assertEquals(listOf("src/main/java/App.java", "hello.proto"), paths)
+            assertEquals(1, tree["parsedFileCount"].asInt())
+        }
+
         // ─── parseFailures in REPORT JSON ─────────────────────────────────────────
 
         test("REPORT mode includes parsedFileCount from executionDiagnostics") {

@@ -149,6 +149,8 @@ open class LstBuilder(
      *   [io.github.skhokhlov.rewriterunner.config.ParseConfig.excludePaths] before reaching here.
      * @param plainTextMasks Glob patterns (relative to [projectDir]) of otherwise-unhandled
      *   files to parse with [PlainTextParser]. Non-empty values replace the upstream defaults.
+     * @param restrictToExtensions When non-empty, only parse files whose extension is in this set.
+     *   Use for specialized non-JVM parsers (Docker/HCL/Proto) when Stage 0 succeeded.
      * @param ctx OpenRewrite execution context. Defaults to an [org.openrewrite.InMemoryExecutionContext]
      *   that logs parse warnings without aborting.
      * @return An [LstBuildResult] containing the parsed source files and execution diagnostics.
@@ -157,6 +159,7 @@ open class LstBuilder(
         projectDir: Path,
         excludePaths: List<String> = toolConfig.parse.excludePaths,
         plainTextMasks: List<String> = emptyList(),
+        restrictToExtensions: Set<String> = emptySet(),
         ctx: ExecutionContext = InMemoryExecutionContext {}
     ): LstBuildResult {
         val pendingErrors = mutableListOf<Throwable>()
@@ -170,8 +173,16 @@ open class LstBuilder(
 
             override fun getOnError(): Consumer<Throwable> = errorConsumer
         }
-        val effectiveExtensions = FileCollector.DEFAULT_EXTENSIONS
-        logger.info("Parsing extensions: $effectiveExtensions")
+        val effectiveExtensions =
+            if (restrictToExtensions.isNotEmpty()) {
+                logger.info("Restricting parsing to extensions: $restrictToExtensions")
+                val result = FileCollector.DEFAULT_EXTENSIONS.intersect(restrictToExtensions)
+                logger.info("Effective extensions after intersection: $result")
+                result
+            } else {
+                logger.info("Parsing all supported extensions")
+                FileCollector.DEFAULT_EXTENSIONS
+            }
 
         // ── Per-build parse-failure accumulator ───────────────────────────────
         // Declared before classpath resolution so Stage 2/3 can record malformed
@@ -179,7 +190,12 @@ open class LstBuilder(
         val parseFailures = mutableListOf<ParseFailure>()
 
         // ── Collect files by extension ────────────────────────────────────────
-        val effectivePlainTextMasks = toolConfig.resolvedPlainTextMasks(plainTextMasks)
+        val effectivePlainTextMasks =
+            if (restrictToExtensions.isNotEmpty()) {
+                emptyList()
+            } else {
+                toolConfig.resolvedPlainTextMasks(plainTextMasks)
+            }
         val filesByExt = fileCollector.collectFiles(
             projectDir,
             effectiveExtensions,
@@ -190,6 +206,18 @@ open class LstBuilder(
         logger.lifecycle(
             "Found $totalFiles files to parse across ${filesByExt.keys.size} extension group(s)"
         )
+        if (totalFiles == 0) {
+            return LstBuildResult(
+                sourceFiles = emptyList(),
+                executionDiagnostics =
+                    ExecutionDiagnostics(
+                        stageUsed = null,
+                        resolvedJarCount = 0,
+                        parseFailures = parseFailures.toList(),
+                        parsedFileCount = 0
+                    )
+            )
+        }
 
         // ── 4-stage classpath resolution ──────────────────────────────────────
         // Skip the four classpath stages entirely when no JVM source survived

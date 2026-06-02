@@ -246,6 +246,37 @@ class LstBuilderTest :
             assertTrue(paths.any { it == "Dockerfile" }, "Dockerfile should be parsed by name")
         }
 
+        test("restricted specialized build parses only owned files and skips classpath stages") {
+            projectDir.resolve("src/main/java").createDirectories()
+            projectDir.resolve("src/main/java/App.java").writeText("class App {}")
+            projectDir.resolve("config.yaml").writeText("key: value")
+            projectDir.resolve("README.md").writeText("# docs")
+            projectDir.resolve("main.tf").writeText("resource \"local_file\" \"x\" {}")
+            projectDir.resolve("hello.proto").writeText("syntax = \"proto3\";\nmessage Hello {}")
+            projectDir.resolve("Dockerfile").writeText("FROM ubuntu:22.04")
+
+            var classpathCalls = 0
+            val trackingBuildTool =
+                object : ProjectBuildStage(NoOpRunnerLogger) {
+                    override fun extractClasspath(projectDir: Path): List<Path>? {
+                        classpathCalls++
+                        return null
+                    }
+                }
+
+            val result =
+                lstBuilder(buildTool = trackingBuildTool).build(
+                    projectDir = projectDir,
+                    restrictToExtensions = SpecializedOwnership.extensions
+                )
+
+            val paths = result.sourceFiles.map { it.sourcePath.toString() }.toSet()
+            assertEquals(setOf("main.tf", "hello.proto", "Dockerfile"), paths)
+            assertEquals(0, classpathCalls)
+            assertNull(result.executionDiagnostics.stageUsed)
+            assertEquals(3, result.executionDiagnostics.parsedFileCount)
+        }
+
         test("gradle.kts files and plain kts files are both parsed under kts extension") {
             projectDir.resolve("build.gradle.kts").writeText("// gradle kotlin dsl")
             projectDir.resolve("settings.gradle.kts").writeText("// settings")
