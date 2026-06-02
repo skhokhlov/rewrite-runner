@@ -51,11 +51,43 @@ class ToolConfigTest :
                 """
                 parse:
                   excludePaths: ["**/generated/**", "**/*.md"]
+                  plainTextMasks: ["**/CODEOWNERS", "**/*.txt"]
                 """.trimIndent()
             )
 
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
             assertEquals(listOf("**/generated/**", "**/*.md"), config.parse.excludePaths)
+            assertEquals(listOf("**/CODEOWNERS", "**/*.txt"), config.parse.plainTextMasks)
+        }
+
+        test("plain text mask CLI override replaces YAML config") {
+            val config = ToolConfig(
+                parse = ParseConfig(plainTextMasks = listOf("**/CODEOWNERS")),
+                logger = NoOpRunnerLogger
+            )
+
+            val resolved = config.resolvedPlainTextMasks(listOf("**/OWNERS"))
+
+            assertEquals(listOf("**/OWNERS"), resolved)
+        }
+
+        test("plain text masks fall back to YAML config when CLI override empty") {
+            val config = ToolConfig(
+                parse = ParseConfig(plainTextMasks = listOf("**/CODEOWNERS")),
+                logger = NoOpRunnerLogger
+            )
+
+            val resolved = config.resolvedPlainTextMasks(emptyList())
+
+            assertEquals(listOf("**/CODEOWNERS"), resolved)
+        }
+
+        test("plain text masks fall back to upstream defaults when CLI and YAML are empty") {
+            val config = ToolConfig(logger = NoOpRunnerLogger)
+
+            val resolved = config.resolvedPlainTextMasks(emptyList())
+
+            assertEquals(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS, resolved)
         }
 
         test("ignores unknown legacy parse fields without error") {

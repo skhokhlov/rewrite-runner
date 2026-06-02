@@ -15,6 +15,8 @@ import java.time.Duration
  * `exclusion("…")` lines inside the generated init script's `rewrite { }` block — the
  * plugin does not expose `-P`-style overrides for exclusions, so the DSL is the only
  * supported injection point. Each glob is escaped via [groovyString] before substitution.
+ * Forwards `plainTextMasks` in the same block by clearing the plugin defaults first, then
+ * emitting `plainTextMask("…")` lines so configured masks replace rather than append.
  */
 internal open class GradlePluginStrategy(
     private val logger: RunnerLogger,
@@ -30,7 +32,8 @@ internal open class GradlePluginStrategy(
         dryRun: Boolean,
         includeMavenCentral: Boolean,
         artifactRepositories: List<RepositoryConfig>,
-        excludePaths: List<String>
+        excludePaths: List<String>,
+        plainTextMasks: List<String>
     ): PluginRunResult {
         val effectiveRewriteConfig =
             createRewriteConfigFile(rewriteConfigContent)
@@ -42,7 +45,8 @@ internal open class GradlePluginStrategy(
                 rewriteConfig = effectiveRewriteConfig,
                 includeMavenCentral = includeMavenCentral,
                 repositories = artifactRepositories,
-                excludePaths = excludePaths
+                excludePaths = excludePaths,
+                plainTextMasks = plainTextMasks
             )
         return try {
             DirectPluginExecutor(projectDir, dryRun, { path, cmd ->
@@ -70,7 +74,8 @@ internal open class GradlePluginStrategy(
         rewriteConfig: Path?,
         includeMavenCentral: Boolean,
         repositories: List<RepositoryConfig>,
-        excludePaths: List<String> = emptyList()
+        excludePaths: List<String> = emptyList(),
+        plainTextMasks: List<String> = emptyList()
     ): Path {
         val initScript = createPrivateTempFile("rewrite-runner-plugin-", ".gradle")
         val text =
@@ -115,6 +120,12 @@ internal open class GradlePluginStrategy(
                 }
                 excludePaths.forEach {
                     appendLine("        exclusion(\"${it.groovyString()}\")")
+                }
+                if (plainTextMasks.isNotEmpty()) {
+                    appendLine("        plainTextMasks.clear()")
+                    plainTextMasks.forEach {
+                        appendLine("        plainTextMask(\"${it.groovyString()}\")")
+                    }
                 }
                 appendLine("    }")
                 if (recipeArtifacts.isNotEmpty()) {

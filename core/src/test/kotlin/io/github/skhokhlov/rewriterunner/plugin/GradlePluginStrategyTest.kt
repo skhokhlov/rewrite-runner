@@ -167,6 +167,65 @@ class GradlePluginStrategyTest :
             assertTrue(!text.contains("exclusion("), "No exclusion lines expected: $text")
         }
 
+        test("generateInitScript replaces plainTextMasks inside rewrite block") {
+            val strategy = GradlePluginStrategy(
+                logger = NoOpRunnerLogger,
+                timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+            )
+
+            val initScript =
+                strategy.generateInitScript(
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    includeMavenCentral = true,
+                    repositories = emptyList(),
+                    plainTextMasks = listOf("**/CODEOWNERS", "**/*.txt")
+                )
+
+            val text = initScript.readText()
+            val rewriteStart = text.indexOf("rewrite {")
+            assertTrue(rewriteStart >= 0, "rewrite { } block missing")
+            val rewriteEnd = text.indexOf("    }", rewriteStart)
+            assertTrue(rewriteEnd > rewriteStart)
+            val rewriteBody = text.substring(rewriteStart, rewriteEnd)
+            assertTrue(
+                rewriteBody.contains("plainTextMasks.clear()"),
+                "Expected plainTextMasks.clear() inside rewrite { }: $rewriteBody"
+            )
+            assertTrue(
+                rewriteBody.contains("plainTextMask(\"**/CODEOWNERS\")"),
+                "Expected CODEOWNERS plainTextMask inside rewrite { }: $rewriteBody"
+            )
+            assertTrue(
+                rewriteBody.contains("plainTextMask(\"**/*.txt\")"),
+                "Expected txt plainTextMask inside rewrite { }: $rewriteBody"
+            )
+        }
+
+        test("generateInitScript omits plainTextMask lines when masks empty") {
+            val strategy = GradlePluginStrategy(
+                logger = NoOpRunnerLogger,
+                timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+            )
+
+            val initScript =
+                strategy.generateInitScript(
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    includeMavenCentral = true,
+                    repositories = emptyList(),
+                    plainTextMasks = emptyList()
+                )
+
+            val text = initScript.readText()
+            assertTrue(!text.contains("plainTextMasks.clear()"), "No clear expected: $text")
+            assertTrue(!text.contains("plainTextMask("), "No plainTextMask lines expected: $text")
+        }
+
         test("generateInitScript escapes Groovy specials in glob patterns") {
             val strategy = GradlePluginStrategy(
                 logger = NoOpRunnerLogger,

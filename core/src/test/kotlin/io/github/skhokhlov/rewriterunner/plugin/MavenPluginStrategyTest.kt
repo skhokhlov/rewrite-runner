@@ -94,6 +94,29 @@ class MavenPluginStrategyTest :
             assertTrue(command.contains("-Drewrite.exclusions=src/test/**"))
         }
 
+        test("buildCommand emits -Drewrite.plainTextMasks when plainTextMasks non-empty") {
+            val reportDir = Files.createTempDirectory("report-")
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            val command =
+                strategy.buildCommand(
+                    projectDir = projectDir,
+                    goal = "dryRun",
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    reportOutputDirectory = reportDir,
+                    plainTextMasks = listOf("**/CODEOWNERS", "**/*.txt")
+                )
+
+            assertTrue(command.contains("-Drewrite.plainTextMasks=**/CODEOWNERS,**/*.txt"))
+        }
+
         test("buildCommand omits -Drewrite.exclusions when excludePaths empty") {
             val reportDir = Files.createTempDirectory("report-")
             val strategy =
@@ -115,6 +138,29 @@ class MavenPluginStrategyTest :
                 )
 
             assertTrue(command.none { it.startsWith("-Drewrite.exclusions") })
+        }
+
+        test("buildCommand omits -Drewrite.plainTextMasks when plainTextMasks empty") {
+            val reportDir = Files.createTempDirectory("report-")
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            val command =
+                strategy.buildCommand(
+                    projectDir = projectDir,
+                    goal = "dryRun",
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    reportOutputDirectory = reportDir,
+                    plainTextMasks = emptyList()
+                )
+
+            assertTrue(command.none { it.startsWith("-Drewrite.plainTextMasks") })
         }
 
         test("buildCommand joins multiple globs with comma") {

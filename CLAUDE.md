@@ -64,6 +64,7 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 | `--resolver-connect-timeout` | | Maven Resolver TCP connection timeout | `30s` |
 | `--resolver-request-timeout` | | Maven Resolver socket/request timeout | `60s` |
 | `--exclude-paths` | | Comma-separated glob patterns of files to skip (e.g. `**/generated/**,**/*.md`); forwarded to Stage 0 plugin and LST fallback alike | — |
+| `--plain-text-masks` | | Comma-separated glob patterns of otherwise-unhandled files to parse as plain text; replaces default masks when specified | upstream defaults |
 | `--info` | | Enable INFO-level logging to stderr | `false` |
 | `--debug` | | Enable DEBUG-level logging (overrides `--info`) | `false` |
 | `--no-maven-central` | | Disable Maven Central; use only repos from config | `false` |
@@ -125,6 +126,7 @@ cli/src/
 - `ResultFormatter` has a secondary constructor accepting `PrintWriter`; `RunCommand` passes picocli's `@Spec` output writer
 - Stage 0 tries the official Gradle/Maven OpenRewrite plugins first and returns `RunResult.rawDiffs` on success. Use `--skip-plugin-run` / `Builder.skipPluginRun(true)` when testing or debugging the in-process LST pipeline directly.
 - Path exclusion: `--exclude-paths` (CLI) overrides `parse.excludePaths` (YAML) when non-empty. The resolved value is forwarded to Stage 0 and to the LST fallback so both apply identical filtering. When no JVM source survives the exclusion, classpath resolution stages 1–4 are skipped.
+- Plain-text masks: `--plain-text-masks` (CLI) overrides `parse.plainTextMasks` (YAML) when non-empty; if both are empty, the upstream default mask list is used. The resolved value is always forwarded to Stage 0 (Maven `-Drewrite.plainTextMasks=…`; Gradle `plainTextMasks.clear()` + `plainTextMask(...)`) and to the LST fallback. Specialized parsers take precedence on the LST path, so `Dockerfile*` still uses `DockerParser`; parsing every unmatched text file is a future direction, not current behavior.
 - OpenRewrite requires all source files in memory simultaneously — for large projects use `-Xmx6g`
 - Dockerfile/Containerfile files are collected both by extension (`.dockerfile`, `.containerfile`) and by filename prefix (`Dockerfile*`, `Containerfile*`) — all go into the `.dockerfile` bucket for `DockerParser`
 - `pom.xml` files are routed to `MavenParser` (full resolution — parent POMs, property interpolation, BOM imports); all other `.xml` files use `XmlParser`. This split happens in the `.xml` routing block inside `LstBuilder.build()` by filtering on `file.name == "pom.xml"`. `MavenParser` adds `MavenResolutionResult` marker, enabling the full `rewrite-maven` recipe catalog. Resolution uses `~/.m2/settings.xml` and local repo; artifacts already cached require no network access.
