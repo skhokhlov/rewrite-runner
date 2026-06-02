@@ -197,6 +197,7 @@ open class DependencyResolutionStage(
 
             val classpath = resolveArtifactsDirectly(coords.distinct(), parseFailures)
             if (classpath.isEmpty()) {
+                // Intentional: Gradle marker data belongs only to a winning Stage 2 result.
                 logger.warn(
                     "Stage 2 (dependency resolution) failed: no JARs resolved, " +
                         "falling through to Stage 3"
