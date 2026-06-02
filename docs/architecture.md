@@ -137,10 +137,9 @@ and `rewriteMavenPluginVersion`.
 | Plain text (mask-matched, e.g. `CODEOWNERS`, `*.md`, `*.sh`, `*.txt`) | `PlainTextParser` | — |
 
 Plain-text masks are a fallback only. If a file is claimed by a specialized parser, that parser wins
-even when the path also matches a plain-text mask; for example `Dockerfile` stays with
-`DockerParser` even though it is in the default mask list, `Dockerfile.dev` also routes to
-`DockerParser` by filename prefix, and `*.qute.java` stays with `JavaParser`. Files larger than the
-10 MB plain-text threshold are skipped.
+even when the path also matches a plain-text mask; for example `Dockerfile*` stays with
+`DockerParser`, and `*.qute.java` stays with `JavaParser`. Files larger than the 10 MB plain-text
+threshold are skipped.
 
 ## Parse Failure Handling
 

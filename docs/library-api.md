@@ -337,7 +337,7 @@ val runner = RewriteRunner.builder()
 
 **Precedence**: CLI flag `--exclude-paths` (or `Builder.excludePaths(...)`) overrides `parse.excludePaths` from the config file when non-empty. CLI flag `--plain-text-masks` (or `Builder.plainTextMasks(...)`) overrides `parse.plainTextMasks` from the config file when non-empty; if both are empty, rewrite-runner uses the upstream OpenRewrite default plain-text mask list. Both resolved lists are forwarded to the Stage 0 plugin invocation and to the LST fallback pipeline, so both code paths apply identical filtering. Exclusions win over plain-text masks.
 
-Plain-text masks are a fallback allowlist, not a catch-all for every unhandled file. In the LST path, specialized parsers take precedence; for example `Dockerfile` routes to `DockerParser` even though it is in the default plain-text mask list, `Dockerfile.dev` also routes to `DockerParser` by filename prefix, and `*.qute.java` routes to `JavaParser`. Future work may add a broader opt-in for parsing every unmatched text file.
+Plain-text masks are a fallback allowlist, not a catch-all for every unhandled file. In the LST path, specialized parsers take precedence; for example `Dockerfile*` routes to `DockerParser` and `*.qute.java` routes to `JavaParser` even though both are in the default plain-text mask list. Future work may add a broader opt-in for parsing every unmatched text file.
 
 ### Automatically excluded directories
 

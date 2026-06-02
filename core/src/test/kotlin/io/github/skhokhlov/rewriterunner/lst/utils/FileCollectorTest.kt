@@ -153,6 +153,24 @@ class FileCollectorTest :
             assertEquals(1, result[".java"]?.size)
         }
 
+        test("excludePaths double-star glob keeps original root-level matching behavior") {
+            projectDir.resolve("README.md").writeText("# root")
+            projectDir.resolve("docs").createDirectories()
+            projectDir.resolve("docs/README.md").writeText("# nested")
+
+            val result = collector.collectFiles(
+                projectDir = projectDir,
+                effectiveExtensions = setOf(".java"),
+                excludeGlobs = listOf("**/*.md"),
+                plainTextMasks = listOf("**/*.md")
+            )
+
+            assertEquals(
+                listOf("README.md"),
+                result.getValue(FileCollector.PLAIN_TEXT).map { it.fileName.toString() }
+            )
+        }
+
         // ─── collectFiles — plain-text masks ─────────────────────────────────────
 
         test("plain text masks collect extensionless and text files into plain-text bucket") {

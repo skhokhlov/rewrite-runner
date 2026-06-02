@@ -67,8 +67,8 @@ internal class FileCollector(
         excludeGlobs: List<String>,
         plainTextMasks: List<String> = emptyList()
     ): Map<String, List<Path>> {
-        val matchers = globMatchers(excludeGlobs)
-        val plainTextMatchers = globMatchers(plainTextMasks)
+        val matchers = exactGlobMatchers(excludeGlobs)
+        val plainTextMatchers = plainTextGlobMatchers(plainTextMasks)
         val matchDockerByName = ".dockerfile" in effectiveExtensions
 
         val result = mutableMapOf<String, MutableList<Path>>()
@@ -114,14 +114,18 @@ internal class FileCollector(
         return name.startsWith("dockerfile") || name.startsWith("containerfile")
     }
 
-    private fun globMatchers(globs: List<String>): List<PathMatcher> = globs.flatMap { glob ->
-        buildList {
-            add(FileSystems.getDefault().getPathMatcher("glob:$glob"))
-            if (glob.startsWith("**/")) {
-                add(FileSystems.getDefault().getPathMatcher("glob:${glob.removePrefix("**/")}"))
+    private fun exactGlobMatchers(globs: List<String>): List<PathMatcher> =
+        globs.map { glob -> FileSystems.getDefault().getPathMatcher("glob:$glob") }
+
+    private fun plainTextGlobMatchers(globs: List<String>): List<PathMatcher> =
+        globs.flatMap { glob ->
+            buildList {
+                add(FileSystems.getDefault().getPathMatcher("glob:$glob"))
+                if (glob.startsWith("**/")) {
+                    add(FileSystems.getDefault().getPathMatcher("glob:${glob.removePrefix("**/")}"))
+                }
             }
         }
-    }
 
     private fun matchesAny(matchers: List<PathMatcher>, relative: Path): Boolean =
         matchers.any { it.matches(relative) }
