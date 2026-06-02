@@ -1,4 +1,4 @@
-# ADR 0002: Unified Classpath Stage Seam
+# ADR 0003: Unified Classpath Stage Seam
 
 ## Status
 

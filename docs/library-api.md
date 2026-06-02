@@ -36,6 +36,7 @@ val result = RewriteRunner.builder()
 | `resolverConnectTimeout(Duration)` | `Duration?` | from config / `30s` | TCP connection timeout for Maven Resolver artifact downloads |
 | `resolverRequestTimeout(Duration)` | `Duration?` | from config / `60s` | Socket read/request timeout for Maven Resolver artifact downloads |
 | `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file. Forwarded both to Stage 0 (Maven `-Drewrite.exclusions=…` / Gradle `exclusion(...)` DSL) and to the LST fallback pipeline. |
+| `plainTextMasks(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) for otherwise-unhandled files to parse as plain text; overrides `parse.plainTextMasks` from config file. Both empty falls back to the upstream OpenRewrite default mask list. Forwarded both to Stage 0 (Maven `-Drewrite.plainTextMasks=…` / Gradle `plainTextMask(...)` DSL) and to the LST fallback pipeline. |
 | `includeMavenCentral(Boolean)` | `Boolean?` | from config / `true` | Include Maven Central as a remote repository. Set `false` for air-gapped or enterprise environments. |
 | `repository(RepositoryConfig)` | — | — | Add one extra Maven repository; accumulated, combined with config file repos |
 | `repositories(List<RepositoryConfig>)` | `List` | `[]` | Replace all extra Maven repositories; combined with config file repos |
@@ -169,7 +170,8 @@ byParser.forEach { (parser, failures) ->
 
 Canonical `parser` values today: `JavaParser`, `KotlinParser`, `GroovyParser`,
 `GradleParser`, `YamlParser`, `JsonParser`, `MavenParser`, `XmlParser`,
-`PropertiesParser`, `TomlParser`, `HclParser`, `ProtoParser`, `DockerParser`.
+`PropertiesParser`, `TomlParser`, `HclParser`, `ProtoParser`, `DockerParser`,
+`PlainTextParser`.
 
 `ParseFailure` entries with `parser = "DependencyResolutionStage"` or
 `parser = "BuildFileParseStage"` mark malformed Maven coordinate strings that were
@@ -272,6 +274,10 @@ parse:
     - "**/generated/**"
     - "**/*.md"
   # CLI --exclude-paths overrides this list when non-empty.
+  plainTextMasks:
+    - "**/CODEOWNERS"
+    - "**/*.txt"
+  # CLI --plain-text-masks replaces this list when non-empty.
 
 processTimeout: 120s
 pluginTimeout: 10m
@@ -287,7 +293,7 @@ resolverRequestTimeout: 60s
 |-------|------|---------|-------------|
 | `cacheDir` | `String` | `~/.rewriterunner/cache` | Recipe JAR cache root; `~` and env vars expanded. Recipes are stored under `<cacheDir>/repository`. Project dependencies always resolve from `~/.m2/repository`. |
 | `repositories` | `List<RepositoryConfig>` | `[]` | Extra Maven repos for resolution |
-| `parse` | `ParseConfig` | defaults | File inclusion/exclusion config |
+| `parse` | `ParseConfig` | defaults | File exclusion and plain-text mask config |
 | `includeMavenCentral` | `Boolean` | `true` | Include Maven Central as a remote repository. Set `false` to restrict to only the repositories listed in `repositories`. |
 | `processTimeout` | `Duration` | `120s` | Timeout for Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands. |
 | `pluginTimeout` | `Duration` | `10m` | Timeout for Stage 0 official OpenRewrite plugin invocations. |
@@ -327,8 +333,11 @@ val runner = RewriteRunner.builder()
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `excludePaths` | `List<String>` | `[]` | Glob patterns (relative to project root) to skip |
+| `plainTextMasks` | `List<String>` | upstream defaults | Glob patterns (relative to project root) for otherwise-unhandled files to parse with `PlainTextParser` |
 
-**Precedence**: CLI flag `--exclude-paths` (or `Builder.excludePaths(...)`) overrides `parse.excludePaths` from the config file when non-empty. The resolved list is forwarded both to the Stage 0 plugin invocation (Maven: `-Drewrite.exclusions=…`; Gradle: `exclusion(...)` DSL inside the init script) and to the LST fallback pipeline, so both code paths apply identical filtering. The exclusion-only surface intentionally matches upstream OpenRewrite plugins, which do not support include allowlists.
+**Precedence**: CLI flag `--exclude-paths` (or `Builder.excludePaths(...)`) overrides `parse.excludePaths` from the config file when non-empty. CLI flag `--plain-text-masks` (or `Builder.plainTextMasks(...)`) overrides `parse.plainTextMasks` from the config file when non-empty; if both are empty, rewrite-runner uses the upstream OpenRewrite default plain-text mask list. Both resolved lists are forwarded to the Stage 0 plugin invocation and to the LST fallback pipeline, so both code paths apply identical filtering. Exclusions win over plain-text masks.
+
+Plain-text masks are a fallback allowlist, not a catch-all for every unhandled file. In the LST path, specialized parsers take precedence; for example `Dockerfile*` routes to `DockerParser` and `*.qute.java` routes to `JavaParser` even though both are in the default plain-text mask list. Future work may add a broader opt-in for parsing every unmatched text file.
 
 ### Automatically excluded directories
 

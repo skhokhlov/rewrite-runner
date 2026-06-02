@@ -259,6 +259,26 @@ class RunCommandTest :
             assertEquals(listOf("**/*.md", "src/test/**"), cmd.excludePaths)
         }
 
+        test("--plain-text-masks splits on comma") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs(
+                "--active-recipe",
+                "io.github.skhokhlov.rewriterunner.MyRecipe",
+                "--plain-text-masks",
+                "**/CODEOWNERS,**/*.txt"
+            )
+            assertEquals(listOf("**/CODEOWNERS", "**/*.txt"), cmd.plainTextMasks)
+        }
+
+        test("--help output mentions --plain-text-masks") {
+            val baos = ByteArrayOutputStream()
+            cli().setOut(PrintWriter(baos)).execute("--help")
+            assertTrue(
+                baos.toString().contains("plain-text-masks"),
+                "--help should document --plain-text-masks option"
+            )
+        }
+
         test("--rewrite-config path is accepted") {
             val rewriteYaml = projectDir.resolve("my-rewrite.yaml")
             rewriteYaml.writeText("---\ntype: specs.openrewrite.org/v1beta/recipe\n")

@@ -36,6 +36,7 @@ import org.openrewrite.kotlin.KotlinParser
 import org.openrewrite.maven.MavenParser
 import org.openrewrite.properties.PropertiesParser
 import org.openrewrite.protobuf.ProtoParser
+import org.openrewrite.text.PlainTextParser
 import org.openrewrite.toml.TomlParser
 import org.openrewrite.tree.ParseError
 import org.openrewrite.xml.XmlParser
@@ -146,6 +147,8 @@ open class LstBuilder(
      *   semantics as the upstream OpenRewrite Gradle/Maven plugin exclusions. Resolved by
      *   [io.github.skhokhlov.rewriterunner.RewriteRunner] from CLI override over
      *   [io.github.skhokhlov.rewriterunner.config.ParseConfig.excludePaths] before reaching here.
+     * @param plainTextMasks Glob patterns (relative to [projectDir]) of otherwise-unhandled
+     *   files to parse with [PlainTextParser]. Non-empty values replace the upstream defaults.
      * @param ctx OpenRewrite execution context. Defaults to an [org.openrewrite.InMemoryExecutionContext]
      *   that logs parse warnings without aborting.
      * @return An [LstBuildResult] containing the parsed source files and execution diagnostics.
@@ -153,6 +156,7 @@ open class LstBuilder(
     fun build(
         projectDir: Path,
         excludePaths: List<String> = toolConfig.parse.excludePaths,
+        plainTextMasks: List<String> = emptyList(),
         ctx: ExecutionContext = InMemoryExecutionContext {}
     ): LstBuildResult {
         val pendingErrors = mutableListOf<Throwable>()
@@ -175,10 +179,12 @@ open class LstBuilder(
         val parseFailures = mutableListOf<ParseFailure>()
 
         // ── Collect files by extension ────────────────────────────────────────
+        val effectivePlainTextMasks = toolConfig.resolvedPlainTextMasks(plainTextMasks)
         val filesByExt = fileCollector.collectFiles(
             projectDir,
             effectiveExtensions,
-            excludePaths
+            excludePaths,
+            effectivePlainTextMasks
         )
         val totalFiles = filesByExt.values.sumOf { it.size }
         logger.lifecycle(
@@ -531,6 +537,17 @@ open class LstBuilder(
             val parsed = parseAndRecord("DockerParser", dockerFiles, projectDir, parseFailures) {
                 DockerParser.builder().build()
                     .parse(dockerFiles, projectDir, parseCtx)
+                    .toList()
+            }
+            pendingErrors.clear()
+            parsed.forEach { allSources.add(it) }
+        }
+
+        filesByExt[FileCollector.PLAIN_TEXT]?.let { files ->
+            logger.info("Parsing ${files.size} plain text file(s)")
+            val parsed = parseAndRecord("PlainTextParser", files, projectDir, parseFailures) {
+                PlainTextParser.builder().build()
+                    .parse(files, projectDir, parseCtx)
                     .toList()
             }
             pendingErrors.clear()

@@ -108,6 +108,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         // two execution paths apply identical filtering.
         val effectiveExcludePaths: List<String> =
             config.excludePaths.ifEmpty { toolConfig.parse.excludePaths }
+        val effectivePlainTextMasks: List<String> =
+            toolConfig.resolvedPlainTextMasks(config.plainTextMasks)
 
         // Stage 0: let the project's own build tool run the official OpenRewrite plugin first.
         if (!config.skipPluginRun) {
@@ -129,7 +131,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                         ?: toolConfig.includeMavenCentral,
                     artifactRepositories =
                         toolConfig.resolvedArtifactRepositories() + config.artifactRepositories,
-                    excludePaths = effectiveExcludePaths
+                    excludePaths = effectiveExcludePaths,
+                    plainTextMasks = effectivePlainTextMasks
                 )
             when (pluginResult) {
                 is PluginRunResult.Success -> {
@@ -265,7 +268,8 @@ class RewriteRunner private constructor(private val config: Builder) {
             val lstBuildResult: LstBuildResult =
                 lstBuilder.build(
                     projectDir = config.projectDir,
-                    excludePaths = effectiveExcludePaths
+                    excludePaths = effectiveExcludePaths,
+                    plainTextMasks = effectivePlainTextMasks
                 )
             val sourceFiles = lstBuildResult.sourceFiles
             logger.lifecycle(
@@ -375,6 +379,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         internal var artifactRepositories: List<RepositoryConfig> = emptyList()
             private set
         internal var excludePaths: List<String> = emptyList()
+            private set
+        internal var plainTextMasks: List<String> = emptyList()
             private set
         internal var logger: RunnerLogger = NoOpRunnerLogger
             private set
@@ -508,6 +514,18 @@ class RewriteRunner private constructor(private val config: Builder) {
          * to the LST fallback pipeline, so the two execution paths apply identical filtering.
          */
         fun excludePaths(paths: List<String>): Builder = apply { excludePaths = paths }
+
+        /**
+         * Glob patterns (relative to the project root) for files to parse as plain text when
+         * no specialized parser claims them. When non-empty, overrides
+         * `parse.plainTextMasks` from the tool config file; both empty falls back to the
+         * upstream OpenRewrite default mask list.
+         *
+         * The same resolved value is forwarded both to Stage 0 and to the LST fallback
+         * pipeline. Specialized parsers take precedence in the LST path, so files such as
+         * `Dockerfile*` still route to `DockerParser`.
+         */
+        fun plainTextMasks(masks: List<String>): Builder = apply { plainTextMasks = masks }
 
         /**
          * Set the logger used for progress and diagnostic output.

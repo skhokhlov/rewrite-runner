@@ -35,6 +35,11 @@ The dry-run goal always runs first so `PatchParser` can split `rewrite.patch` fi
 
 If plugin execution is skipped or fails (no build file, non-zero exit, process start failure, timeout, missing recipe/plugin), the runner logs at info level and falls through to the LST pipeline. `--skip-plugin-run` / `Builder.skipPluginRun(true)` bypasses Stage 0.
 
+Path exclusions and plain-text masks are resolved once by `RewriteRunner` and forwarded to Stage 0
+and to the LST fallback so both paths select the same files. Stage 0 still short-circuits the run on
+success; see [ADR 0002](adr/0002-stage0-specialized-parser-gap.md) for the deferred gap where
+classpath-free specialized parsers only run on the fallback path.
+
 ## Maven Local Repository Strategy
 
 Two separate `AetherContext` instances are created per `RewriteRunner.run()` invocation, each with a distinct local Maven repository:
@@ -83,7 +88,7 @@ Gradle project data belongs only to the winning stage. Stage 1 collects it via S
 collector, and Stage 2 includes it when Stage 2 itself wins. If Stage 2 gathers Gradle data but
 falls through with an empty classpath, a later Stage 3 or Stage 4 win does not inherit that data, so
 GradleProject markers are not attached on that path. See
-[`docs/adr/0002-classpath-stage-seam.md`](adr/0002-classpath-stage-seam.md).
+[`docs/adr/0003-classpath-stage-seam.md`](adr/0003-classpath-stage-seam.md).
 
 When `--exclude-paths` (or `parse.excludePaths`) removes every JVM source file (`.java`, `.kt`, `.kts`, `.groovy`, `.gradle`) from scope, all four classpath stages are **skipped entirely** — there is no `mvn`/`gradle` subprocess, no POM walk, no local-repo scan. The build emits a single `INFO` line (`"No JVM source files in scope — skipping classpath resolution stages."`) and proceeds directly to the language parsers, which run with an empty classpath. This optimization keeps non-JVM workflows (e.g. running a YAML-only recipe) fast.
 
@@ -95,7 +100,7 @@ When `--exclude-paths` (or `parse.excludePaths`) removes every JVM source file (
 |-------|---------------|
 | `LstBuilder` | Orchestration, `ClasspathStage` list, parser dispatch |
 | `ClasspathStage` | Unified classpath-stage seam; `resolve(...)` returns null to fall through |
-| `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions; extension set is fixed (`DEFAULT_EXTENSIONS`) |
+| `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions, plain-text masks; extension set is fixed (`DEFAULT_EXTENSIONS`) |
 | `VersionDetector` | Java/Kotlin JVM-version walk-up, `normalizeJvmVersion`, `parseGradleVersionFromWrapper` |
 | `GradleDslClasspathResolver` | Locate Gradle installation (`GRADLE_HOME`, wrapper, `~/.gradle/wrapper/dists/`) |
 | `MarkerFactory` | `BuildTool`, `GitProvenance`, `OperatingSystemProvenance`, `BuildEnvironment`, `GradleProject` markers |
@@ -142,6 +147,12 @@ and `rewriteMavenPluginVersion`.
 | `.hcl` / `.tf` / `.tfvars` | `HclParser` | — |
 | `.proto` | `ProtoParser` | — |
 | `.dockerfile` / `.containerfile` / `Dockerfile*` / `Containerfile*` | `DockerParser` | — (matched by extension **and** by filename prefix) |
+| Plain text (mask-matched, e.g. `CODEOWNERS`, `*.md`, `*.sh`, `*.txt`) | `PlainTextParser` | — |
+
+Plain-text masks are a fallback only. If a file is claimed by a specialized parser, that parser wins
+even when the path also matches a plain-text mask; for example `Dockerfile*` stays with
+`DockerParser`, and `*.qute.java` stays with `JavaParser`. Files larger than the 10 MB plain-text
+threshold are skipped.
 
 ## Parse Failure Handling
 

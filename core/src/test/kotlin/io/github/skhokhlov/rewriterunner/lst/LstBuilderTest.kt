@@ -4,7 +4,9 @@ import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
+import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -22,8 +24,10 @@ import org.openrewrite.Parser
 import org.openrewrite.SourceFile
 import org.openrewrite.java.internal.JavaTypeCache
 import org.openrewrite.marker.Markers
+import org.openrewrite.marker.OperatingSystemProvenance
 import org.openrewrite.maven.MavenParser
 import org.openrewrite.maven.tree.MavenResolutionResult
+import org.openrewrite.text.PlainText
 import org.openrewrite.tree.ParseError
 
 /**
@@ -93,7 +97,8 @@ class LstBuilderTest :
 
         test("excludePaths skips files matching the glob") {
             projectDir.resolve("Hello.java").writeText("class Hello {}")
-            projectDir.resolve("notes.md").writeText("# notes")
+            projectDir.resolve("docs").createDirectories()
+            projectDir.resolve("docs/notes.md").writeText("# notes")
 
             val sources = lstBuilder().build(
                 projectDir = projectDir,
@@ -103,6 +108,99 @@ class LstBuilderTest :
             val paths = sources.map { it.sourcePath.toString() }
             assertTrue(paths.any { it.endsWith(".java") }, "Java file should remain")
             assertTrue(paths.none { it.endsWith(".md") }, "Markdown file should be excluded")
+        }
+
+        test("plain text mask matched files parse as PlainText with provenance markers") {
+            projectDir.resolve("CODEOWNERS").writeText("* @team")
+
+            val result = lstBuilder().build(
+                projectDir = projectDir,
+                plainTextMasks = listOf("**/CODEOWNERS")
+            )
+
+            val source = result.sourceFiles.single()
+            assertEquals("CODEOWNERS", source.sourcePath.toString())
+            assertTrue(source is PlainText, "CODEOWNERS should parse as PlainText")
+            assertTrue(
+                source.markers.findFirst(OperatingSystemProvenance::class.java).isPresent,
+                "Provenance markers should be attached to plain-text files"
+            )
+            assertEquals(1, result.executionDiagnostics.parsedFileCount)
+        }
+
+        test("empty plainTextMasks falls back to upstream defaults") {
+            projectDir.resolve("CODEOWNERS").writeText("* @team")
+
+            val sources = lstBuilder().build(
+                projectDir = projectDir,
+                plainTextMasks = emptyList()
+            ).sourceFiles
+
+            assertEquals(listOf("CODEOWNERS"), sources.map { it.sourcePath.toString() })
+            assertTrue(sources.single() is PlainText)
+        }
+
+        test("custom plainTextMasks replace upstream defaults") {
+            projectDir.resolve("CODEOWNERS").writeText("* @team")
+            projectDir.resolve("OWNERS").writeText("* @custom")
+
+            val sources = lstBuilder().build(
+                projectDir = projectDir,
+                plainTextMasks = listOf("**/OWNERS")
+            ).sourceFiles
+
+            assertEquals(listOf("OWNERS"), sources.map { it.sourcePath.toString() })
+        }
+
+        test("tool config plainTextMasks are used when build override is empty") {
+            projectDir.resolve("CODEOWNERS").writeText("* @team")
+            projectDir.resolve("OWNERS").writeText("* @custom")
+            val config = ToolConfig(
+                parse = ParseConfig(plainTextMasks = listOf("**/OWNERS")),
+                logger = NoOpRunnerLogger
+            )
+            val builder = LstBuilder(
+                logger = NoOpRunnerLogger,
+                cacheDir = projectDir.resolve("cache"),
+                toolConfig = config,
+                projectBuildStage = failingBuildTool,
+                depResolutionStage = object : DependencyResolutionStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
+                },
+                buildFileParseStage = object : BuildFileParseStage(
+                    AetherContext.build(
+                        projectDir.resolve("cache").resolve("repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    NoOpRunnerLogger
+                ) {
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
+                }
+            )
+
+            val sources = builder.build(projectDir = projectDir).sourceFiles
+
+            assertEquals(listOf("OWNERS"), sources.map { it.sourcePath.toString() })
+        }
+
+        test("default plainTextMasks includes representative upstream masks") {
+            assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/CODEOWNERS"))
+            assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/*.md"))
+            assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/[mM]akefile"))
+            assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/*.css"))
+            assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/Dockerfile*"))
         }
 
         // ─── Multi-language parsing ───────────────────────────────────────────────

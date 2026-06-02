@@ -22,6 +22,7 @@ import kotlin.io.path.exists
  *
  * Forwards `excludePaths` to the upstream `rewrite-maven-plugin` via the
  * `-Drewrite.exclusions=<csv>` system property, joined into a comma-separated list of globs.
+ * Forwards `plainTextMasks` the same way via `-Drewrite.plainTextMasks=<csv>`.
  */
 internal open class MavenPluginStrategy(
     private val logger: RunnerLogger,
@@ -37,7 +38,8 @@ internal open class MavenPluginStrategy(
         dryRun: Boolean,
         includeMavenCentral: Boolean,
         artifactRepositories: List<RepositoryConfig>,
-        excludePaths: List<String>
+        excludePaths: List<String>,
+        plainTextMasks: List<String>
     ): PluginRunResult {
         val effectiveRewriteConfig =
             createRewriteConfigFile(rewriteConfigContent)
@@ -53,7 +55,8 @@ internal open class MavenPluginStrategy(
                         recipeArtifacts = recipeArtifacts,
                         rewriteConfig = effectiveRewriteConfig,
                         reportOutputDirectory = reportDir,
-                        excludePaths = excludePaths
+                        excludePaths = excludePaths,
+                        plainTextMasks = plainTextMasks
                     ),
                     applyCommand = buildCommand(
                         projectDir = projectDir,
@@ -62,7 +65,8 @@ internal open class MavenPluginStrategy(
                         recipeArtifacts = recipeArtifacts,
                         rewriteConfig = effectiveRewriteConfig,
                         reportOutputDirectory = reportDir,
-                        excludePaths = excludePaths
+                        excludePaths = excludePaths,
+                        plainTextMasks = plainTextMasks
                     ),
                     patchFiles = { findPatchFiles(projectDir, reportDir) },
                     dryRunFailureMessage = { pluginFailureMessage("Maven rewrite:dryRun", it) },
@@ -88,7 +92,8 @@ internal open class MavenPluginStrategy(
         recipeArtifacts: List<String>,
         rewriteConfig: Path?,
         reportOutputDirectory: Path,
-        excludePaths: List<String> = emptyList()
+        excludePaths: List<String> = emptyList(),
+        plainTextMasks: List<String> = emptyList()
     ): List<String> = buildList {
         add(resolveMavenCommand(projectDir))
         add("-U")
@@ -110,6 +115,9 @@ internal open class MavenPluginStrategy(
         }
         if (excludePaths.isNotEmpty()) {
             add("-Drewrite.exclusions=${excludePaths.joinToString(",")}")
+        }
+        if (plainTextMasks.isNotEmpty()) {
+            add("-Drewrite.plainTextMasks=${plainTextMasks.joinToString(",")}")
         }
         rewriteConfig?.let {
             add("-Drewrite.configLocation=${it.toAbsolutePath()}")
