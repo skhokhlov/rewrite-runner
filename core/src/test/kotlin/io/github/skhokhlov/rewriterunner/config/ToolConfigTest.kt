@@ -90,6 +90,33 @@ class ToolConfigTest :
             assertEquals(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS, resolved)
         }
 
+        test("default plain text masks match upstream plugin defaults") {
+            assertEquals(
+                listOf(
+                    "**/META-INF/services/**",
+                    "**/META-INF/spring.factories",
+                    "**/META-INF/spring/**",
+                    "**/*.bash",
+                    "**/*.bat",
+                    "**/CODEOWNERS",
+                    "**/*.config",
+                    "**/Dockerfile",
+                    "**/.gitattributes",
+                    "**/.gitignore",
+                    "**/.java-version",
+                    "**/*.jsp",
+                    "**/*.ksh",
+                    "**/*.md",
+                    "**/*.qute.java",
+                    "**/.sdkmanrc",
+                    "**/*.sh",
+                    "**/*.sql",
+                    "**/*.txt"
+                ),
+                ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS
+            )
+        }
+
         test("ignores unknown legacy parse fields without error") {
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(

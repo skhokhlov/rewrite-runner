@@ -187,7 +187,9 @@ class LstBuilderTest :
         test("default plainTextMasks includes representative upstream masks") {
             assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/CODEOWNERS"))
             assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/*.md"))
-            assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/Dockerfile*"))
+            assertTrue(ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/Dockerfile"))
+            assertTrue(!ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/*.css"))
+            assertTrue(!ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS.contains("**/Dockerfile*"))
         }
 
         // ─── Multi-language parsing ───────────────────────────────────────────────
