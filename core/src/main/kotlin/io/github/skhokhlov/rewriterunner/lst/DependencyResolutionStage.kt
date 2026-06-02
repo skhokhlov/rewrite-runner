@@ -4,6 +4,7 @@ import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.MavenCoordinates
 import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
@@ -54,7 +55,7 @@ import org.eclipse.aether.resolution.ArtifactResolutionException
  *
  * **Failure behaviour:** When no subprocess succeeds, capped discovery leaves some units
  * uncovered, any discovered unit fails, or Maven Resolver produces an empty result,
- * [resolveClasspath] returns an empty list, causing [LstBuilder] to fall through to
+ * [resolve] returns null, causing [LstBuilder] to fall through to
  * [BuildFileParseStage] (Stage 3).
  *
  * **Extensibility:** The class is `open` with `open` / `protected open` methods so
@@ -67,7 +68,7 @@ open class DependencyResolutionStage(
     private val aetherContext: AetherContext,
     protected val logger: RunnerLogger,
     private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT
-) {
+) : ClasspathStage {
     private val staticParser = StaticBuildFileParser(logger)
     private var commandRoot: Path? = null
 
@@ -117,13 +118,17 @@ open class DependencyResolutionStage(
      *
      * @return [io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult] containing the resolved JAR paths and, for Gradle
      *   projects where the `gradle dependencies` task succeeded, per-project configuration data
-     *   for constructing [org.openrewrite.gradle.marker.GradleProject] markers. Returns an empty classpath (never throws) when
-     *   no subprocess succeeds or resolution fails completely.
+     *   for constructing [org.openrewrite.gradle.marker.GradleProject] markers. Returns null
+     *   when no subprocess succeeds or resolution fails completely.
      */
-    open fun resolveClasspath(projectDir: Path): ClasspathResolutionResult {
+    override fun resolve(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): ClasspathResolutionResult? {
+        logger.info("Stage 2: resolving dependencies via Maven Resolver")
         val priorCommandRoot = commandRoot
         commandRoot = projectDir
-        try {
+        return try {
             val coords = mutableListOf<String>()
             val gradleProjectData = linkedMapOf<String, GradleProjectData>()
 
@@ -178,36 +183,35 @@ open class DependencyResolutionStage(
                     "Stage 2 did not cover the full project: $reason; " +
                         "falling through to Stage 3"
                 )
-                return ClasspathResolutionResult(
-                    emptyList(),
-                    gradleProjectData.takeIf { it.isNotEmpty() }
-                )
+                return null
             }
 
             if (coords.isEmpty()) {
                 logger.info("No dependencies found via subprocess")
-                return ClasspathResolutionResult(
-                    emptyList(),
-                    gradleProjectData.takeIf {
-                        it.isNotEmpty()
-                    }
+                logger.warn(
+                    "Stage 2 (dependency resolution) failed: no JARs resolved, " +
+                        "falling through to Stage 3"
                 )
+                return null
             }
 
-            // If [resolveClasspath] was invoked through the 2-arg overload, route through the
-            // filter-aware [resolveArtifactsDirectly] overload so malformed coords are recorded.
-            // Otherwise preserve historical behaviour: pass coords as-is to the 1-arg overload
-            // (which existing subclasses may override to stub Aether).
-            val sink = pendingParseFailures
-            val classpath = if (sink != null) {
-                resolveArtifactsDirectly(coords.distinct(), sink)
-            } else {
-                resolveArtifactsDirectly(coords.distinct())
+            val classpath = resolveArtifactsDirectly(coords.distinct(), parseFailures)
+            if (classpath.isEmpty()) {
+                // Intentional: Gradle marker data belongs only to a winning Stage 2 result.
+                logger.warn(
+                    "Stage 2 (dependency resolution) failed: no JARs resolved, " +
+                        "falling through to Stage 3"
+                )
+                return null
             }
             return ClasspathResolutionResult(
                 classpath,
-                gradleProjectData.takeIf { it.isNotEmpty() }
+                gradleProjectData.takeIf { it.isNotEmpty() },
+                stageUsed = UsedExecutionStage.DEPENDENCY_RESOLUTION
             )
+        } catch (e: Exception) {
+            logger.warn("Stage 2 threw an exception: ${e.message}")
+            null
         } finally {
             commandRoot = priorCommandRoot
         }
@@ -232,31 +236,6 @@ open class DependencyResolutionStage(
             .filter { it.isNotBlank() }
             .joinToString(separator = ":", prefix = ":")
     }
-
-    /**
-     * Failure-sink-aware overload of [resolveClasspath]. Stashes [parseFailures] on the
-     * stage instance for the duration of the call and then delegates to the 1-arg
-     * [resolveClasspath] via virtual dispatch — so subclasses that override only the
-     * historical 1-arg method continue to intercept Stage 2 unchanged.
-     *
-     * Not safe for concurrent invocation on the same stage instance; the stage is not
-     * documented as thread-safe.
-     */
-    open fun resolveClasspath(
-        projectDir: Path,
-        parseFailures: MutableList<ParseFailure>
-    ): ClasspathResolutionResult {
-        val prior = pendingParseFailures
-        return try {
-            pendingParseFailures = parseFailures
-            resolveClasspath(projectDir)
-        } finally {
-            pendingParseFailures = prior
-        }
-    }
-
-    /** Set by [resolveClasspath] (2-arg) so the 1-arg flow can record coord failures. */
-    private var pendingParseFailures: MutableList<ParseFailure>? = null
 
     /**
      * Resolves a fully-traversed coordinate list directly via [ArtifactRequest], skipping
@@ -403,7 +382,7 @@ open class DependencyResolutionStage(
     /**
      * Runs the `gradle dependencies` task and returns the raw stdout output, or null on failure.
      *
-     * Separated from [runGradleDependenciesTask] so that [resolveClasspath] can parse the output
+     * Separated from [runGradleDependenciesTask] so that [resolve] can parse the output
      * both for the flat coordinates list (via [parseGradleDependencyTaskOutput]) and for
      * per-project data (via [parseGradleDependencyTaskOutputByProject]).
      */

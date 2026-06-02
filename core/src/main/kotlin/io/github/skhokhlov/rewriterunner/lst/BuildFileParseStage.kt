@@ -4,6 +4,8 @@ import io.github.skhokhlov.rewriterunner.AetherContext
 import io.github.skhokhlov.rewriterunner.MavenCoordinates
 import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.UsedExecutionStage
+import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
@@ -56,7 +58,7 @@ import org.eclipse.aether.util.filter.ScopeDependencyFilter
 open class BuildFileParseStage(
     private val aetherContext: AetherContext,
     private val logger: RunnerLogger
-) {
+) : ClasspathStage {
     private val descriptorDiscoveryExcludedDirNames = FileCollector.DEFAULT_EXCLUDED_DIRS + "bin"
     private val staticParser = StaticBuildFileParser(logger)
 
@@ -64,50 +66,42 @@ open class BuildFileParseStage(
      * Parses build descriptors statically and resolves declared dependencies
      * via POM traversal.
      *
-     * @return Resolved JAR paths, or an empty list when no build files are found
-     *   or resolution produces no results.
+     * @return Resolved JAR paths, or null when no build files are found or resolution produces
+     *   no results.
      */
-    open fun resolveClasspath(projectDir: Path): List<Path> {
-        val coords = gatherAllCoordinates(projectDir)
-        if (coords.isEmpty()) {
-            logger.info("Stage 3: no coordinates found in build descriptors")
-            return emptyList()
-        }
-        // If invoked via the 2-arg overload, the failure sink filters malformed coords
-        // before they reach [resolveWithPomTraversal]. Otherwise behaviour is unchanged.
-        val sink = pendingParseFailures
-        val effective = if (sink != null) filterMalformed(coords, sink) else coords
-        if (effective.isEmpty()) return emptyList()
-        logger.debug("Stage 3: resolving ${effective.size} coordinate(s) via POM traversal")
-        return resolveWithPomTraversal(effective).also { result ->
-            if (result.isNotEmpty()) logger.info("Stage 3 succeeded: ${result.size} JAR(s)")
-        }
-    }
-
-    /**
-     * Failure-sink-aware overload of [resolveClasspath]. Stashes [parseFailures] on the
-     * stage instance for the duration of the call and then delegates to the 1-arg
-     * [resolveClasspath] via virtual dispatch — so subclasses that override only the
-     * historical 1-arg method continue to intercept Stage 3 unchanged.
-     *
-     * Not safe for concurrent invocation on the same stage instance; the stage is not
-     * documented as thread-safe.
-     */
-    open fun resolveClasspath(
+    override fun resolve(
         projectDir: Path,
         parseFailures: MutableList<ParseFailure>
-    ): List<Path> {
-        val prior = pendingParseFailures
+    ): ClasspathResolutionResult? {
+        logger.info("Stage 3: resolving via static build file parse + POM traversal")
         return try {
-            pendingParseFailures = parseFailures
-            resolveClasspath(projectDir)
-        } finally {
-            pendingParseFailures = prior
+            val coords = gatherAllCoordinates(projectDir)
+            if (coords.isEmpty()) {
+                logger.info("Stage 3: no coordinates found in build descriptors")
+                logger.warn("Stage 3 failed — falling through to Stage 4")
+                return null
+            }
+            val effective = filterMalformed(coords, parseFailures)
+            if (effective.isEmpty()) {
+                logger.warn("Stage 3 failed — falling through to Stage 4")
+                return null
+            }
+            logger.debug("Stage 3: resolving ${effective.size} coordinate(s) via POM traversal")
+            val classpath = resolveWithPomTraversal(effective)
+            if (classpath.isEmpty()) {
+                logger.warn("Stage 3 failed — falling through to Stage 4")
+                return null
+            }
+            logger.info("Stage 3 succeeded: ${classpath.size} JAR(s)")
+            ClasspathResolutionResult(
+                classpath = classpath,
+                stageUsed = UsedExecutionStage.DIRECT_PARSE
+            )
+        } catch (e: Exception) {
+            logger.warn("Stage 3 threw: ${e.message}")
+            null
         }
     }
-
-    /** Set by [resolveClasspath] (2-arg) so the 1-arg flow can record coord failures. */
-    private var pendingParseFailures: MutableList<ParseFailure>? = null
 
     private fun filterMalformed(
         coordinates: List<String>,
@@ -135,7 +129,7 @@ open class BuildFileParseStage(
      * Collects `groupId:artifactId:version` coordinates from all build files found
      * under [projectDir] (Maven + Gradle), deduplicated.
      *
-     * Open for tests so the malformed-coordinate filter in [resolveClasspath] can be
+     * Open for tests so the malformed-coordinate filter in [resolve] can be
      * exercised without crafting build files that bypass the static parser's regex.
      */
     internal open fun gatherAllCoordinates(projectDir: Path): List<String> {

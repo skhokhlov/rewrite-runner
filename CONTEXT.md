@@ -8,6 +8,9 @@
 - **Build-tool identity**: The exclusive, root-level build-tool verdict used only for provenance
   markers. `detectBuildTool` returns Gradle, Maven, or None; Gradle wins with a warning when both
   Maven and Gradle root descriptors exist.
+- **Classpath stage**: A `ClasspathStage` implementation in the ordered LST classpath-resolution
+  chain. `resolve(projectDir, parseFailures)` returns a `ClasspathResolutionResult` to win or
+  `null` to fall through to the next stage.
 - **Plain-text mask**: A glob pattern (relative to project root) selecting files to parse with
   `PlainTextParser`. The configured list replaces the built-in default. Forwarded to both Stage 0
   and the LST fallback so both paths select the same files. Specialized parsers take precedence: a

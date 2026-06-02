@@ -4,7 +4,7 @@ import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import java.nio.file.Path
 
 /**
- * Result of classpath resolution from [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage.resolveClasspath].
+ * Result of classpath resolution from [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage.resolve].
  *
  * @param classpath The resolved JAR paths for JVM parsers.
  * @param gradleProjectData Per-Gradle-project configuration data keyed by Gradle project path

@@ -6,22 +6,15 @@ import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
-import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
 import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
 import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.GradleDslClasspathResolver
 import io.github.skhokhlov.rewriterunner.lst.utils.MarkerFactory
 import io.github.skhokhlov.rewriterunner.lst.utils.StaticBuildFileParser
 import io.github.skhokhlov.rewriterunner.lst.utils.VersionDetector
-import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnits
-import java.nio.file.FileVisitOption
-import java.nio.file.FileVisitResult
-import java.nio.file.Files
+import io.github.skhokhlov.rewriterunner.lst.utils.projectClassDirs as findProjectClassDirs
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.nio.file.SimpleFileVisitor
-import java.nio.file.attribute.BasicFileAttributes
-import java.util.EnumSet
 import java.util.function.Consumer
 import kotlin.io.path.exists
 import kotlin.io.path.name
@@ -118,6 +111,19 @@ open class LstBuilder(
     private val gradleDslClasspathResolver = GradleDslClasspathResolver(logger, versionDetector)
     private val markerFactory =
         MarkerFactory(logger, staticParser, versionDetector, toolConfig.subprocessRunTimeout)
+    private val classpathStages: List<ClasspathStage>
+
+    init {
+        projectBuildStage.useGradleProjectDataCollector(
+            depResolutionStage::collectGradleProjectData
+        )
+        classpathStages = listOf(
+            projectBuildStage,
+            depResolutionStage,
+            buildFileParseStage,
+            LocalRepositoryClasspathStage()
+        )
+    }
 
     // ─── Thin delegation methods for backward-compatible test access ──────────
 
@@ -709,168 +715,42 @@ open class LstBuilder(
      * so compiled output from nested Gradle subprojects (e.g. `core/build/classes/kotlin/main`)
      * and Maven submodules (e.g. `module-a/target/classes`) is included.
      */
-    internal fun projectClassDirs(projectDir: Path): List<Path> {
-        val classDirSuffixes = listOf(
-            "target/classes",
-            "target/test-classes",
-            "build/classes/java/main",
-            "build/classes/java/test",
-            "build/classes/kotlin/main",
-            "build/classes/kotlin/test"
-        )
-        val discovered = linkedSetOf<Path>()
-
-        fun isHiddenRelativePath(path: Path): Boolean = path.any { segment ->
-            segment.toString().startsWith(".")
-        }
-
-        fun maybeAdd(dir: Path) {
-            if (!Files.isDirectory(dir)) return
-            val relative = projectDir.relativize(dir)
-            if (isHiddenRelativePath(relative)) return
-            discovered.add(dir)
-        }
-
-        // Fast-path: check root project candidates directly.
-        classDirSuffixes.forEach { suffix -> maybeAdd(projectDir.resolve(suffix)) }
-
-        // Walk nested subprojects to pick up outputs like services/api/build/classes/java/main.
-        // Use walkFileTree so hidden directories are pruned early (e.g., .git subtree).
-        try {
-            Files.walkFileTree(
-                projectDir,
-                EnumSet.noneOf(FileVisitOption::class.java),
-                10,
-                object : SimpleFileVisitor<Path>() {
-                    override fun preVisitDirectory(
-                        dir: Path,
-                        attrs: BasicFileAttributes
-                    ): FileVisitResult {
-                        val relative = projectDir.relativize(dir)
-                        if (isHiddenRelativePath(relative)) return FileVisitResult.SKIP_SUBTREE
-                        val relativeText = relative.toString().replace('\\', '/')
-                        if (classDirSuffixes.any { suffix -> relativeText.endsWith(suffix) }) {
-                            discovered.add(dir)
-                        }
-                        return FileVisitResult.CONTINUE
-                    }
-                }
-            )
-        } catch (_: Exception) {
-            // Ignore errors while walking subdirectories.
-        }
-
-        return discovered.toList()
-    }
+    internal fun projectClassDirs(projectDir: Path): List<Path> = findProjectClassDirs(projectDir)
 
     private fun resolveClasspath(
         projectDir: Path,
         parseFailures: MutableList<ParseFailure>
     ): ClasspathResolutionResult {
-        logger.info("Stage 1: attempting build-tool classpath extraction")
-        val stage1 = projectBuildStage.extractClasspath(projectDir)
-        if (stage1 != null) {
-            var classDirs = projectClassDirs(projectDir)
-            if (classDirs.isEmpty()) {
-                logger.info("No compiled class directories found — attempting compilation")
-                projectBuildStage.tryCompile(projectDir)
-                classDirs = projectClassDirs(projectDir)
-            }
-            if (classDirs.isNotEmpty()) {
-                logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
-            }
-            logger.info("Stage 1 succeeded: ${stage1.size} JAR(s)")
-            val gradleData = depResolutionStage.collectGradleProjectData(projectDir)
-            if (gradleData == null &&
-                discoverBuildUnits(projectDir, logger = logger).any {
-                    it.tool == BuildToolKind.GRADLE
-                }
-            ) {
-                logger.warn(
-                    "GradleProject markers could not be built — " +
-                        "rewrite-gradle recipes may not apply. Run with --info for details."
-                )
-            }
-            return ClasspathResolutionResult(
-                classpath = stage1 + classDirs,
-                gradleProjectData = gradleData,
-                stageUsed = UsedExecutionStage.BUILD_TOOL
-            )
-        }
-
-        logger.warn(
-            "Stage 1 (build tool) failed: no classpath extracted, falling through to Stage 2"
-        )
-
-        logger.info("Stage 2: resolving dependencies via Maven Resolver")
-        val stage2Result = try {
-            depResolutionStage.resolveClasspath(projectDir, parseFailures)
-        } catch (e: Exception) {
-            logger.warn("Stage 2 threw an exception: ${e.message}")
-            ClasspathResolutionResult(emptyList())
-        }
-        // Preserve Gradle project data from Stage 2 even when the classpath is empty, so
-        // GradleProject markers can still be attached if Stage 3/4 resolves the JARs.
-        val stage2GradleData = stage2Result.gradleProjectData
-
-        if (stage2Result.classpath.isNotEmpty()) {
-            val classDirs = projectClassDirs(projectDir)
-            if (classDirs.isNotEmpty()) {
-                logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
-            }
-            logger.info("Stage 2 succeeded: ${stage2Result.classpath.size} JAR(s)")
-            return ClasspathResolutionResult(
-                classpath = stage2Result.classpath + classDirs,
-                gradleProjectData = stage2GradleData,
-                stageUsed = UsedExecutionStage.DEPENDENCY_RESOLUTION
-            )
-        }
-
-        logger.warn(
-            "Stage 2 (dependency resolution) failed: no JARs resolved, falling through to Stage 3"
-        )
-
-        logger.info("Stage 3: resolving via static build file parse + POM traversal")
-        val stage3 = try {
-            buildFileParseStage.resolveClasspath(projectDir, parseFailures)
-        } catch (e: Exception) {
-            logger.warn("Stage 3 threw: ${e.message}")
-            emptyList()
-        }
-
-        if (stage3.isNotEmpty()) {
-            val classDirs = projectClassDirs(projectDir)
-            if (classDirs.isNotEmpty()) {
-                logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
-            }
-            logger.info("Stage 3 succeeded: ${stage3.size} JAR(s)")
-            return ClasspathResolutionResult(
-                classpath = stage3 + classDirs,
-                gradleProjectData = stage2GradleData,
-                stageUsed = UsedExecutionStage.DIRECT_PARSE
-            )
-        }
-
-        logger.warn("Stage 3 failed — falling through to Stage 4")
-
-        logger.info("Stage 4: scanning local Maven/Gradle caches")
-        val localRepositoryStage = createLocalRepositoryStage(projectDir)
-        val declaredCoords = gatherDeclaredCoordinates(projectDir)
-        val stage4 = localRepositoryStage.findAvailableJars(declaredCoords)
+        val resolved = classpathStages.firstNotNullOfOrNull { stage ->
+            stage.resolve(projectDir, parseFailures)
+        } ?: ClasspathResolutionResult(emptyList())
         val classDirs = projectClassDirs(projectDir)
         if (classDirs.isNotEmpty()) {
             logger.info("Appending ${classDirs.size} project class dir(s) to classpath")
         }
-        if (stage4.isEmpty()) {
-            logger.warn("Stage 4 (local cache): no cached JARs found")
-        } else {
-            logger.info("Stage 4: using ${stage4.size} locally cached JAR(s)")
+        return resolved.copy(classpath = resolved.classpath + classDirs)
+    }
+
+    private inner class LocalRepositoryClasspathStage : ClasspathStage {
+        @Suppress("UNUSED_PARAMETER")
+        override fun resolve(
+            projectDir: Path,
+            parseFailures: MutableList<ParseFailure>
+        ): ClasspathResolutionResult? {
+            logger.info("Stage 4: scanning local Maven/Gradle caches")
+            val localRepositoryStage = createLocalRepositoryStage(projectDir)
+            val declaredCoords = gatherDeclaredCoordinates(projectDir)
+            val jars = localRepositoryStage.findAvailableJars(declaredCoords)
+            if (jars.isEmpty()) {
+                logger.warn("Stage 4 (local cache): no cached JARs found")
+                return null
+            }
+            logger.info("Stage 4: using ${jars.size} locally cached JAR(s)")
+            return ClasspathResolutionResult(
+                classpath = jars,
+                stageUsed = UsedExecutionStage.LOCAL_REPOSITORY
+            )
         }
-        return ClasspathResolutionResult(
-            classpath = stage4 + classDirs,
-            gradleProjectData = stage2GradleData,
-            stageUsed = if (stage4.isEmpty()) null else UsedExecutionStage.LOCAL_REPOSITORY
-        )
     }
 
     /**
@@ -941,7 +821,7 @@ open class LstBuilder(
         parsedFiles.filterIsInstance<ParseError>().forEach { pe ->
             val message = pe.markers
                 .findFirst(ParseExceptionResult::class.java)
-                .map { it.message?.takeIf { m -> m.isNotBlank() } ?: it.exceptionType }
+                .map { it.message.takeIf { m -> m.isNotBlank() } ?: it.exceptionType }
                 .orElse("parse error")
             val rel = pe.sourcePath.normalize().toString()
             failures += ParseFailure(path = rel, reason = message, parser = parserName)

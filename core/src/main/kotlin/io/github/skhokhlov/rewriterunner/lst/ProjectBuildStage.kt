@@ -1,10 +1,15 @@
 package io.github.skhokhlov.rewriterunner.lst
 
+import io.github.skhokhlov.rewriterunner.ParseFailure
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.github.skhokhlov.rewriterunner.lst.utils.BuildToolKind
+import io.github.skhokhlov.rewriterunner.lst.utils.ClasspathResolutionResult
+import io.github.skhokhlov.rewriterunner.lst.utils.GradleProjectData
 import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnitResult
 import io.github.skhokhlov.rewriterunner.lst.utils.discoverBuildUnits
+import io.github.skhokhlov.rewriterunner.lst.utils.projectClassDirs
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
 import io.github.skhokhlov.rewriterunner.lst.utils.runProcess
@@ -49,18 +54,61 @@ import kotlin.io.path.exists
  * (Stage 2).
  *
  * **Compilation:** After a successful Stage 1, [tryCompile] is called if the
- * project has no pre-compiled class directories. Compiled `.class` files are then
- * appended to the classpath so that intra-project type references (e.g. wildcard
- * imports across packages within the same project) resolve correctly instead of
- * appearing as `JavaType.Unknown` during recipe execution.
+ * project has no pre-compiled class directories. [LstBuilder] appends compiled
+ * `.class` directories once after the winning stage is selected so that intra-project
+ * type references resolve correctly.
  *
  * **Extensibility:** The class is `open` with `open` methods so tests can subclass
  * it to inject a fake classpath without spawning real processes.
  */
 open class ProjectBuildStage(
     protected val logger: RunnerLogger,
-    private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT
-) {
+    private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT,
+    private var gradleProjectDataCollector: (Path) -> Map<String, GradleProjectData>? = { null }
+) : ClasspathStage {
+    internal fun useGradleProjectDataCollector(
+        collector: (Path) -> Map<String, GradleProjectData>?
+    ) {
+        gradleProjectDataCollector = collector
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    override fun resolve(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): ClasspathResolutionResult? {
+        logger.info("Stage 1: attempting build-tool classpath extraction")
+        val extracted = extractClasspath(projectDir) ?: run {
+            logger.warn(
+                "Stage 1 (build tool) failed: no classpath extracted, falling through to Stage 2"
+            )
+            return null
+        }
+
+        if (projectClassDirs(projectDir).isEmpty()) {
+            logger.info("No compiled class directories found — attempting compilation")
+            tryCompile(projectDir)
+        }
+
+        logger.info("Stage 1 succeeded: ${extracted.size} JAR(s)")
+        val gradleData = gradleProjectDataCollector(projectDir)
+        if (gradleData == null &&
+            discoverBuildUnits(projectDir, logger = logger).any {
+                it.tool == BuildToolKind.GRADLE
+            }
+        ) {
+            logger.warn(
+                "GradleProject markers could not be built — " +
+                    "rewrite-gradle recipes may not apply. Run with --info for details."
+            )
+        }
+        return ClasspathResolutionResult(
+            classpath = extracted,
+            gradleProjectData = gradleData,
+            stageUsed = UsedExecutionStage.BUILD_TOOL
+        )
+    }
+
     /**
      * Attempts to extract the project's compile classpath by invoking the build tool.
      *
@@ -71,7 +119,7 @@ open class ProjectBuildStage(
      *   `null` if no unit could be invoked successfully or every successful unit produced an empty
      *   result. A `null` return signals [LstBuilder] to fall through to [DependencyResolutionStage].
      */
-    open fun extractClasspath(projectDir: Path): List<Path>? {
+    internal open fun extractClasspath(projectDir: Path): List<Path>? {
         val classpath = linkedSetOf<Path>()
         val discovery = discoverBuildUnitResult(projectDir, logger = logger)
         val units = discovery.units
@@ -222,7 +270,7 @@ open class ProjectBuildStage(
      *   found. Never throws — failure is logged as a warning and the pipeline continues without
      *   compiled class directories.
      */
-    open fun tryCompile(projectDir: Path): Boolean {
+    internal open fun tryCompile(projectDir: Path): Boolean {
         val units = discoverBuildUnits(projectDir, logger = logger)
         if (units.isEmpty()) {
             logger.info("No build tool detected for compilation -> skipping")

@@ -83,12 +83,14 @@ core/src/
 │   ├── plugin/                     # Stage 0 official Gradle/Maven plugin execution + patch parsing
 │   ├── lst/
 │   │   ├── LstBuilder.kt           # Orchestrates 4-stage pipeline + multi-language parsing
+│   │   ├── ClasspathStage.kt       # Unified stage seam; resolve() returns null to fall through
 │   │   ├── ProjectBuildStage.kt       # Stage 1: Maven/Gradle subprocess (build-classpath/init-script)
 │   │   ├── DependencyResolutionStage.kt  # Stage 2: mvn dependency:tree / gradle dependencies subprocess
 │   │   ├── BuildFileParseStage.kt      # Stage 3: Static build file parse + POM traversal
 │   │   ├── LocalRepositoryStage.kt     # Stage 4: Local cache scan
 │   │   └── utils/
 │   │       ├── FileCollector.kt        # NIO walk, excluded-dir filtering, glob exclusions, extension resolution
+│   │       ├── ProjectClassDirs.kt     # Shared compiled-output class directory scan
 │   │       ├── ProcessRunner.kt        # Build-unit discovery, wrapper command resolution, subprocess runner
 │   │       ├── VersionDetector.kt      # Java/Kotlin JVM-version walk-up + parseGradleVersionFromWrapper
 │   │       ├── GradleDslClasspathResolver.kt  # Locate Gradle installation for DSL classpath
@@ -120,8 +122,9 @@ cli/src/
 ## Important Implementation Notes
 
 - `InMemoryLargeSourceSet` is in `org.openrewrite.internal` (not the top-level package)
-- `ProjectBuildStage` and `DependencyResolutionStage` are `open` with `open` methods — subclass in tests instead of mocking
+- `ProjectBuildStage`, `DependencyResolutionStage`, and `BuildFileParseStage` implement `ClasspathStage`; subclass and override `resolve(projectDir, parseFailures)` in tests instead of mocking. `ProjectBuildStage.extractClasspath` / `tryCompile` remain internal helpers for focused Stage 1 tests.
 - Stages 1 and 2 use `discoverBuildUnits` from `ProcessRunner.kt`: root descriptors keep one root invocation per tool, while root-less monorepos discover top-most subdirectory build units to depth 3, skip default excluded dirs, sort candidates before the 25-unit cap, and require full discovered-unit coverage before a stage is considered complete. Build units are non-exclusive, so a root with both Maven and Gradle descriptors resolves both. Partial or capped coverage falls through to later fallback stages. See `CONTEXT.md` and `docs/adr/0001-build-unit-classpath-resolution.md`.
+- Classpath stages return `null` to fall through and a `ClasspathResolutionResult` to terminate. `LstBuilder` appends project class dirs once after the winning stage. Gradle project data is attached only by a winning Stage 1 or Stage 2 result; Stage 3/4 wins do not inherit metadata from a Stage 2 fall-through. See `docs/adr/0003-classpath-stage-seam.md`.
 - Build-tool provenance markers use `detectBuildTool` from `ProcessRunner.kt`, which is an exclusive root-level verdict: Gradle wins over Maven with a warning when both descriptors are present, Maven is used for pom-only roots, and no marker is attached when no root descriptor exists. This is marker-only; do not route classpath resolution or `PluginRecipeRunner` through it. `PluginRecipeRunner` intentionally keeps its Gradle-then-Maven try-with-fallback behavior.
 - `ResultFormatter` has a secondary constructor accepting `PrintWriter`; `RunCommand` passes picocli's `@Spec` output writer
 - Stage 0 tries the official Gradle/Maven OpenRewrite plugins first and returns `RunResult.rawDiffs` on success. Use `--skip-plugin-run` / `Builder.skipPluginRun(true)` when testing or debugging the in-process LST pipeline directly.

@@ -39,8 +39,10 @@ class GradleVersionParsingTest :
                     ),
                     NoOpRunnerLogger
                 ) {
-                    override fun resolveClasspath(projectDir: Path): ClasspathResolutionResult =
-                        ClasspathResolutionResult(emptyList())
+                    override fun resolve(
+                        projectDir: Path,
+                        parseFailures: MutableList<io.github.skhokhlov.rewriterunner.ParseFailure>
+                    ): ClasspathResolutionResult? = null
                 }
             return LstBuilder(
                 cacheDir = projectDir.resolve("cache"),

@@ -13,7 +13,7 @@ This applies at all layers: unit tests in `core/`, integration tests in `cli/`.
 
 - **JUnit 5** with `@TempDir` for temporary directories
 - **`kotlin.test` assertions**: `assertEquals`, `assertTrue`, `assertFalse`, `assertNull`, `assertNotEquals`
-- **No mocks** — subclass `ProjectBuildStage` / `DependencyResolutionStage` (both `open` with `open` methods) to override behavior in tests
+- **No mocks** — subclass `ClasspathStage` implementations and override `resolve(projectDir, parseFailures)` to drive classpath behavior in tests
 - Some integration tests accept "success path OR expected fallback" to handle environment variability (e.g., no Maven in CI)
 
 ## Integration Tests
@@ -52,9 +52,12 @@ val results = Recipe.run(InMemoryLargeSourceSet(listOf(sourceFile)), executionCo
 ### Overriding LST stages in tests
 
 ```kotlin
-class MyProjectBuildStage : ProjectBuildStage() {
-    override fun extractClasspath(projectDir: Path): List<Path> {
-        return listOf(/* fake classpath */)
+class MyProjectBuildStage : ProjectBuildStage(NoOpRunnerLogger) {
+    override fun resolve(
+        projectDir: Path,
+        parseFailures: MutableList<ParseFailure>
+    ): ClasspathResolutionResult {
+        return ClasspathResolutionResult(listOf(Path.of("/tmp/fake.jar")))
     }
 }
 ```
@@ -170,7 +173,7 @@ The fake-wrapper tier gives fast feedback on orchestration logic and CLI flag wi
 ## Internal API Access for Tests
 
 - `DependencyResolutionStage.parseMavenDependencies` and `parseGradleDependencies` are `internal` — accessible from test code in the same module
-- `ProjectBuildStage` and `DependencyResolutionStage` are `open` classes with `open` methods — subclass instead of mocking
+- `ProjectBuildStage`, `DependencyResolutionStage`, and `BuildFileParseStage` are `open` `ClasspathStage` implementations — subclass instead of mocking
 - `VersionDetector.parseGradleVersionFromWrapper` and `LstBuilder.parseGradleVersionFromWrapper` are `internal` — the `LstBuilder` method is a thin delegation to `VersionDetector`; `GradleVersionParsingTest` calls it via `LstBuilder` for backward compatibility
 - `LstBuilder.resolveGradleDslClasspath` is `internal` — thin delegation to `GradleDslClasspathResolver`; tested via `LstBuilderTest`
 - `FileCollector` is `internal` — tested directly in `FileCollectorTest`
