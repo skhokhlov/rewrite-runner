@@ -35,14 +35,20 @@ data class RepositoryConfig(
 /**
  * File parsing configuration for the LST-building stage.
  *
- * Controls which file paths are skipped via glob patterns. Matches the exclusion-only
- * semantics of the upstream OpenRewrite Gradle/Maven plugins so Stage 0 plugin runs
- * and the LST fallback apply identical filtering.
+ * Controls which file paths are skipped via glob patterns and which otherwise-unhandled
+ * files are parsed as plain text. Matches the upstream OpenRewrite Gradle/Maven plugins
+ * so Stage 0 plugin runs and the LST fallback apply identical filtering.
  *
  * @property excludePaths Glob patterns (relative to project root) for paths to skip entirely.
+ * @property plainTextMasks Glob patterns (relative to project root) for files to parse with
+ *   `PlainTextParser` when no specialized parser claims them. Non-empty values replace the
+ *   built-in upstream defaults.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class ParseConfig(val excludePaths: List<String> = emptyList())
+data class ParseConfig(
+    val excludePaths: List<String> = emptyList(),
+    val plainTextMasks: List<String> = emptyList()
+)
 
 /**
  * Top-level tool configuration, typically loaded from `rewriterunner.yml`.
@@ -104,6 +110,15 @@ data class ToolConfig(
             password = repo.password?.let { interpolateEnvVars(it, logger) }
         )
     }
+
+    /**
+     * Resolve plain-text masks with the same override shape as path exclusions:
+     * explicit CLI/builder values beat YAML, and both empty falls back to the upstream defaults.
+     */
+    fun resolvedPlainTextMasks(overridePlainTextMasks: List<String> = emptyList()): List<String> =
+        overridePlainTextMasks
+            .ifEmpty { parse.plainTextMasks }
+            .ifEmpty { ToolConfigDefaults.DEFAULT_PLAIN_TEXT_MASKS }
 
     companion object {
         private val yaml = YAMLMapper.builder()

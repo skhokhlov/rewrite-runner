@@ -15,4 +15,40 @@ object ToolConfigDefaults {
 
     val REWRITE_GRADLE_PLUGIN_VERSION: String = BuildPluginVersions.REWRITE_GRADLE_PLUGIN_VERSION
     val REWRITE_MAVEN_PLUGIN_VERSION: String = BuildPluginVersions.REWRITE_MAVEN_PLUGIN_VERSION
+
+    val DEFAULT_PLAIN_TEXT_MASKS: List<String> = listOf(
+        "**/.gitattributes",
+        "**/.gitignore",
+        "**/.java-version",
+        "**/.sdkmanrc",
+        "**/[mM]akefile",
+        "**/*.adoc",
+        "**/*.aj",
+        "**/*.bash",
+        "**/*.bat",
+        "**/*.config",
+        "**/*.css",
+        "**/*.env",
+        "**/*.htm*",
+        "**/*.jelly",
+        "**/*.jsp",
+        "**/*.ksh",
+        "**/*.lock",
+        "**/*.md",
+        "**/*.mf",
+        "**/*.qute.java",
+        "**/*.sh",
+        "**/*.sql",
+        "**/*.svg",
+        "**/*.tsx",
+        "**/*.txt",
+        "**/CODEOWNERS",
+        "**/Dockerfile*",
+        "**/gradlew",
+        "**/lombok.config",
+        "**/META-INF/services/**",
+        "**/META-INF/spring.factories",
+        "**/META-INF/spring/**",
+        "**/mvnw"
+    )
 }

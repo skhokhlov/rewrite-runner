@@ -6,6 +6,7 @@ import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class FileCollectorTest :
@@ -150,5 +151,105 @@ class FileCollectorTest :
             )
 
             assertEquals(1, result[".java"]?.size)
+        }
+
+        test("excludePaths double-star glob keeps original root-level matching behavior") {
+            projectDir.resolve("README.md").writeText("# root")
+            projectDir.resolve("docs").createDirectories()
+            projectDir.resolve("docs/README.md").writeText("# nested")
+
+            val result = collector.collectFiles(
+                projectDir = projectDir,
+                effectiveExtensions = setOf(".java"),
+                excludeGlobs = listOf("**/*.md"),
+                plainTextMasks = listOf("**/*.md")
+            )
+
+            assertEquals(
+                listOf("README.md"),
+                result.getValue(FileCollector.PLAIN_TEXT).map { it.fileName.toString() }
+            )
+        }
+
+        // ─── collectFiles — plain-text masks ─────────────────────────────────────
+
+        test("plain text masks collect extensionless and text files into plain-text bucket") {
+            projectDir.resolve("CODEOWNERS").writeText("* @team")
+            projectDir.resolve("Makefile").writeText("all:\n\techo ok")
+            projectDir.resolve("foo.md").writeText("# notes")
+            projectDir.resolve("bar.sh").writeText("echo ok")
+
+            val result = collector.collectFiles(
+                projectDir = projectDir,
+                effectiveExtensions = setOf(".java"),
+                excludeGlobs = emptyList(),
+                plainTextMasks = listOf("**/CODEOWNERS", "**/[mM]akefile", "**/*.md", "**/*.sh")
+            )
+
+            val plainTextNames =
+                result.getValue(FileCollector.PLAIN_TEXT).map { it.fileName.toString() }.toSet()
+            assertEquals(setOf("CODEOWNERS", "Makefile", "foo.md", "bar.sh"), plainTextNames)
+        }
+
+        test("specialized parsers win over plain text masks") {
+            projectDir.resolve("Dockerfile").writeText("FROM ubuntu:22.04")
+            projectDir.resolve("Dockerfile.dev").writeText("FROM ubuntu:22.04")
+            projectDir.resolve("template.qute.java").writeText("class Template {}")
+
+            val result = collector.collectFiles(
+                projectDir = projectDir,
+                effectiveExtensions = setOf(".java", ".dockerfile"),
+                excludeGlobs = emptyList(),
+                plainTextMasks = listOf("**/Dockerfile*", "**/*.qute.java")
+            )
+
+            assertEquals(
+                setOf("Dockerfile", "Dockerfile.dev"),
+                result.getValue(".dockerfile").map { it.fileName.toString() }.toSet()
+            )
+            assertEquals(
+                listOf("template.qute.java"),
+                result.getValue(".java").map { it.fileName.toString() }
+            )
+            assertTrue(result[FileCollector.PLAIN_TEXT].isNullOrEmpty())
+        }
+
+        test("excludePaths wins over plain text masks") {
+            projectDir.resolve("README.md").writeText("# include")
+            projectDir.resolve("generated").createDirectories()
+            projectDir.resolve("generated/README.md").writeText("# generated")
+
+            val result = collector.collectFiles(
+                projectDir = projectDir,
+                effectiveExtensions = setOf(".java"),
+                excludeGlobs = listOf("generated/**"),
+                plainTextMasks = listOf("**/*.md")
+            )
+
+            assertEquals(
+                listOf("README.md"),
+                result.getValue(FileCollector.PLAIN_TEXT).map { it.fileName.toString() }
+            )
+        }
+
+        test("plain text mask skips files larger than size threshold") {
+            val small = projectDir.resolve("small.txt")
+            val large = projectDir.resolve("large.txt")
+            small.writeText("small")
+            Files.newOutputStream(large).use { out ->
+                out.write(ByteArray((FileCollector.PLAIN_TEXT_SIZE_THRESHOLD_MB * 1024 * 1024) + 1))
+            }
+
+            val result = collector.collectFiles(
+                projectDir = projectDir,
+                effectiveExtensions = setOf(".java"),
+                excludeGlobs = emptyList(),
+                plainTextMasks = listOf("**/*.txt")
+            )
+
+            val names =
+                result.getValue(FileCollector.PLAIN_TEXT).map { it.fileName.toString() }.toSet()
+            assertEquals(setOf("small.txt"), names)
+            assertFalse(names.contains("large.txt"))
         }
     })

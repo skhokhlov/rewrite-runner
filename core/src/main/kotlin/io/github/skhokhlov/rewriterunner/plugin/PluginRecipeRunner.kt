@@ -25,6 +25,9 @@ internal class PluginRecipeRunner(
      * @param excludePaths Glob patterns of files to exclude from parsing. Passed verbatim to
      *   whichever strategy ([gradleStrategy] / [mavenStrategy]) is dispatched; each strategy
      *   renders them in its own native plugin format.
+     * @param plainTextMasks Glob patterns of otherwise-unhandled files to parse as plain text.
+     *   Passed verbatim to the selected strategy so Stage 0 and the LST fallback see the same
+     *   resolved list.
      */
     fun run(
         projectDir: Path,
@@ -35,7 +38,8 @@ internal class PluginRecipeRunner(
         dryRun: Boolean,
         includeMavenCentral: Boolean,
         artifactRepositories: List<RepositoryConfig>,
-        excludePaths: List<String> = emptyList()
+        excludePaths: List<String> = emptyList(),
+        plainTextMasks: List<String> = emptyList()
     ): PluginRunResult {
         val hasGradle = hasBuildGradle(projectDir)
         val hasPom = projectDir.resolve("pom.xml").exists()
@@ -59,7 +63,8 @@ internal class PluginRecipeRunner(
                         dryRun = dryRun,
                         includeMavenCentral = includeMavenCentral,
                         artifactRepositories = artifactRepositories,
-                        excludePaths = excludePaths
+                        excludePaths = excludePaths,
+                        plainTextMasks = plainTextMasks
                     )
             ) {
                 is PluginRunResult.Failed -> failures.add(result)
@@ -80,7 +85,8 @@ internal class PluginRecipeRunner(
                         dryRun = dryRun,
                         includeMavenCentral = includeMavenCentral,
                         artifactRepositories = artifactRepositories,
-                        excludePaths = excludePaths
+                        excludePaths = excludePaths,
+                        plainTextMasks = plainTextMasks
                     )
             ) {
                 is PluginRunResult.Failed -> failures.add(result)

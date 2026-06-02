@@ -26,13 +26,16 @@ class PluginRecipeRunnerTest :
                 dryRun: Boolean,
                 includeMavenCentral: Boolean,
                 artifactRepositories: List<RepositoryConfig>,
-                excludePaths: List<String>
+                excludePaths: List<String>,
+                plainTextMasks: List<String>
             ): PluginRunResult = result
         }
 
         /** Records the parameters each strategy invocation received. */
         class CapturingStrategy(private val result: PluginRunResult) : PluginBuildStrategy {
             var lastExcludePaths: List<String>? = null
+                private set
+            var lastPlainTextMasks: List<String>? = null
                 private set
             var callCount: Int = 0
                 private set
@@ -46,10 +49,12 @@ class PluginRecipeRunnerTest :
                 dryRun: Boolean,
                 includeMavenCentral: Boolean,
                 artifactRepositories: List<RepositoryConfig>,
-                excludePaths: List<String>
+                excludePaths: List<String>,
+                plainTextMasks: List<String>
             ): PluginRunResult {
                 callCount++
                 lastExcludePaths = excludePaths
+                lastPlainTextMasks = plainTextMasks
                 return result
             }
         }
@@ -142,6 +147,28 @@ class PluginRecipeRunnerTest :
             assertEquals(listOf("**/generated/**", "**/*.md"), gradle.lastExcludePaths)
         }
 
+        test("forwards plainTextMasks to the Gradle strategy") {
+            projectDir.resolve("build.gradle.kts").writeText("")
+
+            val gradle = CapturingStrategy(PluginRunResult.NoChanges)
+            val maven = CapturingStrategy(PluginRunResult.NoChanges)
+
+            PluginRecipeRunner(gradleStrategy = gradle, mavenStrategy = maven).run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = true,
+                includeMavenCentral = true,
+                artifactRepositories = emptyList(),
+                plainTextMasks = listOf("**/CODEOWNERS", "**/*.txt")
+            )
+
+            assertEquals(1, gradle.callCount)
+            assertEquals(listOf("**/CODEOWNERS", "**/*.txt"), gradle.lastPlainTextMasks)
+        }
+
         test("forwards excludePaths to the Maven strategy when Gradle fails") {
             projectDir.resolve("build.gradle.kts").writeText("")
             projectDir.resolve("pom.xml").writeText("<project/>")
@@ -165,5 +192,30 @@ class PluginRecipeRunnerTest :
             assertEquals(listOf("src/test/**"), gradle.lastExcludePaths)
             assertEquals(1, maven.callCount)
             assertEquals(listOf("src/test/**"), maven.lastExcludePaths)
+        }
+
+        test("forwards plainTextMasks to the Maven strategy when Gradle fails") {
+            projectDir.resolve("build.gradle.kts").writeText("")
+            projectDir.resolve("pom.xml").writeText("<project/>")
+
+            val gradle = CapturingStrategy(PluginRunResult.Failed("gradle failed"))
+            val maven = CapturingStrategy(PluginRunResult.NoChanges)
+
+            PluginRecipeRunner(gradleStrategy = gradle, mavenStrategy = maven).run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = true,
+                includeMavenCentral = true,
+                artifactRepositories = emptyList(),
+                plainTextMasks = listOf("**/CODEOWNERS")
+            )
+
+            assertEquals(1, gradle.callCount)
+            assertEquals(listOf("**/CODEOWNERS"), gradle.lastPlainTextMasks)
+            assertEquals(1, maven.callCount)
+            assertEquals(listOf("**/CODEOWNERS"), maven.lastPlainTextMasks)
         }
     })

@@ -8,6 +8,11 @@
 - **Build-tool identity**: The exclusive, root-level build-tool verdict used only for provenance
   markers. `detectBuildTool` returns Gradle, Maven, or None; Gradle wins with a warning when both
   Maven and Gradle root descriptors exist.
+- **Plain-text mask**: A glob pattern (relative to project root) selecting files to parse with
+  `PlainTextParser`. The configured list replaces the built-in default. Forwarded to both Stage 0
+  and the LST fallback so both paths select the same files. Specialized parsers take precedence: a
+  file a real parser claims, such as `Dockerfile*` for `DockerParser`, is never treated as plain
+  text on the LST path.
 - **Root descriptor**: A build descriptor at the project root: `pom.xml` for Maven, or
   `settings.gradle(.kts)` / `build.gradle(.kts)` for Gradle.
 - **Root-less monorepo**: A repository whose project root has no build descriptor for a tool, but one

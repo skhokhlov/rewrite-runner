@@ -109,6 +109,16 @@ class RunCommand : Callable<Int> {
     var excludePaths: List<String> = emptyList()
 
     @Option(
+        names = ["--plain-text-masks"],
+        description = [
+            "Comma-separated glob patterns of otherwise-unhandled files to parse as plain text.",
+            "Replaces the built-in default mask list when specified."
+        ],
+        split = ","
+    )
+    var plainTextMasks: List<String> = emptyList()
+
+    @Option(
         names = ["--no-maven-central"],
         description = ["Disable Maven Central; use only repositories from config."]
     )
@@ -172,6 +182,7 @@ class RunCommand : Callable<Int> {
                 .dryRun(dryRun)
                 .skipPluginRun(skipPluginRun)
                 .excludePaths(excludePaths)
+                .plainTextMasks(plainTextMasks)
                 .logger(logger)
             rewriteConfig?.let { builder.rewriteConfig(it) }
             cacheDir?.let { builder.cacheDir(it) }

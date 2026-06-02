@@ -157,6 +157,16 @@ class RewriteRunnerBuilderTest :
             assertEquals(paths, builder.excludePaths)
         }
 
+        test("builder stores plainTextMasks") {
+            val masks = listOf("**/CODEOWNERS", "**/*.txt")
+            val builder =
+                RewriteRunner.builder()
+                    .projectDir(tempDir)
+                    .activeRecipe("org.openrewrite.FindSourceFiles")
+                    .plainTextMasks(masks)
+            assertEquals(masks, builder.plainTextMasks)
+        }
+
         // ── Default values ───────────────────────────────────────────────────────
 
         test("dryRun defaults to false") {
@@ -200,6 +210,11 @@ class RewriteRunnerBuilderTest :
         test("excludePaths defaults to empty") {
             val builder = RewriteRunner.builder()
             assertTrue(builder.excludePaths.isEmpty())
+        }
+
+        test("plainTextMasks defaults to empty") {
+            val builder = RewriteRunner.builder()
+            assertTrue(builder.plainTextMasks.isEmpty())
         }
 
         // ── Run-time behaviour ───────────────────────────────────────────────────

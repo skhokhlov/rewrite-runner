@@ -35,6 +35,11 @@ The dry-run goal always runs first so `PatchParser` can split `rewrite.patch` fi
 
 If plugin execution is skipped or fails (no build file, non-zero exit, process start failure, timeout, missing recipe/plugin), the runner logs at info level and falls through to the LST pipeline. `--skip-plugin-run` / `Builder.skipPluginRun(true)` bypasses Stage 0.
 
+Path exclusions and plain-text masks are resolved once by `RewriteRunner` and forwarded to Stage 0
+and to the LST fallback so both paths select the same files. Stage 0 still short-circuits the run on
+success; see [ADR 0002](adr/0002-stage0-specialized-parser-gap.md) for the deferred gap where
+classpath-free specialized parsers only run on the fallback path.
+
 ## Maven Local Repository Strategy
 
 Two separate `AetherContext` instances are created per `RewriteRunner.run()` invocation, each with a distinct local Maven repository:
@@ -84,7 +89,7 @@ When `--exclude-paths` (or `parse.excludePaths`) removes every JVM source file (
 | Class | Responsibility |
 |-------|---------------|
 | `LstBuilder` | Orchestration, 4-stage classpath pipeline, parser dispatch |
-| `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions; extension set is fixed (`DEFAULT_EXTENSIONS`) |
+| `FileCollector` | NIO walk, excluded-dir filtering, glob exclusions, plain-text masks; extension set is fixed (`DEFAULT_EXTENSIONS`) |
 | `VersionDetector` | Java/Kotlin JVM-version walk-up, `normalizeJvmVersion`, `parseGradleVersionFromWrapper` |
 | `GradleDslClasspathResolver` | Locate Gradle installation (`GRADLE_HOME`, wrapper, `~/.gradle/wrapper/dists/`) |
 | `MarkerFactory` | `BuildTool`, `GitProvenance`, `OperatingSystemProvenance`, `BuildEnvironment`, `GradleProject` markers |
@@ -129,6 +134,12 @@ and `rewriteMavenPluginVersion`.
 | `.hcl` / `.tf` / `.tfvars` | `HclParser` | — |
 | `.proto` | `ProtoParser` | — |
 | `.dockerfile` / `.containerfile` / `Dockerfile*` / `Containerfile*` | `DockerParser` | — (matched by extension **and** by filename prefix) |
+| Plain text (mask-matched, e.g. `CODEOWNERS`, `*.md`, `*.sh`, `*.txt`) | `PlainTextParser` | — |
+
+Plain-text masks are a fallback only. If a file is claimed by a specialized parser, that parser wins
+even when the path also matches a plain-text mask; for example `Dockerfile*` stays with
+`DockerParser`, and `*.qute.java` stays with `JavaParser`. Files larger than the 10 MB plain-text
+threshold are skipped.
 
 ## Parse Failure Handling
 
