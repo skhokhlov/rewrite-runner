@@ -14,6 +14,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
+private fun Path.writeGradleDataTable(timestamp: String, seconds: Long) {
+    val dataTableDir = resolve("build/reports/rewrite/datatables/$timestamp").createDirectories()
+    dataTableDir.resolve("org.openrewrite.table.SourcesFileResults.csv").writeText(
+        """
+        sourcePath,estimatedTimeSaving
+        src/A.java,$seconds
+        """.trimIndent()
+    )
+}
+
 class GradlePluginStrategyTest :
     FunSpec({
         var projectDir: Path = Path.of("")
@@ -45,6 +55,7 @@ class GradlePluginStrategyTest :
 
             val text = initScript.readText()
             assertTrue(text.contains("classpath(\"org.openrewrite:plugin:"))
+            assertTrue(text.contains("exportDatatables = true"))
             assertTrue(text.contains("activeRecipe(\"com.example.Recipe\")"))
             assertTrue(text.contains("add(\"rewrite\", \"com.example:recipes:1.0.0\")"))
             assertTrue(text.contains("configFile = file("))
@@ -289,6 +300,34 @@ class GradlePluginStrategyTest :
             assertTrue(!allprojectsBody.contains("add(\"rewrite\","))
         }
 
+        test("generateInitScript enables data table export inside rewrite block") {
+            val strategy = GradlePluginStrategy(
+                logger = NoOpRunnerLogger,
+                timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+            )
+
+            val initScript =
+                strategy.generateInitScript(
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    includeMavenCentral = true,
+                    repositories = emptyList()
+                )
+
+            val text = initScript.readText()
+            val rewriteStart = text.indexOf("rewrite {")
+            assertTrue(rewriteStart >= 0, "rewrite { } block missing")
+            val rewriteEnd = text.indexOf("    }", rewriteStart)
+            assertTrue(rewriteEnd > rewriteStart)
+            val rewriteBody = text.substring(rewriteStart, rewriteEnd)
+            assertTrue(
+                rewriteBody.contains("exportDatatables = true"),
+                "Expected data table export inside rewrite { }: $rewriteBody"
+            )
+        }
+
         test("run returns success and runs apply when dry run patch has changes") {
             val commands = mutableListOf<List<String>>()
             val strategy =
@@ -300,7 +339,8 @@ class GradlePluginStrategyTest :
                     override fun execute(
                         projectDir: Path,
                         command: List<String>,
-                        timeout: Duration
+                        timeout: Duration,
+                        output: StringBuilder?
                     ): Int? {
                         commands.add(command)
                         if ("rewriteDryRun" in command) {
@@ -337,6 +377,103 @@ class GradlePluginStrategyTest :
             assertEquals(listOf(projectDir.resolve("src/A.java")), result.changedFiles)
         }
 
+        test("run reads estimated time saved from exported data tables") {
+            val strategy =
+                object : GradlePluginStrategy(
+                    logger = NoOpRunnerLogger,
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration,
+                        output: StringBuilder?
+                    ): Int? {
+                        if ("rewriteDryRun" in command) {
+                            projectDir.resolve("build/reports/rewrite").createDirectories()
+                            projectDir.resolve("build/reports/rewrite/rewrite.patch").writeText(
+                                """
+                                diff --git a/src/A.java b/src/A.java
+                                --- a/src/A.java
+                                +++ b/src/A.java
+                                @@ -1 +1 @@
+                                -class A {}
+                                +class A { }
+                                """.trimIndent()
+                            )
+                            projectDir.writeGradleDataTable(
+                                "2024-01-01T00-00-00Z",
+                                125
+                            )
+                        }
+                        return 0
+                    }
+                }
+
+            val result =
+                strategy.run(
+                    projectDir = projectDir,
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    rewriteConfigContent = null,
+                    dryRun = true,
+                    includeMavenCentral = true,
+                    artifactRepositories = emptyList()
+                )
+
+            assertIs<PluginRunResult.Success>(result)
+            assertEquals(Duration.ofSeconds(125), result.estimatedTimeSaved)
+        }
+
+        test("run falls back to Gradle plugin estimate output when data table is absent") {
+            val strategy =
+                object : GradlePluginStrategy(
+                    logger = NoOpRunnerLogger,
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration,
+                        output: StringBuilder?
+                    ): Int? {
+                        if ("rewriteDryRun" in command) {
+                            projectDir.resolve("build/reports/rewrite").createDirectories()
+                            projectDir.resolve("build/reports/rewrite/rewrite.patch").writeText(
+                                """
+                                diff --git a/src/A.java b/src/A.java
+                                --- a/src/A.java
+                                +++ b/src/A.java
+                                @@ -1 +1 @@
+                                -class A {}
+                                +class A { }
+                                """.trimIndent()
+                            )
+                        }
+                        output?.append("Estimate time saved: 5m\n")
+                        return 0
+                    }
+                }
+
+            val result =
+                strategy.run(
+                    projectDir = projectDir,
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    rewriteConfigContent = null,
+                    dryRun = true,
+                    includeMavenCentral = true,
+                    artifactRepositories = emptyList()
+                )
+
+            assertIs<PluginRunResult.Success>(result)
+            assertEquals(Duration.ofMinutes(5), result.estimatedTimeSaved)
+        }
+
         test("run detects patch files emitted by Gradle subprojects") {
             val commands = mutableListOf<List<String>>()
             val strategy =
@@ -348,7 +485,8 @@ class GradlePluginStrategyTest :
                     override fun execute(
                         projectDir: Path,
                         command: List<String>,
-                        timeout: Duration
+                        timeout: Duration,
+                        output: StringBuilder?
                     ): Int? {
                         commands.add(command)
                         if ("rewriteDryRun" in command) {
@@ -407,7 +545,8 @@ class GradlePluginStrategyTest :
                     override fun execute(
                         projectDir: Path,
                         command: List<String>,
-                        timeout: Duration
+                        timeout: Duration,
+                        output: StringBuilder?
                     ): Int? = 0
                 }
 
@@ -436,7 +575,8 @@ class GradlePluginStrategyTest :
                     override fun execute(
                         projectDir: Path,
                         command: List<String>,
-                        timeout: Duration
+                        timeout: Duration,
+                        output: StringBuilder?
                     ): Int? = null
                 }
 
@@ -468,7 +608,8 @@ class GradlePluginStrategyTest :
                     override fun execute(
                         projectDir: Path,
                         command: List<String>,
-                        timeout: Duration
+                        timeout: Duration,
+                        output: StringBuilder?
                     ): Int? {
                         if ("rewriteDryRun" in command) {
                             projectDir.resolve("build/reports/rewrite").createDirectories()
@@ -515,7 +656,8 @@ class GradlePluginStrategyTest :
                     override fun execute(
                         projectDir: Path,
                         command: List<String>,
-                        timeout: Duration
+                        timeout: Duration,
+                        output: StringBuilder?
                     ): Int? {
                         capturedTimeout = timeout
                         return null

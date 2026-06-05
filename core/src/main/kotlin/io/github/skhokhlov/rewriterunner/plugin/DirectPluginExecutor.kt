@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 
@@ -10,6 +11,7 @@ internal data class DirectPluginInvocation(
     val dryRunCommand: List<String>,
     val applyCommand: List<String>,
     val patchFiles: () -> List<DirectPluginPatchFile>,
+    val estimatedTimeSaved: (String) -> Duration?,
     val dryRunFailureMessage: (Int?) -> String,
     val applyFailureMessage: (Int?) -> String
 )
@@ -26,10 +28,11 @@ internal data class DirectPluginInvocation(
 internal class DirectPluginExecutor(
     private val projectDir: Path,
     private val dryRun: Boolean,
-    private val execute: (Path, List<String>) -> Int?
+    private val execute: (Path, List<String>, StringBuilder?) -> Int?
 ) {
     fun run(invocation: DirectPluginInvocation): PluginRunResult {
-        val dryRunExit = execute(projectDir, invocation.dryRunCommand)
+        val pluginOutput = StringBuilder()
+        val dryRunExit = execute(projectDir, invocation.dryRunCommand, pluginOutput)
         if (dryRunExit != 0) {
             return PluginRunResult.Failed(invocation.dryRunFailureMessage(dryRunExit))
         }
@@ -38,7 +41,7 @@ internal class DirectPluginExecutor(
         if (diffs.isEmpty()) return PluginRunResult.NoChanges
 
         if (!dryRun) {
-            val applyExit = execute(projectDir, invocation.applyCommand)
+            val applyExit = execute(projectDir, invocation.applyCommand, pluginOutput)
             if (applyExit != 0) {
                 return PluginRunResult.Failed(invocation.applyFailureMessage(applyExit))
             }
@@ -46,7 +49,8 @@ internal class DirectPluginExecutor(
 
         return PluginRunResult.Success(
             changedFiles = if (dryRun) emptyList() else diffs.keys.map(projectDir::resolve),
-            diffs = diffs
+            diffs = diffs,
+            estimatedTimeSaved = invocation.estimatedTimeSaved(pluginOutput.toString())
         )
     }
 

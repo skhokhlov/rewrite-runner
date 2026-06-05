@@ -144,7 +144,12 @@ class RewriteRunner private constructor(private val config: Builder) {
                         changedFiles = pluginResult.changedFiles,
                         projectDir = config.projectDir,
                         rawDiffs = pluginResult.diffs,
-                        executionDiagnostics = ExecutionDiagnostics.PLUGIN
+                        executionDiagnostics =
+                            ExecutionDiagnostics(
+                                UsedExecutionStage.PLUGIN,
+                                0,
+                                estimatedTimeSaved = pluginResult.estimatedTimeSaved
+                            )
                     )
                 }
 
@@ -154,7 +159,12 @@ class RewriteRunner private constructor(private val config: Builder) {
                         results = emptyList(),
                         changedFiles = emptyList(),
                         projectDir = config.projectDir,
-                        executionDiagnostics = ExecutionDiagnostics.PLUGIN
+                        executionDiagnostics =
+                            ExecutionDiagnostics(
+                                UsedExecutionStage.PLUGIN,
+                                0,
+                                estimatedTimeSaved = Duration.ZERO
+                            )
                     )
                 }
 
@@ -324,11 +334,15 @@ class RewriteRunner private constructor(private val config: Builder) {
                 )
             }
 
+            val timeSaved = results.fold(Duration.ZERO) { total, result ->
+                total.plus(result.timeSavings)
+            }
             RunResult(
                 results = results,
                 changedFiles = writtenFiles,
                 projectDir = config.projectDir,
-                executionDiagnostics = lstBuildResult.executionDiagnostics
+                executionDiagnostics =
+                    lstBuildResult.executionDiagnostics.copy(estimatedTimeSaved = timeSaved)
             )
         }
     }

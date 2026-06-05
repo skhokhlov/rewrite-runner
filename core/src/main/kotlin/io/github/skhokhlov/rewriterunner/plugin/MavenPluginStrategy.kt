@@ -69,6 +69,13 @@ internal open class MavenPluginStrategy(
                         plainTextMasks = plainTextMasks
                     ),
                     patchFiles = { findPatchFiles(projectDir, reportDir) },
+                    estimatedTimeSaved = { output ->
+                        DataTableReader.sumEstimatedTimeSaved(reportDir.resolve("datatables"))
+                            ?: DataTableReader.sumEstimatedTimeSaved(
+                                projectDir.resolve("target/rewrite/datatables")
+                            )
+                            ?: PluginOutputReader.estimatedTimeSaved(output)
+                    },
                     dryRunFailureMessage = { pluginFailureMessage("Maven rewrite:dryRun", it) },
                     applyFailureMessage = { pluginFailureMessage("Maven rewrite:run", it) }
                 )
@@ -109,6 +116,7 @@ internal open class MavenPluginStrategy(
         // -Drewrite.reportOutputDirectory is silently ignored. runPerSubmodule, by contrast, is
         // exposed as `rewrite.runPerSubmodule`.
         add("-DreportOutputDirectory=${reportOutputDirectory.toAbsolutePath()}")
+        add("-Drewrite.exportDatatables=true")
         add("-Drewrite.runPerSubmodule=false")
         if (recipeArtifacts.isNotEmpty()) {
             add("-Drewrite.recipeArtifactCoordinates=${recipeArtifacts.joinToString(",")}")
@@ -124,13 +132,15 @@ internal open class MavenPluginStrategy(
         }
     }
 
-    open fun execute(projectDir: Path, command: List<String>): Int? = runProcess(
-        workDir = projectDir,
-        command = command,
-        timeout = timeout,
-        timeoutName = "pluginTimeout",
-        logger = logger
-    )
+    open fun execute(projectDir: Path, command: List<String>, output: StringBuilder? = null): Int? =
+        runProcess(
+            workDir = projectDir,
+            command = command,
+            captureOutput = output,
+            timeout = timeout,
+            timeoutName = "pluginTimeout",
+            logger = logger
+        )
 
     private fun findPatchFiles(projectDir: Path, reportDir: Path): List<DirectPluginPatchFile> {
         val patch = reportDir.resolve("rewrite.patch")

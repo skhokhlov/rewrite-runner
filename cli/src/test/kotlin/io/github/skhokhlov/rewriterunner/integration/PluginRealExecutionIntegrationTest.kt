@@ -8,9 +8,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Assumptions
 
@@ -88,6 +90,17 @@ private fun runRealPluginScenario(scenario: PluginScenario, dryRun: Boolean) {
             "Stage 0 reported no changes for scenario '${scenario.name}'; " +
                 "expected ${scenario.expectedAfterFiles.size} file(s) modified"
         )
+        if (!dryRun) {
+            val estimatedTimeSaved = assertNotNull(
+                result.executionDiagnostics.estimatedTimeSaved,
+                "Expected Stage 0 to read estimated time saved for '${scenario.name}'"
+            )
+            assertTrue(
+                estimatedTimeSaved > Duration.ZERO,
+                "Expected positive estimated time saved for '${scenario.name}', " +
+                    "got $estimatedTimeSaved"
+            )
+        }
 
         if (dryRun) {
             // Sources on disk must be untouched — Stage 0 dry-run only emits diffs.

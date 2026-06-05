@@ -1,8 +1,11 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.github.skhokhlov.rewriterunner.RewriteRunner
+import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
@@ -96,6 +99,26 @@ class PluginFirstIntegrationTest :
             )
         }
 
+        test(
+            "plugin-first Gradle path populates estimated time saved"
+        ).config(enabled = !isWindows) {
+            setupFakeGradlew(PluginScenarios.gradleSingleFile)
+
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe(PluginScenarios.gradleSingleFile.activeRecipe)
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(UsedExecutionStage.PLUGIN, result.executionDiagnostics.stageUsed)
+            assertEquals(
+                Duration.ofSeconds(420),
+                result.executionDiagnostics.estimatedTimeSaved
+            )
+        }
+
         // This test specifically tests CLI bypass behavior, not recipe execution.
         // It intentionally sets up a project WITHOUT a rewrite.yaml so the LST pipeline
         // cannot find `com.example.Recipe`, producing a non-zero exit code.
@@ -156,6 +179,26 @@ class PluginFirstIntegrationTest :
         }
 
         test(
+            "plugin-first Maven path populates estimated time saved"
+        ).config(enabled = !isWindows) {
+            setupFakeMvnwSimple(PluginScenarios.mavenSingleFile)
+
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe(PluginScenarios.mavenSingleFile.activeRecipe)
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(UsedExecutionStage.PLUGIN, result.executionDiagnostics.stageUsed)
+            assertEquals(
+                Duration.ofSeconds(420),
+                result.executionDiagnostics.estimatedTimeSaved
+            )
+        }
+
+        test(
             "plugin-first Maven dry-run produces diff without invoking rewrite:run"
         ).config(enabled = !isWindows) {
             setupFakeMvnwSimple(PluginScenarios.mavenSingleFile)
@@ -193,9 +236,10 @@ class PluginFirstIntegrationTest :
         // Validates that MavenPluginStrategy sends the correct flag format to the Maven wrapper:
         // - unprefixed `-DreportOutputDirectory=` (not `-Drewrite.reportOutputDirectory=`)
         // - `-Drewrite.runPerSubmodule=false`
+        // - `-Drewrite.exportDatatables=true`
         // A regression to the wrong flag format causes the fake wrapper to exit 2 here.
         test(
-            "maven fake-wrapper flag protocol: unprefixed -DreportOutputDirectory and runPerSubmodule=false"
+            "maven fake-wrapper flag protocol: report directory, runPerSubmodule, and datatables"
         ).config(enabled = !isWindows) {
             setupFakeMvnwWithProtocolChecks(PluginScenarios.mavenSingleFile)
 
