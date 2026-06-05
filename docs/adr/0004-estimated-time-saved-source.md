@@ -16,10 +16,10 @@ rewrite-runner has two execution paths, and they expose very different material:
 - The **LST path** runs the recipe in-process and holds the `Result` objects. `getTimeSavings()` is
   available directly.
 - The **Stage 0 plugin path** — the default — shells out to the official Maven/Gradle OpenRewrite
-  plugin and only ever reads the emitted `rewrite.patch`. The patch is a plain git diff: its marker
-  printer emits only `SearchResult`/`Markup` markers, **not** recipe attribution. So from Stage 0
-  output we know the changed file paths and nothing else — not which recipes changed each file, not
-  occurrence counts, not per-recipe effort.
+  plugin. Before this decision, rewrite-runner only read the emitted `rewrite.patch`. The patch is a
+  plain git diff: its marker printer emits only `SearchResult`/`Markup` markers, **not** recipe
+  attribution. So from the patch alone we know the changed file paths and nothing else — not which
+  recipes changed each file, not occurrence counts, not per-recipe effort.
 
 Because Stage 0 is the default path and carries no per-`Result` saving to sum, any metric derived
 naively from in-process objects reads `0`/`null` on essentially every real run. That is the bug this

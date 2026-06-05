@@ -174,6 +174,9 @@ result.executionDiagnostics.parseFailures.forEach { failure ->
     println("${failure.parser} could not handle ${failure.path}: ${failure.reason}")
 }
 
+// OpenRewrite's estimate of manual effort avoided, or null when unavailable.
+println("Estimated time saved: ${result.executionDiagnostics.estimatedTimeSaved}")
+
 // Null means the plugin path ran and no in-process LST count was measured.
 println("Parsed files: ${result.executionDiagnostics.parsedFileCount}")
 ```
@@ -386,6 +389,10 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
 excluding `ParseError` stubs. It is `null` for plugin-first runs because the in-process
 LST was not built.
 
+`estimatedTimeSaved` is available to library callers as
+`RunResult.executionDiagnostics.estimatedTimeSaved`, but is not serialized into
+`openrewrite-report.json`.
+
 `parseFailures` is empty when every file parsed cleanly. Each entry names the producer
 that gave up on the entry along with a short reason. Two kinds of producers appear:
 
@@ -464,7 +471,7 @@ downloadThreads: 5   # parallel artifact download threads (default: 5)
 processTimeout: 120s              # fallback LST build-tool subprocess timeout
 pluginTimeout: 10m                # plugin-first rewriteDryRun/rewriteRun timeout
 rewriteGradlePluginVersion: 7.32.1
-rewriteMavenPluginVersion: 6.38.0
+rewriteMavenPluginVersion: 6.40.0
 resolverConnectTimeout: 30s       # Maven Resolver TCP connection timeout
 resolverRequestTimeout: 60s       # Maven Resolver socket/request timeout
 
@@ -486,7 +493,9 @@ Before building its own LST, the tool first attempts to apply the recipe through
 - **Gradle**: injects a temporary init script that applies the `org.openrewrite.rewrite` plugin, then runs `rewriteDryRun` and, when not in `--dry-run` mode, `rewriteRun`
 - **Maven**: invokes `org.openrewrite.maven:rewrite-maven-plugin` directly via `./mvnw`, `mvnw.cmd`, or system `mvn`
 
-The dry-run goal always runs first so the tool can capture generated `rewrite.patch` files and format output in `diff`, `files`, or `report` mode. Maven multi-module builds may emit patches under each changed module's `target/site/rewrite/` directory, and those paths are reported relative to the project root. If no patches contain changes, the run short-circuits with no changes. If plugin execution succeeds with changes, the in-process LST pipeline is skipped entirely.
+The dry-run goal always runs first so the tool can capture generated `rewrite.patch` files and format output in `diff`, `files`, or `report` mode. Gradle patches are read from `build/reports/rewrite/rewrite.patch`; Maven patches are pinned to a private report directory through `-DreportOutputDirectory`. All plugin patch paths are reported relative to the project root. If no patches contain changes, the run short-circuits with no changes. If plugin execution succeeds with changes, the in-process LST pipeline is skipped entirely.
+
+Stage 0 also exposes `ExecutionDiagnostics.estimatedTimeSaved`. It requests OpenRewrite data-table export and reads the latest `SourcesFileResults` table when present; current Maven/Gradle plugin versions may only emit the same OpenRewrite-computed value in the `Estimate time saved` output line, so rewrite-runner falls back to that line. It never estimates the value from changed-file count.
 
 If the plugin path fails for any reason (no build tool, plugin resolution failure, build error, recipe unavailable, timeout), the tool falls through silently to the fallback pipeline below.
 

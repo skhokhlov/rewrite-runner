@@ -14,18 +14,18 @@ Located in `buildSrc/src/main/kotlin/`. Applied via `plugins { id("...") }` in s
 
 ## Key Dependency Versions
 
-Chosen for **Gradle 9.0.0 + JDK 25 compatibility**:
+Chosen for **Gradle 9.x + JDK 25 compatibility**:
 
 | Dependency | Version | Note |
 |------------|---------|------|
-| Kotlin | `2.3.0` | 2.1.x crashes on JDK 25 |
-| Shadow plugin | `com.gradleup.shadow:9.0.0` | `com.github.johnrengelman.shadow` incompatible with Gradle 9 |
-| Maven Resolver | `2.0.16` | |
+| Kotlin | `2.3.21` | 2.1.x crashes on JDK 25 |
+| Shadow plugin | `com.gradleup.shadow:9.4.1` | `com.github.johnrengelman.shadow` incompatible with Gradle 9 |
+| Maven Resolver | `2.0.18` | |
 | JVM toolchain | `21` | set via `kotlin { jvmToolchain(21) }` in `kotlin-convention` |
-| OpenRewrite | via `rewrite-recipe-bom:3.28.0`; plugin-first path uses Gradle plugin `7.19.0` and Maven plugin `6.22.1` | |
-| Picocli | `4.7.6` | |
-| Jackson | `3.0.0` | |
-| Apache Maven Model | `3.9.12` | |
+| OpenRewrite | via `rewrite-recipe-bom:3.31.0`; plugin-first path uses Gradle plugin `7.32.1` and Maven plugin `6.40.0` | |
+| Picocli | `4.7.7` | |
+| Jackson | `3.1.3` | |
+| Apache Maven Model | `3.9.16` | |
 | Logback | `1.5.32` | `cli`: `implementation`; `core`: `testImplementation` |
 | ktlint | `1.8.0` | Google Android code style |
 

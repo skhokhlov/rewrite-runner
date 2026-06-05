@@ -65,7 +65,7 @@ Return type of `RewriteRunner.run()`.
 | `rawDiffs` | `Map<Path, String>` | Unified diffs from the plugin-first path. Empty when the in-process LST path runs. |
 | `hasChanges` | `Boolean` | `true` when the recipe produced at least one change, regardless of `dryRun` |
 | `changeCount` | `Int` | Number of changed source files |
-| `executionDiagnostics` | `ExecutionDiagnostics` | Which pipeline stage produced the run and how many JARs were on the classpath |
+| `executionDiagnostics` | `ExecutionDiagnostics` | Which pipeline stage produced the run, how many JARs were on the classpath, parser failures, and OpenRewrite's estimated time saved |
 
 ## ExecutionDiagnostics
 
@@ -77,6 +77,7 @@ data class ExecutionDiagnostics(
     val resolvedJarCount: Int,
     val parseFailures: List<ParseFailure> = emptyList(),
     val parsedFileCount: Int? = null,
+    val estimatedTimeSaved: Duration? = null,
 )
 
 data class ParseFailure(val path: String, val reason: String, val parser: String)
@@ -88,6 +89,7 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
 | `resolvedJarCount` | Number of `.jar` entries on the LST classpath (project class directories excluded). `0` when `stageUsed` is `PLUGIN` or `null` |
 | `parseFailures` | Per-file parse failures across every parser the LST pipeline ran (see [Parse failures](#parse-failures) below). Empty when every file parsed cleanly. |
 | `parsedFileCount` | Count of successfully parsed source files in the in-process LST path, excluding `ParseError` stubs. `null` when the plugin path ran because no in-process LST was built. |
+| `estimatedTimeSaved` | OpenRewrite's estimate of manual effort avoided by the run, summed across changed files. `null` means the value was not measured or could not be read; `Duration.ZERO` means the run completed and genuinely produced no estimated saving. |
 
 ### Detecting a blind run
 
@@ -190,7 +192,9 @@ usual `IllegalArgumentException` from `run()`.
 
 In `--output report` mode the same data is serialized as top-level
 `parsedFileCount` and `parseFailures` fields in `openrewrite-report.json` (see
-[README](../README.md#output-modes) for the JSON schema).
+[README](../README.md#output-modes) for the JSON schema). `estimatedTimeSaved`
+is intentionally not part of the report JSON surface; read it from
+`RunResult.executionDiagnostics` in library code.
 
 Each `org.openrewrite.Result` in `results` exposes:
 - `before` — the source file before the recipe (`null` for newly created files)
@@ -282,7 +286,7 @@ parse:
 processTimeout: 120s
 pluginTimeout: 10m
 rewriteGradlePluginVersion: 7.32.1
-rewriteMavenPluginVersion: 6.38.0
+rewriteMavenPluginVersion: 6.40.0
 resolverConnectTimeout: 30s
 resolverRequestTimeout: 60s
 ```
@@ -298,7 +302,7 @@ resolverRequestTimeout: 60s
 | `processTimeout` | `Duration` | `120s` | Timeout for Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands. |
 | `pluginTimeout` | `Duration` | `10m` | Timeout for Stage 0 official OpenRewrite plugin invocations. |
 | `rewriteGradlePluginVersion` | `String` | `7.32.1` | Version of `org.openrewrite:plugin` used for Stage 0 Gradle plugin execution. |
-| `rewriteMavenPluginVersion` | `String` | `6.38.0` | Version of `org.openrewrite.maven:rewrite-maven-plugin` used for Stage 0 Maven plugin execution. |
+| `rewriteMavenPluginVersion` | `String` | `6.40.0` | Version of `org.openrewrite.maven:rewrite-maven-plugin` used for Stage 0 Maven plugin execution. |
 | `resolverConnectTimeout` | `Duration` | `30s` | TCP connection timeout for Maven Resolver artifact downloads. |
 | `resolverRequestTimeout` | `Duration` | `60s` | Socket read/request timeout for Maven Resolver artifact downloads. |
 
