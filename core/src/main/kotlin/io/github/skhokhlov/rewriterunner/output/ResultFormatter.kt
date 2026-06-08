@@ -117,14 +117,6 @@ class ResultFormatter(
         }
     }
 
-    private fun printRawDiffs(rawDiffs: Map<Path, String>) {
-        if (rawDiffs.isEmpty()) {
-            out.println("No changes produced.")
-            return
-        }
-        rawDiffs.values.forEach { out.println(it.trimEnd()) }
-    }
-
     private fun printRunResultDiffs(runResult: RunResult) {
         if (runResult.results.isEmpty() && runResult.rawDiffs.isEmpty()) {
             out.println("No changes produced.")
@@ -150,14 +142,6 @@ class ResultFormatter(
             val path = result.after?.sourcePath ?: result.before?.sourcePath
             if (path != null) out.println(path)
         }
-    }
-
-    private fun printRawFiles(paths: Set<Path>) {
-        if (paths.isEmpty()) {
-            out.println("No files changed.")
-            return
-        }
-        paths.forEach { out.println(it) }
     }
 
     private fun printRunResultFiles(runResult: RunResult) {
@@ -193,29 +177,6 @@ class ResultFormatter(
                     "isNewFile" to (r.before == null),
                     "isDeletedFile" to (r.after == null),
                     "diff" to r.diff()
-                )
-            },
-            "parsedFileCount" to diagnostics?.parsedFileCount,
-            "parseFailures" to parseFailuresJson(diagnostics)
-        )
-        json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
-        out.println("Report written to: ${reportFile.absolutePath}")
-    }
-
-    private fun writeRawReport(
-        rawDiffs: Map<Path, String>,
-        reportDir: Path,
-        diagnostics: ExecutionDiagnostics? = null
-    ) {
-        val reportFile = reportDir.resolve("openrewrite-report.json").toFile()
-        val report = mapOf(
-            "totalChanged" to rawDiffs.size,
-            "results" to rawDiffs.map { (path, diff) ->
-                mapOf(
-                    "filePath" to path.toString(),
-                    "isNewFile" to diff.contains("\n--- /dev/null\n"),
-                    "isDeletedFile" to diff.contains("\n+++ /dev/null\n"),
-                    "diff" to diff
                 )
             },
             "parsedFileCount" to diagnostics?.parsedFileCount,

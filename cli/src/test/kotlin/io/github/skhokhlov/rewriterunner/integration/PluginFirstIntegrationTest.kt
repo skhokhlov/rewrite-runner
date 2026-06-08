@@ -170,6 +170,48 @@ class PluginFirstIntegrationTest :
         }
 
         test(
+            "specialized pass recipe-load failure does not fail a successful plugin run"
+        ).config(enabled = !isWindows) {
+            // Stage 0 succeeds (the fake plugin patches the Java file) and the project
+            // contains an owned Dockerfile, but the active recipe is known ONLY to the
+            // project's own build — there is no rewrite.yaml and no recipe artifact, so the
+            // in-process specialized pass cannot resolve it. The pass must degrade to
+            // plugin-only results rather than throwing and failing an already-successful run.
+            projectDir.resolve("settings.gradle.kts").writeText("rootProject.name = \"test\"\n")
+            projectDir.resolve("build.gradle.kts").writeText("plugins { java }\n")
+            projectDir.resolve("src/main/java").toFile().mkdirs()
+            val javaFile = projectDir.resolve("src/main/java/App.java")
+            javaFile.writeText("class App{}\n")
+            val dockerfile = projectDir.resolve("Dockerfile")
+            dockerfile.writeText("FROM ubuntu:PLACEHOLDER\n")
+            projectDir.writeFakeGradlew(
+                targetFile = "src/main/java/App.java",
+                oldLine = "class App{}",
+                newLine = "class App { }",
+                newContent = "class App { }\n"
+            )
+
+            val runResult =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe("com.example.only.known.to.plugin.Recipe")
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(
+                UsedExecutionStage.PLUGIN,
+                runResult.executionDiagnostics.stageUsed,
+                "runResult=$runResult"
+            )
+            assertEquals(setOf(Path.of("src/main/java/App.java")), runResult.rawDiffs.keys)
+            assertTrue(runResult.results.isEmpty())
+            // Dockerfile untouched because the specialized recipe never ran.
+            assertEquals("FROM ubuntu:PLACEHOLDER\n", dockerfile.readText())
+            assertEquals("class App { }\n", javaFile.readText())
+        }
+
+        test(
             "plugin-first Maven path with no owned files keeps plugin-only diagnostics"
         ).config(enabled = !isWindows) {
             projectDir.resolve("pom.xml").writeText(

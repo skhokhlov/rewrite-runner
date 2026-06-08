@@ -369,16 +369,25 @@ class RewriteRunner private constructor(private val config: Builder) {
                 plainTextMasks = emptyList(),
                 restrictToExtensions = SpecializedOwnership.extensions
             )
-        val sourceFileCount = lstBuildResult.sourceFiles.size
-        if (sourceFileCount == 0) {
+        if (lstBuildResult.sourceFiles.isEmpty()) {
             return pluginOnlyResult(pluginResult, projectDir)
         }
         logger.lifecycle(
             "      Found ${lstBuildResult.sourceFiles.size} Docker/HCL/Proto file(s)"
         )
-        logger.lifecycle("[3/7] Loading recipe '$activeRecipe'")
-        val recipe =
+
+        // The specialized pass is a best-effort enhancement layered on a *successful* Stage 0
+        // run (which may have already written changes to disk). The active recipe may be
+        // supplied solely by the target build's own rewrite configuration and therefore be
+        // unresolvable from rewrite-runner's recipe artifacts / rewrite.yaml. In that case
+        // RecipeLoader throws — but failing the whole run after Stage 0 already succeeded would
+        // be a regression. So any failure here degrades to plugin-only results with a warning.
+        return try {
+            // Recipe load AND execution must both happen inside this use{} block: the
+            // URLClassLoader over recipe JARs must stay open until recipe.run() completes,
+            // because OpenRewrite loads visitor inner-classes lazily at run time.
             RecipeLoader(logger).use { recipeLoader ->
+                logger.lifecycle("[3/7] Loading recipe '$activeRecipe'")
                 val recipeJars =
                     if (recipeArtifacts.isNotEmpty()) {
                         val recipeAetherContext =
@@ -399,42 +408,51 @@ class RewriteRunner private constructor(private val config: Builder) {
                     } else {
                         emptyList()
                     }
-                if (rewriteConfigContent != null) {
-                    recipeLoader.load(
-                        recipeJars = recipeJars,
-                        activeRecipeName = activeRecipe,
-                        rewriteYamlContent = rewriteConfigContent
+                val recipe =
+                    if (rewriteConfigContent != null) {
+                        recipeLoader.load(
+                            recipeJars = recipeJars,
+                            activeRecipeName = activeRecipe,
+                            rewriteYamlContent = rewriteConfigContent
+                        )
+                    } else {
+                        val effectiveRewriteConfig =
+                            rewriteConfig
+                                ?: projectDir.resolve("rewrite.yaml").takeIf { it.exists() }
+                                ?: projectDir.resolve("rewrite.yml")
+                        recipeLoader.load(
+                            recipeJars = recipeJars,
+                            activeRecipeName = activeRecipe,
+                            rewriteYaml = effectiveRewriteConfig
+                        )
+                    }
+                logger.info("      Recipe ready: ${recipe.name}")
+                logger.lifecycle(
+                    "[5/7] Running recipe '${recipe.name}' against " +
+                        "${lstBuildResult.sourceFiles.size} file(s)"
+                )
+                val results = RecipeRunner(logger).run(recipe, lstBuildResult.sourceFiles)
+                logger.lifecycle("      Recipe complete: ${results.size} file(s) changed")
+                val writtenFiles = applyResults(results, projectDir, dryRun, logger)
+                val runResult =
+                    RunResult(
+                        results = results,
+                        changedFiles = writtenFiles,
+                        projectDir = projectDir,
+                        executionDiagnostics =
+                            lstBuildResult.executionDiagnostics.copy(
+                                stageUsed = UsedExecutionStage.PLUGIN
+                            )
                     )
-                } else {
-                    val effectiveRewriteConfig =
-                        rewriteConfig
-                            ?: projectDir.resolve("rewrite.yaml").takeIf { it.exists() }
-                            ?: projectDir.resolve("rewrite.yml")
-                    recipeLoader.load(
-                        recipeJars = recipeJars,
-                        activeRecipeName = activeRecipe,
-                        rewriteYaml = effectiveRewriteConfig
-                    )
-                }
+                mergePluginAndSpecializedResults(runResult, pluginResult)
             }
-        logger.info("      Recipe ready: ${recipe.name}")
-        logger.lifecycle(
-            "[5/7] Running recipe '${recipe.name}' against ${lstBuildResult.sourceFiles.size} file(s)"
-        )
-        val results = RecipeRunner(logger).run(recipe, lstBuildResult.sourceFiles)
-        logger.lifecycle("      Recipe complete: ${results.size} file(s) changed")
-        val writtenFiles = applyResults(results, projectDir, dryRun, logger)
-        val runResult =
-            RunResult(
-                results = results,
-                changedFiles = writtenFiles,
-                projectDir = projectDir,
-                executionDiagnostics =
-                    lstBuildResult.executionDiagnostics.copy(
-                        stageUsed = UsedExecutionStage.PLUGIN
-                    )
+        } catch (e: Exception) {
+            logger.warn(
+                "Specialized non-JVM parser pass failed after a successful plugin run; " +
+                    "returning plugin results only. Cause: ${e.message}"
             )
-        return mergePluginAndSpecializedResults(runResult, pluginResult)
+            pluginOnlyResult(pluginResult, projectDir)
+        }
     }
 
     private fun applyResults(

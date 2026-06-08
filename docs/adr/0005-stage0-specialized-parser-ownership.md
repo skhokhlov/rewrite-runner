@@ -48,3 +48,11 @@ to explain before there is a real need.
 The Stage 0 command text now always includes the specialized exclusions. Projects with no owned files
 still keep the old result shape after the owned-only pass finds nothing, but wrapper/debug output can
 show the additional exclusion arguments.
+
+The specialized pass is best-effort and must never regress an already-successful Stage 0 run (which
+may have already written changes to disk). The active recipe can be supplied solely by the target
+build's own rewrite configuration and therefore be unresolvable from rewrite-runner's recipe
+artifacts / `rewrite.yaml`. If recipe resolution, loading, or execution throws during the specialized
+pass, the runner logs a warning and returns the plugin-only result rather than failing the run. The
+recipe `URLClassLoader` is also kept open until recipe execution completes, since OpenRewrite loads
+visitor inner-classes lazily at run time.
