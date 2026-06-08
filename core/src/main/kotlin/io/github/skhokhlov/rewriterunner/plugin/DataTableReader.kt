@@ -9,6 +9,7 @@ import kotlin.io.path.isDirectory
 
 internal object DataTableReader {
     private const val SOURCES_FILE_RESULTS = "org.openrewrite.table.SourcesFileResults.csv"
+    private const val SOURCE_PATH = "sourcePath"
     private const val ESTIMATED_TIME_SAVING = "estimatedTimeSaving"
 
     fun sumEstimatedTimeSaved(datatablesRoot: Path): Duration? {
@@ -39,20 +40,34 @@ internal object DataTableReader {
         val header = parseCsvLine(lines.first())?.mapIndexed { index, value ->
             if (index == 0) value.removePrefix("\uFEFF") else value
         } ?: return null
+        val sourcePathColumn = header.indexOf(SOURCE_PATH)
         val estimatedColumn = header.indexOf(ESTIMATED_TIME_SAVING)
-        if (estimatedColumn < 0) return null
+        if (sourcePathColumn < 0 || estimatedColumn < 0) return null
 
-        var seconds = 0L
+        val secondsBySourcePath = linkedMapOf<String, Long>()
         for (line in lines.drop(1)) {
             if (line.isBlank()) continue
             val fields = parseCsvLine(line) ?: return null
             val value = fields.getOrNull(estimatedColumn)?.trim()
             if (value.isNullOrBlank()) continue
-            seconds = try {
-                Math.addExact(seconds, value.toLong())
+            val sourcePath = fields.getOrNull(sourcePathColumn)?.trim()
+            if (sourcePath.isNullOrBlank()) return null
+            val rowSeconds = try {
+                value.toLong()
             } catch (_: ArithmeticException) {
                 return null
             } catch (_: NumberFormatException) {
+                return null
+            }
+            secondsBySourcePath[sourcePath] =
+                maxOf(secondsBySourcePath[sourcePath] ?: rowSeconds, rowSeconds)
+        }
+
+        var seconds = 0L
+        for (value in secondsBySourcePath.values) {
+            seconds = try {
+                Math.addExact(seconds, value)
+            } catch (_: ArithmeticException) {
                 return null
             }
         }

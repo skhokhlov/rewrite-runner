@@ -67,6 +67,23 @@ class DataTableReaderTest :
             )
         }
 
+        test("deduplicates source path rows before summing") {
+            writeCsv(
+                "2024-01-01T00-00-00Z",
+                """
+                sourcePath,parentRecipe,recipe,estimatedTimeSaving
+                src/A.java,com.example.Composite,com.example.Child,300
+                src/A.java,com.example.Composite,com.example.Composite,300
+                src/B.java,com.example.Composite,com.example.Child,120
+                """
+            )
+
+            assertEquals(
+                Duration.ofSeconds(420),
+                DataTableReader.sumEstimatedTimeSaved(root)
+            )
+        }
+
         test("returns null when root, latest file, or column is missing") {
             assertNull(DataTableReader.sumEstimatedTimeSaved(root.resolve("missing")))
 
@@ -78,6 +95,15 @@ class DataTableReaderTest :
                 """
                 sourcePath,recipe
                 src/A.java,Recipe
+                """
+            )
+            assertNull(DataTableReader.sumEstimatedTimeSaved(root))
+
+            writeCsv(
+                "2024-01-03T00-00-00Z",
+                """
+                recipe,estimatedTimeSaving
+                Recipe,300
                 """
             )
             assertNull(DataTableReader.sumEstimatedTimeSaved(root))

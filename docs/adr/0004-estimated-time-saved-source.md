@@ -42,12 +42,14 @@ on both paths and **never recomputed** by rewrite-runner:
 - **LST path** — sum `Result.getTimeSavings()` over the run's results.
 - **Stage 0 path** — enable the plugin's data table export (Maven `-Drewrite.exportDatatables=true`;
   Gradle init script `rewrite { exportDatatables = true }`). Prefer the latest exported
-  `datatables/<timestamp>/org.openrewrite.table.SourcesFileResults.csv` and sum its
-  `estimatedTimeSaving` column (seconds). That column is populated by
-  `Result.getTimeSavings().getSeconds()`, so both paths yield the same figure by construction. Current
-  Maven/Gradle plugin versions do not always emit that table, so Stage 0 falls back to the official
-  plugin output line `Estimate time saved: ...`, which is emitted from the same OpenRewrite-computed
-  result duration. rewrite-runner never derives a number from patch shape or changed-file count.
+  `datatables/<timestamp>/org.openrewrite.table.SourcesFileResults.csv`, deduplicate rows by
+  `sourcePath`, and sum one `estimatedTimeSaving` value (seconds) per changed file. That column is
+  populated by `Result.getTimeSavings().getSeconds()` and may be repeated across parent/child recipe
+  rows for the same source file, so deduplication preserves parity with the LST path's one `Result`
+  per changed file. Current Maven/Gradle plugin versions do not always emit that table, so Stage 0
+  falls back to the official plugin output line `Estimate time saved: ...`, which is emitted from the
+  same OpenRewrite-computed result duration. rewrite-runner never derives a number from patch shape
+  or changed-file count.
 
 Null-versus-zero is meaningful: `null` means "could not be determined" (Stage 0 with export missing
 or the CSV absent/unparseable, or empty diagnostics); `Duration.ZERO` means "ran, genuinely saved
