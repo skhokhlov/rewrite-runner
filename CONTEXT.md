@@ -11,6 +11,14 @@
 - **Classpath stage**: A `ClasspathStage` implementation in the ordered LST classpath-resolution
   chain. `resolve(projectDir, parseFailures)` returns a `ClasspathResolutionResult` to win or
   `null` to fall through to the next stage.
+- **Estimated time saved**: A heuristic estimate of manual developer effort avoided by a recipe run,
+  not measured wall-clock. It is the sum, over every changed file, of the effort OpenRewrite attributes
+  to the change — for each file the total `getEstimatedEffortPerOccurrence()` (default 5 minutes) of the
+  recipes that made it. This is OpenRewrite's own figure (`org.openrewrite.Result.getTimeSavings()`); it is
+  never recomputed by rewrite-runner. Both execution paths surface the same number: the LST path sums it
+  from in-process `Result` objects, and the Stage 0 plugin path reads the plugin-reported value from an
+  exported `SourcesFileResults` data table when present, otherwise from the plugin's `Estimate time saved`
+  output line.
 - **Plain-text mask**: A glob pattern (relative to project root) selecting files to parse with
   `PlainTextParser`. The configured list replaces the built-in default. Forwarded to both Stage 0
   and the LST fallback so both paths select the same files. Specialized parsers take precedence: a

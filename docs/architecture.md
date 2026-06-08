@@ -28,10 +28,12 @@ Orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`:
 
 | Build tool | Strategy | Patch path |
 |------------|----------|------------|
-| Gradle | Generate a temporary init script, apply `org.openrewrite.gradle.RewritePlugin`, run `rewriteDryRun`, then `rewriteRun` when not in dry-run mode | `build/reports/rewrite/rewrite.patch` in each changed project |
-| Maven | Invoke `org.openrewrite.maven:rewrite-maven-plugin:<version>:dryRun`, then `:run` when not in dry-run mode | `target/site/rewrite/rewrite.patch` in each changed module |
+| Gradle | Generate a temporary init script, apply `org.openrewrite.gradle.RewritePlugin`, enable `exportDatatables`, run `rewriteDryRun`, then `rewriteRun` when not in dry-run mode | `build/reports/rewrite/rewrite.patch` in each changed project |
+| Maven | Invoke `org.openrewrite.maven:rewrite-maven-plugin:<version>:dryRun`, then `:run` when not in dry-run mode; pass `-Drewrite.exportDatatables=true` and pin patch output with `-DreportOutputDirectory=<temp>` | Private temp report directory managed by rewrite-runner |
 
 The dry-run goal always runs first so `PatchParser` can split `rewrite.patch` files into `RunResult.rawDiffs`. If the plugin returns non-empty patches and the apply goal succeeds (or the user requested `dryRun`), `RewriteRunner.run()` returns immediately with empty `results` and populated `rawDiffs`. Gradle project patches and Maven module patches are rebased to project-root-relative paths before formatting. `ResultFormatter.format(RunResult)` handles this raw-diff path for `diff`, `files`, and `report` output.
+
+Stage 0 also populates `ExecutionDiagnostics.estimatedTimeSaved` when OpenRewrite reports it. The structured path reads the latest exported `SourcesFileResults` data table; current plugin versions may only log the same value as `Estimate time saved: ...`, so the runner captures plugin stdout/stderr and falls back to that line. The value is not derived from patch contents.
 
 If plugin execution is skipped or fails (no build file, non-zero exit, process start failure, timeout, missing recipe/plugin), the runner logs at info level and falls through to the LST pipeline. `--skip-plugin-run` / `Builder.skipPluginRun(true)` bypasses Stage 0.
 

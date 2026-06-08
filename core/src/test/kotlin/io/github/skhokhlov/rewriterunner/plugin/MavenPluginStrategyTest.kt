@@ -5,6 +5,8 @@ import io.github.skhokhlov.rewriterunner.config.ToolConfigDefaults
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
+import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
@@ -18,11 +20,22 @@ import kotlin.test.assertTrue
 // flag fails this test rather than silently being ignored by Maven and skipping rewrite:run.
 private const val REPORT_OUTPUT_FLAG = "-DreportOutputDirectory="
 private const val RUN_PER_SUBMODULE_FLAG = "-Drewrite.runPerSubmodule=false"
+private const val EXPORT_DATATABLES_FLAG = "-Drewrite.exportDatatables=true"
 
 private fun extractReportDir(command: List<String>): Path? =
     command.firstOrNull { it.startsWith(REPORT_OUTPUT_FLAG) }
         ?.removePrefix(REPORT_OUTPUT_FLAG)
         ?.let(Path::of)
+
+private fun writeMavenDataTable(reportDir: Path, timestamp: String, seconds: Long) {
+    val dataTableDir = reportDir.resolve("datatables/$timestamp").createDirectories()
+    dataTableDir.resolve("org.openrewrite.table.SourcesFileResults.csv").writeText(
+        """
+        sourcePath,estimatedTimeSaving
+        pom.xml,$seconds
+        """.trimIndent()
+    )
+}
 
 class MavenPluginStrategyTest :
     FunSpec({
@@ -62,6 +75,7 @@ class MavenPluginStrategyTest :
                 }
             )
             assertTrue(command.contains("-Drewrite.activeRecipes=com.example.Recipe"))
+            assertTrue(command.contains(EXPORT_DATATABLES_FLAG))
             assertTrue(
                 command.contains(
                     "-Drewrite.recipeArtifactCoordinates=" +
@@ -268,6 +282,31 @@ class MavenPluginStrategyTest :
             )
         }
 
+        test("buildCommand enables data table export") {
+            val reportDir = Files.createTempDirectory("report-")
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            val command =
+                strategy.buildCommand(
+                    projectDir = projectDir,
+                    goal = "dryRun",
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    reportOutputDirectory = reportDir
+                )
+
+            assertTrue(
+                command.contains(EXPORT_DATATABLES_FLAG),
+                "expected $EXPORT_DATATABLES_FLAG in $command"
+            )
+        }
+
         test("run returns failed when dry run command exits non-zero") {
             val strategy =
                 object : MavenPluginStrategy(
@@ -275,7 +314,11 @@ class MavenPluginStrategyTest :
                     ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int = 1
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? = 1
                 }
 
             val result =
@@ -301,7 +344,11 @@ class MavenPluginStrategyTest :
                     ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
                         commands.add(command)
                         val reportDir = extractReportDir(command)!!
                         reportDir.resolve("rewrite.patch").writeText(
@@ -336,6 +383,142 @@ class MavenPluginStrategyTest :
             assertEquals(setOf(Path.of("pom.xml")), result.diffs.keys)
         }
 
+        test("run reads estimated time saved from exported data tables") {
+            val strategy =
+                object : MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
+                        val reportDir = extractReportDir(command)!!
+                        reportDir.resolve("rewrite.patch").writeText(
+                            """
+                            diff --git a/pom.xml b/pom.xml
+                            --- a/pom.xml
+                            +++ b/pom.xml
+                            @@ -1 +1 @@
+                            -<project/>
+                            +<project></project>
+                            """.trimIndent()
+                        )
+                        writeMavenDataTable(reportDir, "2024-01-01T00-00-00Z", 75)
+                        return 0
+                    }
+                }
+
+            val result =
+                strategy.run(
+                    projectDir = projectDir,
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    rewriteConfigContent = null,
+                    dryRun = true,
+                    includeMavenCentral = true,
+                    artifactRepositories = emptyList()
+                )
+
+            assertIs<PluginRunResult.Success>(result)
+            assertEquals(Duration.ofSeconds(75), result.estimatedTimeSaved)
+        }
+
+        test("run reads Maven plugin data tables from target rewrite directory") {
+            val strategy =
+                object : MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
+                        val reportDir = extractReportDir(command)!!
+                        reportDir.resolve("rewrite.patch").writeText(
+                            """
+                            diff --git a/pom.xml b/pom.xml
+                            --- a/pom.xml
+                            +++ b/pom.xml
+                            @@ -1 +1 @@
+                            -<project/>
+                            +<project></project>
+                            """.trimIndent()
+                        )
+                        writeMavenDataTable(
+                            projectDir.resolve("target/rewrite"),
+                            "2024-01-01T00-00-00Z",
+                            95
+                        )
+                        return 0
+                    }
+                }
+
+            val result =
+                strategy.run(
+                    projectDir = projectDir,
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    rewriteConfigContent = null,
+                    dryRun = true,
+                    includeMavenCentral = true,
+                    artifactRepositories = emptyList()
+                )
+
+            assertIs<PluginRunResult.Success>(result)
+            assertEquals(Duration.ofSeconds(95), result.estimatedTimeSaved)
+        }
+
+        test("run falls back to Maven plugin estimate output when data table is absent") {
+            val strategy =
+                object : MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
+                        val reportDir = extractReportDir(command)!!
+                        reportDir.resolve("rewrite.patch").writeText(
+                            """
+                            diff --git a/pom.xml b/pom.xml
+                            --- a/pom.xml
+                            +++ b/pom.xml
+                            @@ -1 +1 @@
+                            -<project/>
+                            +<project></project>
+                            """.trimIndent()
+                        )
+                        output?.append("[WARNING] Estimate time saved: 5m\n")
+                        return 0
+                    }
+                }
+
+            val result =
+                strategy.run(
+                    projectDir = projectDir,
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    rewriteConfigContent = null,
+                    dryRun = true,
+                    includeMavenCentral = true,
+                    artifactRepositories = emptyList()
+                )
+
+            assertIs<PluginRunResult.Success>(result)
+            assertEquals(Duration.ofMinutes(5), result.estimatedTimeSaved)
+        }
+
         test("run aggregates diffs across submodules from a single patch file") {
             // Multi-module: parent declares modules, but the plugin (with runPerSubmodule=false)
             // emits one aggregated patch at the configured reportOutputDirectory.
@@ -361,7 +544,11 @@ class MavenPluginStrategyTest :
                     ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
                         if (command.any { it.endsWith(":dryRun") }) {
                             val reportDir = extractReportDir(command)!!
                             reportDir.resolve("rewrite.patch").writeText(
@@ -432,7 +619,11 @@ class MavenPluginStrategyTest :
                     ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
                         if (command.any { it.endsWith(":dryRun") }) {
                             val reportDir = extractReportDir(command)!!
                             reportDir.resolve("rewrite.patch").writeText(
@@ -482,7 +673,11 @@ class MavenPluginStrategyTest :
                     ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? = 0
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? = 0
                 }
 
             val result =
@@ -508,7 +703,11 @@ class MavenPluginStrategyTest :
                     ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int? {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
                         extractReportDir(command)?.let(capturedReportDirs::add)
                         return 0
                     }
@@ -539,7 +738,11 @@ class MavenPluginStrategyTest :
                     ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
                     ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
                 ) {
-                    override fun execute(projectDir: Path, command: List<String>): Int {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
                         extractReportDir(command)?.let(capturedReportDirs::add)
                         return 1
                     }

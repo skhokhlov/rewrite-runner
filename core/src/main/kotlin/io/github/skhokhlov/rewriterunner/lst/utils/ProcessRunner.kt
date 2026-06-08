@@ -41,7 +41,8 @@ internal data class BuildUnitDiscoveryResult(val units: List<BuildUnit>, val tru
  * Both stdout and stderr are always drained on background threads to prevent OS pipe-buffer
  * deadlock (~64 KB limit). Each line is logged at DEBUG level (visible with `--debug`).
  * When [captureStdout] is non-null, stdout lines are also appended to it (for classpath
- * extraction); stderr is still drained and logged.
+ * extraction); stderr is still drained and logged. When [captureOutput] is non-null, both stdout and
+ * stderr lines are appended to it (for plugin output parsing).
  *
  * @return The process exit code, or `null` if the process could not be started or timed out.
  */
@@ -49,6 +50,7 @@ internal fun runProcess(
     workDir: Path,
     command: List<String>,
     captureStdout: StringBuilder? = null,
+    captureOutput: StringBuilder? = null,
     timeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT,
     timeoutName: String = "processTimeout",
     logger: RunnerLogger
@@ -72,6 +74,11 @@ internal fun runProcess(
             stream.bufferedReader().forEachLine {
                 logger.debug("[$prefix $tag] $it")
                 if (tag == "stdout") captureStdout?.append(it)?.append('\n')
+                captureOutput?.let { output ->
+                    synchronized(output) {
+                        output.append(it).append('\n')
+                    }
+                }
             }
         } catch (e: IOException) {
             logger.debug("[$prefix $tag] stream closed: ${e.message}")

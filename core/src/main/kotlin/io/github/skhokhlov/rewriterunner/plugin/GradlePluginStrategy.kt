@@ -49,13 +49,18 @@ internal open class GradlePluginStrategy(
                 plainTextMasks = plainTextMasks
             )
         return try {
-            DirectPluginExecutor(projectDir, dryRun, { path, cmd ->
-                execute(path, cmd, timeout)
+            DirectPluginExecutor(projectDir, dryRun, { path, cmd, output ->
+                execute(path, cmd, timeout, output)
             }).run(
                 DirectPluginInvocation(
                     dryRunCommand = buildCommand(projectDir, "rewriteDryRun", initScript),
                     applyCommand = buildCommand(projectDir, "rewriteRun", initScript),
                     patchFiles = { findPatchFiles(projectDir) },
+                    estimatedTimeSaved = { output ->
+                        DataTableReader.sumEstimatedTimeSaved(
+                            projectDir.resolve("build/reports/rewrite/datatables")
+                        ) ?: PluginOutputReader.estimatedTimeSaved(output)
+                    },
                     dryRunFailureMessage = { pluginFailureMessage("Gradle rewriteDryRun", it) },
                     applyFailureMessage = { pluginFailureMessage("Gradle rewriteRun", it) }
                 )
@@ -112,6 +117,7 @@ internal open class GradlePluginStrategy(
                 appendLine("rootProject {")
                 appendLine("    apply plugin: org.openrewrite.gradle.RewritePlugin")
                 appendLine("    rewrite {")
+                appendLine("        exportDatatables = true")
                 appendLine("        activeRecipe(\"${activeRecipe.groovyString()}\")")
                 rewriteConfig?.let {
                     appendLine(
@@ -172,9 +178,18 @@ internal open class GradlePluginStrategy(
         }
     }
 
-    open fun execute(projectDir: Path, command: List<String>, timeout: Duration): Int? = runProcess(
+    open fun execute(projectDir: Path, command: List<String>, timeout: Duration): Int? =
+        execute(projectDir, command, timeout, null)
+
+    open fun execute(
+        projectDir: Path,
+        command: List<String>,
+        timeout: Duration,
+        output: StringBuilder?
+    ): Int? = runProcess(
         workDir = projectDir,
         command = command,
+        captureOutput = output,
         timeout = timeout,
         timeoutName = "pluginTimeout",
         logger = logger

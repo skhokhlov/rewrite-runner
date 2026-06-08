@@ -1,13 +1,16 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -130,6 +133,28 @@ class JavaProjectIntegrationTest :
             assertTrue(
                 formatted.contains("System.out.println"),
                 "Method body must survive formatting"
+            )
+        }
+
+        test("skip-plugin-run exposes estimated time saved from LST results") {
+            projectDir.resolve("Hello.java").writeText(unformattedClass)
+
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe("org.openrewrite.java.format.AutoFormat")
+                    .cacheDir(cacheDir)
+                    .skipPluginRun(true)
+                    .dryRun(true)
+                    .build()
+                    .run()
+
+            val estimatedTimeSaved = assertNotNull(
+                result.executionDiagnostics.estimatedTimeSaved
+            )
+            assertTrue(
+                estimatedTimeSaved > Duration.ZERO,
+                "Expected a positive LST-path estimated time saved, got $estimatedTimeSaved"
             )
         }
 

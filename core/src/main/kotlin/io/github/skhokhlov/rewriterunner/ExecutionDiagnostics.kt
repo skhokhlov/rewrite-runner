@@ -1,5 +1,7 @@
 package io.github.skhokhlov.rewriterunner
 
+import java.time.Duration
+
 /** Which path produced the recipe run (and the classpath behind it, when applicable). */
 enum class UsedExecutionStage {
     /** Stage 0 — official OpenRewrite Gradle/Maven plugin handled the recipe internally;
@@ -86,12 +88,17 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  *   `0` with failures means total parse failure; `0` without failures means nothing
  *   was in scope; greater than `0` with empty results means the recipe found nothing
  *   to change; greater than `0` with non-empty results means the recipe made changes.
+ * @property estimatedTimeSaved OpenRewrite's estimate of manual effort avoided by the
+ *   run, summed across changed files. `null` means the value was not measured or could
+ *   not be read; [Duration.ZERO] means the run completed and genuinely produced no
+ *   estimated saving.
  */
 data class ExecutionDiagnostics(
     val stageUsed: UsedExecutionStage?,
     val resolvedJarCount: Int,
     val parseFailures: List<ParseFailure> = emptyList(),
-    val parsedFileCount: Int? = null
+    val parsedFileCount: Int? = null,
+    val estimatedTimeSaved: Duration? = null
 ) {
     companion object {
         val PLUGIN = ExecutionDiagnostics(UsedExecutionStage.PLUGIN, 0)

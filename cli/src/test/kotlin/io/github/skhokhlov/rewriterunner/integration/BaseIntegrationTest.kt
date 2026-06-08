@@ -95,8 +95,9 @@ fun Path.writeRewriteYaml(name: String, body: String) {
 /**
  * Writes a fake `gradlew` that simulates the OpenRewrite Gradle plugin for a single-line change.
  *
- * On `rewriteDryRun` → writes a unified-diff patch at `build/reports/rewrite/rewrite.patch`.
- * On `rewriteRun` → overwrites [targetFile] with [newContent].
+ * On `rewriteDryRun` → writes a unified-diff patch at `build/reports/rewrite/rewrite.patch` and
+ * an exported `SourcesFileResults` data table.
+ * On `rewriteRun` → overwrites [targetFile] with [newContent] and writes a later data table.
  * Every invocation appends the task name (`$1`) to `wrapper-calls.log`.
  * Exits 1 for any other argument.
  *
@@ -127,10 +128,20 @@ fun Path.writeFakeGradlew(
         -$oldLine
         +$newLine
         PATCH
+          mkdir -p build/reports/rewrite/datatables/2024-01-01T00-00-00Z
+          cat > build/reports/rewrite/datatables/2024-01-01T00-00-00Z/org.openrewrite.table.SourcesFileResults.csv <<'CSV'
+        sourcePath,estimatedTimeSaving
+        $targetFile,300
+        CSV
           exit 0
         fi
         if [ "${D}1" = "rewriteRun" ]; then
           echo "${D}1" >> "${D}LOG"
+          mkdir -p build/reports/rewrite/datatables/2024-01-01T00-00-01Z
+          cat > build/reports/rewrite/datatables/2024-01-01T00-00-01Z/org.openrewrite.table.SourcesFileResults.csv <<'CSV'
+        sourcePath,estimatedTimeSaving
+        $targetFile,420
+        CSV
           printf '$printfContent' > $targetFile
           exit 0
         fi
@@ -144,8 +155,9 @@ fun Path.writeFakeGradlew(
  * Writes a simplified fake `mvnw` for non-JVM plugin-first tests.
  *
  * Detects the goal suffix (`:dryRun` / `:run`), logs `dryRun` or `run` to `wrapper-calls.log`,
- * extracts `-DreportOutputDirectory=<dir>`, and on `dryRun` writes a unified-diff patch there;
- * on `run` overwrites [targetFile] with [newContent].
+ * extracts `-DreportOutputDirectory=<dir>`, and on `dryRun` writes a unified-diff patch and
+ * exported `SourcesFileResults` table there; on `run` overwrites [targetFile] with [newContent]
+ * and writes a later data table.
  *
  * Does **not** validate Maven flag details — see
  * `PluginFirstIntegrationTest.writeFakeMvnwWithProtocolChecks` for that level of protocol
@@ -189,10 +201,22 @@ fun Path.writeFakeMvnwSimple(
         -$oldLine
         +$newLine
         PATCH
+          mkdir -p "${D}report_dir/datatables/2024-01-01T00-00-00Z"
+          cat > "${D}report_dir/datatables/2024-01-01T00-00-00Z/org.openrewrite.table.SourcesFileResults.csv" <<'CSV'
+        sourcePath,estimatedTimeSaving
+        $targetFile,300
+        CSV
           exit 0
         fi
 
         if [ "${D}goal" = "run" ]; then
+          if [ -n "${D}report_dir" ]; then
+            mkdir -p "${D}report_dir/datatables/2024-01-01T00-00-01Z"
+            cat > "${D}report_dir/datatables/2024-01-01T00-00-01Z/org.openrewrite.table.SourcesFileResults.csv" <<'CSV'
+        sourcePath,estimatedTimeSaving
+        $targetFile,420
+        CSV
+          fi
           printf '$printfContent' > $targetFile
           exit 0
         fi
@@ -208,6 +232,7 @@ fun Path.writeFakeMvnwSimple(
  * dry-run/run behaviour, asserting that MavenPluginStrategy sends:
  *  - the unprefixed `-DreportOutputDirectory=` (not `-Drewrite.reportOutputDirectory=`), and
  *  - `-Drewrite.runPerSubmodule=false`.
+ *  - `-Drewrite.exportDatatables=true`.
  *
  * A regression to the wrong flag format makes the wrapper exit 2. Patch paths and content are
  * derived from [targetFile]/[oldLine]/[newLine]/[newContent] so the asserted file tracks the
@@ -229,6 +254,7 @@ fun Path.writeFakeMvnwWithProtocolChecks(
         goal=""
         report_dir=""
         has_run_per_submodule=0
+        has_export_datatables=0
         has_wrong_prefix=0
         has_unprefixed=0
 
@@ -250,6 +276,9 @@ fun Path.writeFakeMvnwWithProtocolChecks(
             -Drewrite.runPerSubmodule=false)
               has_run_per_submodule=1
               ;;
+            -Drewrite.exportDatatables=true)
+              has_export_datatables=1
+              ;;
           esac
         done
 
@@ -269,6 +298,10 @@ fun Path.writeFakeMvnwWithProtocolChecks(
           echo "FAIL: -Drewrite.runPerSubmodule=false missing" 1>&2
           exit 2
         fi
+        if [ "${D}has_export_datatables" = "0" ]; then
+          echo "FAIL: -Drewrite.exportDatatables=true missing" 1>&2
+          exit 2
+        fi
 
         if [ "${D}goal" = "dryRun" ]; then
           mkdir -p "${D}report_dir"
@@ -280,10 +313,22 @@ fun Path.writeFakeMvnwWithProtocolChecks(
         -$oldLine
         +$newLine
         PATCH
+          mkdir -p "${D}report_dir/datatables/2024-01-01T00-00-00Z"
+          cat > "${D}report_dir/datatables/2024-01-01T00-00-00Z/org.openrewrite.table.SourcesFileResults.csv" <<'CSV'
+        sourcePath,estimatedTimeSaving
+        $targetFile,300
+        CSV
           exit 0
         fi
 
         if [ "${D}goal" = "run" ]; then
+          if [ -n "${D}report_dir" ]; then
+            mkdir -p "${D}report_dir/datatables/2024-01-01T00-00-01Z"
+            cat > "${D}report_dir/datatables/2024-01-01T00-00-01Z/org.openrewrite.table.SourcesFileResults.csv" <<'CSV'
+        sourcePath,estimatedTimeSaving
+        $targetFile,420
+        CSV
+          fi
           printf '$printfContent' > $targetFile
           exit 0
         fi

@@ -18,6 +18,18 @@ import org.openrewrite.maven.tree.MavenRepository
 import org.openrewrite.maven.tree.ResolvedDependency
 import org.openrewrite.maven.tree.ResolvedGroupArtifactVersion
 
+private val defaultProcessRunner: ProcessRunner =
+    { workDir, command, captureStdout, timeout, name, log ->
+        runProcess(
+            workDir = workDir,
+            command = command,
+            captureStdout = captureStdout,
+            timeout = timeout,
+            timeoutName = name,
+            logger = log
+        )
+    }
+
 /**
  * Builds provenance and build-tool markers that are attached to every parsed [org.openrewrite.SourceFile].
  *
@@ -33,7 +45,7 @@ internal class MarkerFactory(
     private val staticParser: StaticBuildFileParser,
     private val versionDetector: VersionDetector,
     private val processTimeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT,
-    private val processRunner: ProcessRunner = ::runProcess
+    private val processRunner: ProcessRunner = defaultProcessRunner
 ) {
     private val metadataProbeTimeout = minOf(processTimeout, Duration.ofSeconds(5))
 
