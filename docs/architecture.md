@@ -24,6 +24,8 @@ Orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`:
 
 ## Stage 0: Plugin-First Execution
 
+Stage 0 is the default path and the in-process LST pipeline is the fallback; see [ADR 0006](adr/0006-plugin-first-execution.md) for why.
+
 `PluginRecipeRunner` checks the project root for Gradle or Maven build files and tries the official OpenRewrite plugin before the in-process LST pipeline:
 
 | Build tool | Strategy | Patch path |
@@ -101,6 +103,8 @@ GradleProject markers are not attached on that path. See
 [`docs/adr/0003-classpath-stage-seam.md`](adr/0003-classpath-stage-seam.md).
 
 When `--exclude-paths` (or `parse.excludePaths`) removes every JVM source file (`.java`, `.kt`, `.kts`, `.groovy`, `.gradle`) from scope, all four classpath stages are **skipped entirely** — there is no `mvn`/`gradle` subprocess, no POM walk, no local-repo scan. The build emits a single `INFO` line (`"No JVM source files in scope — skipping classpath resolution stages."`) and proceeds directly to the language parsers, which run with an empty classpath. This optimization keeps non-JVM workflows (e.g. running a YAML-only recipe) fast.
+
+Path filtering is exclusion-only by design (no include/allowlist), matching upstream OpenRewrite's only native primitive so Stage 0 and the LST fallback filter identically; see [ADR 0007](adr/0007-exclusion-only-path-filtering.md).
 
 ## LST Module Structure
 

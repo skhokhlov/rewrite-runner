@@ -11,6 +11,12 @@
 - **Classpath stage**: A `ClasspathStage` implementation in the ordered LST classpath-resolution
   chain. `resolve(projectDir, parseFailures)` returns a `ClasspathResolutionResult` to win or
   `null` to fall through to the next stage.
+- **Stage 0 / Plugin-first execution**: The default execution path, in which rewrite-runner shells
+  out to the official OpenRewrite Gradle/Maven plugin to apply the recipe, short-circuiting the
+  in-process engine on success. _Avoid_: "plugin mode", "external run". See [[0006-plugin-first-execution]].
+- **LST fallback**: The in-process four-stage engine (`LstBuilder` + classpath stages) that runs
+  when Stage 0 is skipped, fails, or finds no build tool. It is the fallback, not the primary path.
+  _Avoid_: "LST pipeline" as a synonym for the whole tool — it is one of two execution paths.
 - **Estimated time saved**: A heuristic estimate of manual developer effort avoided by a recipe run,
   not measured wall-clock. It is the sum, over every changed file, of the effort OpenRewrite attributes
   to the change — for each file the total `getEstimatedEffortPerOccurrence()` (default 5 minutes) of the
