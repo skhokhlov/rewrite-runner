@@ -23,10 +23,13 @@
   `PlainTextParser`. The configured list replaces the built-in default. Forwarded to both Stage 0
   and the LST fallback so both paths select the same files. Specialized parsers take precedence: a
   file a real parser claims, such as `Dockerfile*` for `DockerParser`, is never treated as plain
-  text on the LST path.
+  text on the LST path. See also **Specialized ownership**.
 - **Root descriptor**: A build descriptor at the project root: `pom.xml` for Maven, or
   `settings.gradle(.kts)` / `build.gradle(.kts)` for Gradle.
 - **Root-less monorepo**: A repository whose project root has no build descriptor for a tool, but one
   or more subdirectories do.
+- **Specialized ownership**: The Docker/HCL/protobuf file types rewrite-runner parses with its own
+  classpath-free specialized parsers, partitioned out of Stage 0 by exclusion. A file type belongs
+  here only when Stage 0 structurally cannot handle it and it is safe to parse in isolation.
 - **Top-most discovery**: Build-unit discovery rule that selects the first descriptor directory found
   on a path and does not descend into that directory's children.

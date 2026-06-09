@@ -29,5 +29,5 @@ data class RunResult(
     val hasChanges: Boolean get() = results.isNotEmpty() || rawDiffs.isNotEmpty()
 
     /** Number of source files changed by the recipe. */
-    val changeCount: Int get() = if (results.isNotEmpty()) results.size else rawDiffs.size
+    val changeCount: Int get() = results.size + rawDiffs.size
 }

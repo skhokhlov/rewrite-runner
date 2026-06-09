@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Resolved by [ADR 0005](0005-stage0-specialized-parser-ownership.md)
 
 ## Context
 
@@ -28,17 +28,15 @@ Keep the plain-text mask work scoped to selection parity:
 - Keep specialized parser precedence on the LST path, so files like `Dockerfile*` are still parsed by
   `DockerParser` when the fallback runs.
 
-Do not change Stage 0 short-circuit behavior in this work.
+This ADR documented the deferred gap after plain-text mask parity was implemented. ADR 0005 resolves
+the gap by partitioning Docker/HCL/protobuf out of Stage 0 and running a specialized in-process pass
+beside successful plugin execution.
 
 Follow-up issue: [#202](https://github.com/skhokhlov/rewrite-runner/issues/202).
 
 ## Consequences
 
-Stage 0 remains fastest and closest to the official OpenRewrite plugin behavior, but it still does not
-exercise rewrite-runner's classpath-free specialized parsers. Users who need those parsers can use
-`--skip-plugin-run` as a workaround.
-
-Future work should split file-type ownership: exclude specialized non-JVM formats from Stage 0 using
-the existing exclusion forwarding, always run a lightweight classpath-free LST pass over just those
-files, and merge the plugin raw diffs with fallback `Result` objects. `RunResult` already carries both
-`rawDiffs` and `results`, so the public result shape can represent that merged execution model.
+Stage 0 remains fastest and closest to official OpenRewrite plugin behavior for files it can own, but
+Docker/HCL/protobuf files are now excluded from Stage 0 and handled by rewrite-runner's
+classpath-free parsers. Users no longer need `--skip-plugin-run` merely to make those specialized
+formats participate in a buildable project.

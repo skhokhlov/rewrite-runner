@@ -152,6 +152,68 @@ fun Path.writeFakeGradlew(
 }
 
 /**
+ * Writes a fake `gradlew` that validates the generated init script contains every
+ * [requiredExclusions] entry before simulating a single-file plugin change.
+ */
+fun Path.writeFakeGradlewWithExclusionChecks(
+    targetFile: String,
+    oldLine: String,
+    newLine: String,
+    newContent: String,
+    requiredExclusions: List<String>
+) {
+    val printfContent = newContent.replace("\n", "\\n")
+    val checks =
+        requiredExclusions.joinToString("; ") { exclusion ->
+            "grep -F 'exclusion(\"$exclusion\")' \"${D}init_script\" >/dev/null || " +
+                "{ echo \"missing Gradle exclusion: $exclusion\" 1>&2; exit 2; }"
+        }
+    val gradlew = resolve("gradlew")
+    gradlew.writeText(
+        """
+        #!/bin/sh
+        LOG="$D(cd "$D(dirname "${D}0")" && pwd)/wrapper-calls.log"
+        init_script=""
+        previous=""
+        for arg in "$D@"; do
+          if [ "${D}previous" = "--init-script" ]; then
+            init_script="${D}arg"
+          fi
+          previous="${D}arg"
+        done
+        if [ "${D}1" = "rewriteDryRun" ]; then
+          if [ -z "${D}init_script" ]; then
+            exit 2
+          fi
+          $checks
+          echo "${D}1" >> "${D}LOG"
+          mkdir -p build/reports/rewrite
+          cat > build/reports/rewrite/rewrite.patch <<'PATCH'
+        diff --git a/$targetFile b/$targetFile
+        --- a/$targetFile
+        +++ b/$targetFile
+        @@ -1 +1 @@
+        -$oldLine
+        +$newLine
+        PATCH
+          exit 0
+        fi
+        if [ "${D}1" = "rewriteRun" ]; then
+          if [ -z "${D}init_script" ]; then
+            exit 2
+          fi
+          $checks
+          echo "${D}1" >> "${D}LOG"
+          printf '$printfContent' > $targetFile
+          exit 0
+        fi
+        exit 1
+        """.trimIndent()
+    )
+    if (!isWindows) Files.setPosixFilePermissions(gradlew, posixExecutable)
+}
+
+/**
  * Writes a simplified fake `mvnw` for non-JVM plugin-first tests.
  *
  * Detects the goal suffix (`:dryRun` / `:run`), logs `dryRun` or `run` to `wrapper-calls.log`,
@@ -217,6 +279,72 @@ fun Path.writeFakeMvnwSimple(
         $targetFile,420
         CSV
           fi
+          printf '$printfContent' > $targetFile
+          exit 0
+        fi
+
+        exit 1
+        """.trimIndent()
+    )
+    if (!isWindows) Files.setPosixFilePermissions(mvnw, posixExecutable)
+}
+
+/**
+ * Writes a fake `mvnw` that validates `-Drewrite.exclusions=` contains all
+ * [requiredExclusions] before simulating a single-file plugin change.
+ */
+fun Path.writeFakeMvnwWithExclusionChecks(
+    targetFile: String,
+    oldLine: String,
+    newLine: String,
+    newContent: String,
+    requiredExclusions: List<String>
+) {
+    val printfContent = newContent.replace("\n", "\\n")
+    val checks =
+        requiredExclusions.joinToString("; ") { exclusion ->
+            "echo \"${D}exclusions\" | grep -F '$exclusion' >/dev/null || " +
+                "{ echo \"missing Maven exclusion: $exclusion in ${D}exclusions\" 1>&2; exit 2; }"
+        }
+    val mvnw = resolve("mvnw")
+    mvnw.writeText(
+        """
+        #!/bin/sh
+        LOG="$D(cd "$D(dirname "${D}0")" && pwd)/wrapper-calls.log"
+
+        goal=""
+        report_dir=""
+        exclusions=""
+
+        for arg in "$D@"; do
+          case "${D}arg" in
+            *:dryRun) goal=dryRun ;;
+            *:run)    goal=run ;;
+            -DreportOutputDirectory=*) report_dir="$D{arg#-DreportOutputDirectory=}" ;;
+            -Drewrite.exclusions=*) exclusions="$D{arg#-Drewrite.exclusions=}" ;;
+          esac
+        done
+
+        if [ -n "${D}goal" ]; then
+          echo "${D}goal" >> "${D}LOG"
+        fi
+
+        if [ "${D}goal" = "dryRun" ] && [ -n "${D}report_dir" ]; then
+          $checks
+          mkdir -p "${D}report_dir"
+          cat > "${D}report_dir/rewrite.patch" <<'PATCH'
+        diff --git a/$targetFile b/$targetFile
+        --- a/$targetFile
+        +++ b/$targetFile
+        @@ -1 +1 @@
+        -$oldLine
+        +$newLine
+        PATCH
+          exit 0
+        fi
+
+        if [ "${D}goal" = "run" ]; then
+          $checks
           printf '$printfContent' > $targetFile
           exit 0
         fi

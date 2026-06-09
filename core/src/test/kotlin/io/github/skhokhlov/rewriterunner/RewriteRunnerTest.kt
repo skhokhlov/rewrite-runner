@@ -326,7 +326,7 @@ class RewriteRunnerTest :
                         exit 0
                     fi
                 done
-                echo "configured Maven plugin version was not used" > "${'$'}marker"
+                printf "configured Maven plugin version was not used: %s\n" "${'$'}*" > "${'$'}marker"
                 exit 1
                 """.trimIndent()
             )

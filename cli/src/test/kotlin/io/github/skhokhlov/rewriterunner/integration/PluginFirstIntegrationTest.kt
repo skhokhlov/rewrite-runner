@@ -2,6 +2,7 @@ package io.github.skhokhlov.rewriterunner.integration
 
 import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
+import io.github.skhokhlov.rewriterunner.lst.SpecializedOwnership
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -116,6 +117,145 @@ class PluginFirstIntegrationTest :
             assertEquals(
                 Duration.ofSeconds(420),
                 result.executionDiagnostics.estimatedTimeSaved
+            )
+        }
+
+        test(
+            "plugin-first Gradle path merges raw plugin diffs with specialized Docker results"
+        ).config(enabled = !isWindows) {
+            projectDir.resolve("settings.gradle.kts").writeText("rootProject.name = \"test\"\n")
+            projectDir.resolve("build.gradle.kts").writeText("plugins { java }\n")
+            projectDir.resolve("src/main/java").toFile().mkdirs()
+            val javaFile = projectDir.resolve("src/main/java/App.java")
+            javaFile.writeText("class App{}\n")
+            val dockerfile = projectDir.resolve("Dockerfile")
+            dockerfile.writeText("FROM ubuntu:PLACEHOLDER\n")
+            projectDir.writeFindAndReplaceRecipe(find = "PLACEHOLDER", replace = "22.04")
+            projectDir.writeFakeGradlewWithExclusionChecks(
+                targetFile = "src/main/java/App.java",
+                oldLine = "class App{}",
+                newLine = "class App { }",
+                newContent = "class App { }\n",
+                requiredExclusions = SpecializedOwnership.stage0ExcludeGlobs
+            )
+
+            val runResult =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe("com.example.integration.FindAndReplace")
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(
+                UsedExecutionStage.PLUGIN,
+                runResult.executionDiagnostics.stageUsed,
+                "runResult=$runResult"
+            )
+            assertTrue((runResult.executionDiagnostics.parsedFileCount ?: 0) > 0)
+            assertEquals(setOf(Path.of("src/main/java/App.java")), runResult.rawDiffs.keys)
+            assertEquals(
+                setOf("Dockerfile"),
+                runResult.results.map {
+                    (it.after?.sourcePath ?: it.before?.sourcePath).toString()
+                }.toSet()
+            )
+            assertEquals("class App { }\n", javaFile.readText())
+            assertEquals("FROM ubuntu:22.04\n", dockerfile.readText())
+            assertEquals(setOf(javaFile, dockerfile), runResult.changedFiles.toSet())
+            assertEquals(
+                "rewriteDryRun\nrewriteRun\n",
+                projectDir.resolve("wrapper-calls.log").readText()
+            )
+        }
+
+        test(
+            "specialized pass recipe-load failure does not fail a successful plugin run"
+        ).config(enabled = !isWindows) {
+            // Stage 0 succeeds (the fake plugin patches the Java file) and the project
+            // contains an owned Dockerfile, but the active recipe is known ONLY to the
+            // project's own build — there is no rewrite.yaml and no recipe artifact, so the
+            // in-process specialized pass cannot resolve it. The pass must degrade to
+            // plugin-only results rather than throwing and failing an already-successful run.
+            projectDir.resolve("settings.gradle.kts").writeText("rootProject.name = \"test\"\n")
+            projectDir.resolve("build.gradle.kts").writeText("plugins { java }\n")
+            projectDir.resolve("src/main/java").toFile().mkdirs()
+            val javaFile = projectDir.resolve("src/main/java/App.java")
+            javaFile.writeText("class App{}\n")
+            val dockerfile = projectDir.resolve("Dockerfile")
+            dockerfile.writeText("FROM ubuntu:PLACEHOLDER\n")
+            projectDir.writeFakeGradlew(
+                targetFile = "src/main/java/App.java",
+                oldLine = "class App{}",
+                newLine = "class App { }",
+                newContent = "class App { }\n"
+            )
+
+            val runResult =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe("com.example.only.known.to.plugin.Recipe")
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(
+                UsedExecutionStage.PLUGIN,
+                runResult.executionDiagnostics.stageUsed,
+                "runResult=$runResult"
+            )
+            assertEquals(setOf(Path.of("src/main/java/App.java")), runResult.rawDiffs.keys)
+            assertTrue(runResult.results.isEmpty())
+            // Dockerfile untouched because the specialized recipe never ran.
+            assertEquals("FROM ubuntu:PLACEHOLDER\n", dockerfile.readText())
+            assertEquals("class App { }\n", javaFile.readText())
+        }
+
+        test(
+            "plugin-first Maven path with no owned files keeps plugin-only diagnostics"
+        ).config(enabled = !isWindows) {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project>
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>test</artifactId>
+                  <version>1.0-SNAPSHOT</version>
+                </project>
+                """.trimIndent()
+            )
+            projectDir.resolve("src/main/java").toFile().mkdirs()
+            val javaFile = projectDir.resolve("src/main/java/App.java")
+            javaFile.writeText("class App{}\n")
+            projectDir.writeFakeMvnwWithExclusionChecks(
+                targetFile = "src/main/java/App.java",
+                oldLine = "class App{}",
+                newLine = "class App { }",
+                newContent = "class App { }\n",
+                requiredExclusions = SpecializedOwnership.stage0ExcludeGlobs
+            )
+
+            val runResult =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe("com.example.integration.FindAndReplace")
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(
+                UsedExecutionStage.PLUGIN,
+                runResult.executionDiagnostics.stageUsed,
+                "runResult=$runResult"
+            )
+            assertEquals(null, runResult.executionDiagnostics.parsedFileCount)
+            assertTrue(runResult.results.isEmpty())
+            assertEquals(setOf(Path.of("src/main/java/App.java")), runResult.rawDiffs.keys)
+            assertEquals("class App { }\n", javaFile.readText())
+            assertEquals(listOf(javaFile), runResult.changedFiles)
+            assertEquals(
+                "dryRun\nrun\n",
+                projectDir.resolve("wrapper-calls.log").readText()
             )
         }
 

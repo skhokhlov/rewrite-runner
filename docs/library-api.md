@@ -62,9 +62,9 @@ Return type of `RewriteRunner.run()`.
 | `results` | `List<Result>` | Raw OpenRewrite results (one per changed file). Empty means no changes. |
 | `changedFiles` | `List<Path>` | Files written to disk during this run. Empty when `dryRun = true` or no changes. |
 | `projectDir` | `Path` | Resolved project directory (same as `Builder.projectDir`) |
-| `rawDiffs` | `Map<Path, String>` | Unified diffs from the plugin-first path. Empty when the in-process LST path runs. |
+| `rawDiffs` | `Map<Path, String>` | Unified diffs from the plugin-first path. May be populated alongside `results` when the Stage 0 specialized ownership pass also changed files. |
 | `hasChanges` | `Boolean` | `true` when the recipe produced at least one change, regardless of `dryRun` |
-| `changeCount` | `Int` | Number of changed source files |
+| `changeCount` | `Int` | Number of changed source files (`results.size + rawDiffs.size`) |
 | `executionDiagnostics` | `ExecutionDiagnostics` | Which pipeline stage produced the run, how many JARs were on the classpath, parser failures, and OpenRewrite's estimated time saved |
 
 ## ExecutionDiagnostics
@@ -126,8 +126,9 @@ Use `parsedFileCount` with `parseFailures` and `results` to classify LST-path ru
 | `parsedFileCount > 0` and `results.isEmpty()` | The recipe ran and found nothing to change |
 | `parsedFileCount > 0` and `results.isNotEmpty()` | The recipe made changes |
 
-When `parsedFileCount == null`, the Stage 0 plugin path produced the run; use
-`hasChanges` and `rawDiffs` instead.
+When `stageUsed == PLUGIN` and `parsedFileCount == null`, the run was plugin-only; use `hasChanges`
+and `rawDiffs` instead. When `stageUsed == PLUGIN` and `parsedFileCount` is non-null, Stage 0
+succeeded and rewrite-runner also ran the restricted Docker/HCL/protobuf specialized pass.
 
 Three signals end up here:
 
@@ -259,7 +260,8 @@ fun format(runResult: RunResult)
 - `results` — the list from `RunResult.results`. May be empty; prints `"No changes produced."` / `"No files changed."` for `DIFF` / `FILES` modes.
 - `reportDir` — directory where `openrewrite-report.json` is written. Ignored for `DIFF` and `FILES` modes. Defaults to the current directory (`.`).
 
-Use `format(runResult)` when you want formatted output that also supports Stage 0 plugin results stored in `RunResult.rawDiffs`.
+Use `format(runResult)` when you want formatted output that supports Stage 0 plugin results stored
+in `RunResult.rawDiffs`, in-process `RunResult.results`, or both in the same run.
 
 ## ToolConfig YAML
 
@@ -339,7 +341,7 @@ val runner = RewriteRunner.builder()
 | `excludePaths` | `List<String>` | `[]` | Glob patterns (relative to project root) to skip |
 | `plainTextMasks` | `List<String>` | upstream defaults | Glob patterns (relative to project root) for otherwise-unhandled files to parse with `PlainTextParser` |
 
-**Precedence**: CLI flag `--exclude-paths` (or `Builder.excludePaths(...)`) overrides `parse.excludePaths` from the config file when non-empty. CLI flag `--plain-text-masks` (or `Builder.plainTextMasks(...)`) overrides `parse.plainTextMasks` from the config file when non-empty; if both are empty, rewrite-runner uses the upstream OpenRewrite default plain-text mask list. Both resolved lists are forwarded to the Stage 0 plugin invocation and to the LST fallback pipeline, so both code paths apply identical filtering. Exclusions win over plain-text masks.
+**Precedence**: CLI flag `--exclude-paths` (or `Builder.excludePaths(...)`) overrides `parse.excludePaths` from the config file when non-empty. CLI flag `--plain-text-masks` (or `Builder.plainTextMasks(...)`) overrides `parse.plainTextMasks` from the config file when non-empty; if both are empty, rewrite-runner uses the upstream OpenRewrite default plain-text mask list. Both resolved lists are forwarded to the Stage 0 plugin invocation and to the LST fallback pipeline, so both code paths apply identical filtering. Stage 0 also receives rewrite-runner's Docker/HCL/protobuf ownership exclusions unconditionally. Exclusions win over plain-text masks.
 
 Plain-text masks are a fallback allowlist, not a catch-all for every unhandled file. In the LST path, specialized parsers take precedence; for example `Dockerfile*` routes to `DockerParser` and `*.qute.java` routes to `JavaParser` even though both are in the default plain-text mask list. Future work may add a broader opt-in for parsing every unmatched text file.
 
