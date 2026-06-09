@@ -1,5 +1,9 @@
 package io.github.skhokhlov.rewriterunner
 
+import io.github.skhokhlov.rewriterunner.apply.ChangeKind
+import io.github.skhokhlov.rewriterunner.apply.ChangeWriter
+import io.github.skhokhlov.rewriterunner.apply.DiskChangeWriter
+import io.github.skhokhlov.rewriterunner.apply.WriteOutcome
 import io.github.skhokhlov.rewriterunner.config.DurationParser
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
@@ -127,6 +131,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         val effectiveRepositories =
             toolConfig.resolvedArtifactRepositories() + config.artifactRepositories
 
+        val changeWriter = config.changeWriter ?: DiskChangeWriter(config.projectDir, logger)
+
         // Stage 0: let the project's own build tool run the official OpenRewrite plugin first.
         if (!config.skipPluginRun) {
             logger.lifecycle("[0/7] Attempting plugin-first recipe execution")
@@ -170,7 +176,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                         effectiveIncludeMavenCentral = effectiveIncludeMavenCentral,
                         effectiveDownloadThreads = effectiveDownloadThreads,
                         effectiveResolverConnectTimeout = effectiveResolverConnectTimeout,
-                        effectiveResolverRequestTimeout = effectiveResolverRequestTimeout
+                        effectiveResolverRequestTimeout = effectiveResolverRequestTimeout,
+                        changeWriter = changeWriter
                     )
                 }
 
@@ -192,7 +199,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                         effectiveIncludeMavenCentral = effectiveIncludeMavenCentral,
                         effectiveDownloadThreads = effectiveDownloadThreads,
                         effectiveResolverConnectTimeout = effectiveResolverConnectTimeout,
-                        effectiveResolverRequestTimeout = effectiveResolverRequestTimeout
+                        effectiveResolverRequestTimeout = effectiveResolverRequestTimeout,
+                        changeWriter = changeWriter
                     )
                 }
 
@@ -310,18 +318,21 @@ class RewriteRunner private constructor(private val config: Builder) {
                     " in ${System.currentTimeMillis() - recipeStart}ms"
             )
 
-            val writtenFiles =
-                applyResults(results, config.projectDir, config.dryRun, logger)
+            val outcome =
+                applyResults(results, config.dryRun, logger, changeWriter)
 
             val timeSaved = results.fold(Duration.ZERO) { total, result ->
                 total.plus(result.timeSavings)
             }
             RunResult(
                 results = results,
-                changedFiles = writtenFiles,
+                changedFiles = changedFiles(config.projectDir, outcome),
                 projectDir = config.projectDir,
                 executionDiagnostics =
-                    lstBuildResult.executionDiagnostics.copy(estimatedTimeSaved = timeSaved)
+                    lstBuildResult.executionDiagnostics.copy(
+                        estimatedTimeSaved = timeSaved,
+                        writeOutcome = outcome
+                    )
             )
         }
     }
@@ -342,7 +353,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         effectiveIncludeMavenCentral: Boolean,
         effectiveDownloadThreads: Int,
         effectiveResolverConnectTimeout: Duration,
-        effectiveResolverRequestTimeout: Duration
+        effectiveResolverRequestTimeout: Duration,
+        changeWriter: ChangeWriter
     ): RunResult {
         logger.lifecycle("[0/7] Running specialized non-JVM parser pass (Docker/HCL/Proto)")
         val lstBuilder =
@@ -433,15 +445,16 @@ class RewriteRunner private constructor(private val config: Builder) {
                 )
                 val results = RecipeRunner(logger).run(recipe, lstBuildResult.sourceFiles)
                 logger.lifecycle("      Recipe complete: ${results.size} file(s) changed")
-                val writtenFiles = applyResults(results, projectDir, dryRun, logger)
+                val outcome = applyResults(results, dryRun, logger, changeWriter)
                 val runResult =
                     RunResult(
                         results = results,
-                        changedFiles = writtenFiles,
+                        changedFiles = changedFiles(projectDir, outcome),
                         projectDir = projectDir,
                         executionDiagnostics =
                             lstBuildResult.executionDiagnostics.copy(
-                                stageUsed = UsedExecutionStage.PLUGIN
+                                stageUsed = UsedExecutionStage.PLUGIN,
+                                writeOutcome = outcome
                             )
                     )
                 mergePluginAndSpecializedResults(runResult, pluginResult)
@@ -457,46 +470,23 @@ class RewriteRunner private constructor(private val config: Builder) {
 
     private fun applyResults(
         results: List<Result>,
-        projectDir: Path,
         dryRun: Boolean,
-        logger: RunnerLogger
-    ): List<Path> {
+        logger: RunnerLogger,
+        changeWriter: ChangeWriter
+    ): WriteOutcome {
         if (dryRun) {
             logger.lifecycle(
                 "[6/7] Dry-run mode: skipping disk writes (${results.size} file(s) would change)"
             )
-            return emptyList()
+            return WriteOutcome.EMPTY
         }
-
-        logger.lifecycle("[6/7] Writing changes to disk")
-        val writtenFiles = mutableListOf<Path>()
-        for (result in results) {
-            if (result.after == null) {
-                val beforePath = result.before?.let { projectDir.resolve(it.sourcePath) }
-                if (beforePath != null) {
-                    try {
-                        Files.deleteIfExists(beforePath)
-                        logger.info("      Deleted ${result.before!!.sourcePath}")
-                    } catch (e: Exception) {
-                        logger.warn("Failed to delete file $beforePath: ${e.message}")
-                    }
-                }
-            } else {
-                val after = result.after!!
-                val target = projectDir.resolve(after.sourcePath)
-                Files.createDirectories(target.parent)
-                target.toFile().writeText(after.printAll(), Charsets.UTF_8)
-                writtenFiles.add(target)
-                logger.info("      Wrote ${after.sourcePath}")
-            }
-        }
-        if (results.isEmpty()) {
-            logger.lifecycle("      No changes — nothing to write")
-        } else {
-            logger.lifecycle("      Done: ${writtenFiles.size} file(s) written")
-        }
-        return writtenFiles
+        return changeWriter.apply(results)
     }
+
+    private fun changedFiles(projectDir: Path, outcome: WriteOutcome): List<Path> =
+        outcome.successes
+            .filter { it.kind != ChangeKind.DELETED }
+            .map { projectDir.resolve(it.path) }
 
     private fun pluginOnlyResult(pluginResult: PluginRunResult, projectDir: Path): RunResult =
         when (pluginResult) {
@@ -593,6 +583,8 @@ class RewriteRunner private constructor(private val config: Builder) {
         internal var plainTextMasks: List<String> = emptyList()
             private set
         internal var logger: RunnerLogger = NoOpRunnerLogger
+            private set
+        internal var changeWriter: ChangeWriter? = null
             private set
 
         /**
@@ -743,6 +735,9 @@ class RewriteRunner private constructor(private val config: Builder) {
          * in the CLI, or provide a custom implementation for library use.
          */
         fun logger(logger: RunnerLogger): Builder = apply { this.logger = logger }
+
+        internal fun changeWriter(changeWriter: ChangeWriter): Builder =
+            apply { this.changeWriter = changeWriter }
 
         /**
          * Construct the [RewriteRunner].

@@ -1,6 +1,8 @@
 package io.github.skhokhlov.rewriterunner.cli
 
 import io.github.skhokhlov.rewriterunner.RewriteRunner
+import io.github.skhokhlov.rewriterunner.RunResult
+import io.github.skhokhlov.rewriterunner.apply.WriteOutcome
 import io.github.skhokhlov.rewriterunner.config.DurationParser
 import io.github.skhokhlov.rewriterunner.output.OutputMode
 import io.github.skhokhlov.rewriterunner.output.ResultFormatter
@@ -201,7 +203,11 @@ class RunCommand : Callable<Int> {
                 spec.commandLine().out
             ).format(runResult)
 
-            0
+            if (runResult.executionDiagnostics.writeOutcome.failed) {
+                printWriteFailures(runResult.executionDiagnostics.writeOutcome)
+            }
+
+            exitCodeFor(runResult)
         } catch (e: IllegalArgumentException) {
             // User-configuration errors (wrong recipe name, missing artifact, bad project path, …).
             // Show a plain one-line message — stack traces belong in debug logs, not on stderr.
@@ -215,7 +221,19 @@ class RunCommand : Callable<Int> {
             1
         }
     }
+
+    private fun printWriteFailures(outcome: WriteOutcome) {
+        val err = spec.commandLine().err
+        err.println("ERROR: ${outcome.failures.size} change(s) could not be applied to disk:")
+        for (failure in outcome.failures) {
+            err.println("  ${failure.path}: ${failure.cause}")
+        }
+        err.flush()
+    }
 }
+
+internal fun exitCodeFor(result: RunResult): Int =
+    if (result.executionDiagnostics.writeOutcome.failed) 1 else 0
 
 /** Case-insensitive converter so both "diff" and "DIFF" are accepted on the CLI. */
 private class OutputModeConverter : ITypeConverter<OutputMode> {
