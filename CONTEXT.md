@@ -8,6 +8,11 @@
 - **Build-tool identity**: The exclusive, root-level build-tool verdict used only for provenance
   markers. `detectBuildTool` returns Gradle, Maven, or None; Gradle wins with a warning when both
   Maven and Gradle root descriptors exist.
+- **Apply**: The step that takes OpenRewrite `Result` objects and attempts to materialize them on
+  the configured target, recording per-file successes and failures rather than treating recipe
+  execution alone as proof that disk changes landed.
+- **Change writer**: The seam responsible for applying recipe results to a target. Production uses
+  the disk-backed writer; tests can inject an in-memory writer through the internal builder hook.
 - **Classpath stage**: A `ClasspathStage` implementation in the ordered LST classpath-resolution
   chain. `resolve(projectDir, parseFailures)` returns a `ClasspathResolutionResult` to win or
   `null` to fall through to the next stage.
@@ -39,3 +44,5 @@
   here only when Stage 0 structurally cannot handle it and it is safe to parse in isolation.
 - **Top-most discovery**: Build-unit discovery rule that selects the first descriptor directory found
   on a path and does not descend into that directory's children.
+- **Write outcome**: The per-file result of the apply step: successful created/modified/deleted
+  changes plus failures with their path, kind, and cause.

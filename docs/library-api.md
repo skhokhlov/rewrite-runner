@@ -65,7 +65,7 @@ Return type of `RewriteRunner.run()`.
 | `rawDiffs` | `Map<Path, String>` | Unified diffs from the plugin-first path. May be populated alongside `results` when the Stage 0 specialized ownership pass also changed files. |
 | `hasChanges` | `Boolean` | `true` when the recipe produced at least one change, regardless of `dryRun` |
 | `changeCount` | `Int` | Number of changed source files (`results.size + rawDiffs.size`) |
-| `executionDiagnostics` | `ExecutionDiagnostics` | Which pipeline stage produced the run, how many JARs were on the classpath, parser failures, and OpenRewrite's estimated time saved |
+| `executionDiagnostics` | `ExecutionDiagnostics` | Which pipeline stage produced the run, how many JARs were on the classpath, parser failures, write outcome, and OpenRewrite's estimated time saved |
 
 ## ExecutionDiagnostics
 
@@ -78,9 +78,14 @@ data class ExecutionDiagnostics(
     val parseFailures: List<ParseFailure> = emptyList(),
     val parsedFileCount: Int? = null,
     val estimatedTimeSaved: Duration? = null,
+    val writeOutcome: WriteOutcome = WriteOutcome.EMPTY,
 )
 
 data class ParseFailure(val path: String, val reason: String, val parser: String)
+data class WriteOutcome(
+    val successes: List<AppliedChange> = emptyList(),
+    val failures: List<ApplyFailure> = emptyList(),
+)
 ```
 
 | Property | Description |
@@ -90,6 +95,18 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
 | `parseFailures` | Per-file parse failures across every parser the LST pipeline ran (see [Parse failures](#parse-failures) below). Empty when every file parsed cleanly. |
 | `parsedFileCount` | Count of successfully parsed source files in the in-process LST path, excluding `ParseError` stubs. `null` when the plugin path ran because no in-process LST was built. |
 | `estimatedTimeSaved` | OpenRewrite's estimate of manual effort avoided by the run, summed across changed files. `null` means the value was not measured or could not be read; `Duration.ZERO` means the run completed and genuinely produced no estimated saving. |
+| `writeOutcome` | Per-file disk apply outcome for LST results. Successes and failures include `ChangeKind` (`CREATED`, `MODIFIED`, `DELETED`) plus project-relative path; failures also include a cause. Dry-run, plugin-only, and no-change runs use `WriteOutcome.EMPTY`. |
+
+### Write outcomes
+
+On the in-process LST path, rewrite-runner attempts every create, modify, and delete result and
+collects failures instead of failing fast or silently swallowing them. `changedFiles` contains only
+successfully applied non-delete paths; inspect `executionDiagnostics.writeOutcome` for deleted files
+and any apply failures.
+
+The CLI exits `1` when `writeOutcome.failed` is true and prints a concise stderr summary before
+returning. Library callers should make the same check when partial disk application must fail their
+own workflow.
 
 ### Detecting a blind run
 
@@ -358,7 +375,7 @@ Use `parse.excludePaths` (or `excludePaths()` in the builder) to skip additional
 | Code | Meaning |
 |------|---------|
 | `0` | Success (recipe ran; changes may or may not exist) |
-| `1` | Error (invalid args, unknown recipe, unknown output mode, unhandled exception) |
+| `1` | Error (invalid args, unknown recipe, unknown output mode, unhandled exception, or one or more LST results could not be applied to disk) |
 
 ## KotlinDoc Coverage
 

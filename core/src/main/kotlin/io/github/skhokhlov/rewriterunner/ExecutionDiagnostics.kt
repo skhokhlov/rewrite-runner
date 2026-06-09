@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner
 
+import io.github.skhokhlov.rewriterunner.apply.WriteOutcome
 import java.time.Duration
 
 /** Which path produced the recipe run (and the classpath behind it, when applicable). */
@@ -92,13 +93,16 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  *   run, summed across changed files. `null` means the value was not measured or could
  *   not be read; [Duration.ZERO] means the run completed and genuinely produced no
  *   estimated saving.
+ * @property writeOutcome Per-file outcome from applying LST results to disk. Dry-run,
+ *   plugin-only, and no-change runs use [WriteOutcome.EMPTY].
  */
 data class ExecutionDiagnostics(
     val stageUsed: UsedExecutionStage?,
     val resolvedJarCount: Int,
     val parseFailures: List<ParseFailure> = emptyList(),
     val parsedFileCount: Int? = null,
-    val estimatedTimeSaved: Duration? = null
+    val estimatedTimeSaved: Duration? = null,
+    val writeOutcome: WriteOutcome = WriteOutcome.EMPTY
 ) {
     companion object {
         val PLUGIN = ExecutionDiagnostics(UsedExecutionStage.PLUGIN, 0)

@@ -1,5 +1,10 @@
 package io.github.skhokhlov.rewriterunner.cli
 
+import io.github.skhokhlov.rewriterunner.ExecutionDiagnostics
+import io.github.skhokhlov.rewriterunner.RunResult
+import io.github.skhokhlov.rewriterunner.apply.ApplyFailure
+import io.github.skhokhlov.rewriterunner.apply.ChangeKind
+import io.github.skhokhlov.rewriterunner.apply.WriteOutcome
 import io.github.skhokhlov.rewriterunner.output.OutputMode
 import io.kotest.core.spec.style.FunSpec
 import java.io.ByteArrayOutputStream
@@ -293,6 +298,36 @@ class RunCommandTest :
             assertEquals(rewriteYaml, cmd.rewriteConfig)
         }
 
+        test("exitCodeFor returns 1 when disk apply failed") {
+            val successful =
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = emptyList(),
+                    projectDir = projectDir,
+                    executionDiagnostics = ExecutionDiagnostics.EMPTY
+                )
+            val failed =
+                successful.copy(
+                    executionDiagnostics =
+                        ExecutionDiagnostics.EMPTY.copy(
+                            writeOutcome =
+                                WriteOutcome(
+                                    failures =
+                                        listOf(
+                                            ApplyFailure(
+                                                ChangeKind.MODIFIED,
+                                                "fail.txt",
+                                                "configured failure"
+                                            )
+                                        )
+                                )
+                        )
+                )
+
+            assertEquals(0, exitCodeFor(successful))
+            assertEquals(1, exitCodeFor(failed))
+        }
+
         // ─── Output mode validation ───────────────────────────────────────────────
 
         test("unknown --output value exits with code 1") {
@@ -417,6 +452,44 @@ class RunCommandTest :
                 javaFile.toFile().readText(),
                 "--dry-run should not modify files"
             )
+        }
+
+        test("partial disk apply failure prints stderr summary and exits 1") {
+            projectDir.resolve("rewrite.yaml").writeText(
+                """
+                ---
+                type: specs.openrewrite.org/v1beta/recipe
+                name: com.test.CreateBlockedFile
+                recipeList:
+                  - org.openrewrite.text.CreateTextFile:
+                      relativeFileName: blocked-parent/generated.txt
+                      fileContents: generated
+                      overwriteExisting: false
+                """.trimIndent()
+            )
+            projectDir.resolve("seed.txt").writeText("seed\n")
+            projectDir.resolve("blocked-parent").writeText("not a directory\n")
+
+            val errBaos = ByteArrayOutputStream()
+            val code =
+                cli()
+                    .setErr(PrintWriter(errBaos))
+                    .execute(
+                        "--project-dir",
+                        projectDir.toString(),
+                        "--active-recipe",
+                        "com.test.CreateBlockedFile",
+                        "--cache-dir",
+                        cacheDir.toString(),
+                        "--skip-plugin-run",
+                        "--plain-text-masks",
+                        "**/*.txt"
+                    )
+
+            val stderr = errBaos.toString()
+            assertEquals(1, code)
+            assertTrue(stderr.contains("ERROR: 1 change(s) could not be applied to disk:"))
+            assertTrue(stderr.contains("blocked-parent/generated.txt"))
         }
 
         // ─── Throwable / LinkageError handling ───────────────────────────────────
