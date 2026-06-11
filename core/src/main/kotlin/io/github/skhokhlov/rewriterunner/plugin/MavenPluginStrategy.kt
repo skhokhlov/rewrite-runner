@@ -70,11 +70,21 @@ internal open class MavenPluginStrategy(
                     ),
                     patchFiles = { findPatchFiles(projectDir, reportDir) },
                     estimatedTimeSaved = { output ->
-                        DataTableReader.sumEstimatedTimeSaved(reportDir.resolve("datatables"))
-                            ?: DataTableReader.sumEstimatedTimeSaved(
-                                projectDir.resolve("target/rewrite/datatables")
+                        EstimatedTimeSavedResolver.resolve(
+                            listOf(
+                                {
+                                    DataTableReader.sumEstimatedTimeSaved(
+                                        reportDir.resolve("datatables")
+                                    )
+                                },
+                                {
+                                    DataTableReader.sumEstimatedTimeSaved(
+                                        projectDir.resolve("target/rewrite/datatables")
+                                    )
+                                },
+                                { PluginOutputReader.estimatedTimeSaved(output) }
                             )
-                            ?: PluginOutputReader.estimatedTimeSaved(output)
+                        )
                     },
                     dryRunFailureMessage = { pluginFailureMessage("Maven rewrite:dryRun", it) },
                     applyFailureMessage = { pluginFailureMessage("Maven rewrite:run", it) }

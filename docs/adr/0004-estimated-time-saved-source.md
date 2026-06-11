@@ -51,6 +51,11 @@ on both paths and **never recomputed** by rewrite-runner:
   same OpenRewrite-computed result duration. rewrite-runner never derives a number from patch shape
   or changed-file count.
 
+Stage 0 source selection is ordered and positive-only: each source is tried in priority order, and
+a source wins only when it yields a strictly positive `Duration`. A non-positive or absent source
+falls through to the next source. On a successful plugin run with changed files, if no source yields
+a positive estimate, `estimatedTimeSaved` is `null` rather than `Duration.ZERO`.
+
 Null-versus-zero is meaningful: `null` means "could not be determined" (Stage 0 with export missing
 or the CSV absent/unparseable, or empty diagnostics); `Duration.ZERO` means "ran, genuinely saved
 nothing." This mirrors the existing `parsedFileCount` discipline.

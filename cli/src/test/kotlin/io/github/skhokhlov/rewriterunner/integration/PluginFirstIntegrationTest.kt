@@ -121,6 +121,36 @@ class PluginFirstIntegrationTest :
         }
 
         test(
+            "plugin-first Gradle path falls back when data table estimate is zero"
+        ).config(enabled = !isWindows) {
+            val scenario = PluginScenarios.gradleSingleFile
+            scenario.setUpProject(projectDir)
+            val (relPath, afterContent) = scenario.expectedAfterFiles.entries.single()
+            val beforeContent = projectDir.resolve(relPath).readText()
+            projectDir.writeFakeGradlewWithHeaderOnlyDataTablesAndEstimate(
+                targetFile = relPath,
+                oldLine = beforeContent.trimEnd('\n'),
+                newLine = afterContent.trimEnd('\n'),
+                newContent = afterContent,
+                estimate = "7m"
+            )
+
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe(scenario.activeRecipe)
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(UsedExecutionStage.PLUGIN, result.executionDiagnostics.stageUsed)
+            assertEquals(
+                Duration.ofMinutes(7),
+                result.executionDiagnostics.estimatedTimeSaved
+            )
+        }
+
+        test(
             "plugin-first Gradle path merges raw plugin diffs with specialized Docker results"
         ).config(enabled = !isWindows) {
             projectDir.resolve("settings.gradle.kts").writeText("rootProject.name = \"test\"\n")

@@ -57,9 +57,16 @@ internal open class GradlePluginStrategy(
                     applyCommand = buildCommand(projectDir, "rewriteRun", initScript),
                     patchFiles = { findPatchFiles(projectDir) },
                     estimatedTimeSaved = { output ->
-                        DataTableReader.sumEstimatedTimeSaved(
-                            projectDir.resolve("build/reports/rewrite/datatables")
-                        ) ?: PluginOutputReader.estimatedTimeSaved(output)
+                        EstimatedTimeSavedResolver.resolve(
+                            listOf(
+                                {
+                                    DataTableReader.sumEstimatedTimeSaved(
+                                        projectDir.resolve("build/reports/rewrite/datatables")
+                                    )
+                                },
+                                { PluginOutputReader.estimatedTimeSaved(output) }
+                            )
+                        )
                     },
                     dryRunFailureMessage = { pluginFailureMessage("Gradle rewriteDryRun", it) },
                     applyFailureMessage = { pluginFailureMessage("Gradle rewriteRun", it) }
