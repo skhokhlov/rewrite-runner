@@ -369,6 +369,36 @@ class PluginFirstIntegrationTest :
         }
 
         test(
+            "plugin-first Maven path falls back when data table estimates are zero"
+        ).config(enabled = !isWindows) {
+            val scenario = PluginScenarios.mavenSingleFile
+            scenario.setUpProject(projectDir)
+            val (relPath, afterContent) = scenario.expectedAfterFiles.entries.single()
+            val beforeContent = projectDir.resolve(relPath).readText()
+            projectDir.writeFakeMvnwWithHeaderOnlyDataTablesAndEstimate(
+                targetFile = relPath,
+                oldLine = beforeContent.trimEnd('\n'),
+                newLine = afterContent.trimEnd('\n'),
+                newContent = afterContent,
+                estimate = "9m"
+            )
+
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe(scenario.activeRecipe)
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(UsedExecutionStage.PLUGIN, result.executionDiagnostics.stageUsed)
+            assertEquals(
+                Duration.ofMinutes(9),
+                result.executionDiagnostics.estimatedTimeSaved
+            )
+        }
+
+        test(
             "plugin-first Maven dry-run produces diff without invoking rewrite:run"
         ).config(enabled = !isWindows) {
             setupFakeMvnwSimple(PluginScenarios.mavenSingleFile)
