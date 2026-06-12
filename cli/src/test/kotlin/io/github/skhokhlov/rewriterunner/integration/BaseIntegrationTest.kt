@@ -152,6 +152,58 @@ fun Path.writeFakeGradlew(
 }
 
 /**
+ * Writes a fake `gradlew` that reproduces a plugin estimate source conflict: exported
+ * `SourcesFileResults` tables exist but carry no per-row estimate, while plugin output reports
+ * a positive `Estimate time saved` value.
+ */
+fun Path.writeFakeGradlewWithHeaderOnlyDataTablesAndEstimate(
+    targetFile: String,
+    oldLine: String,
+    newLine: String,
+    newContent: String,
+    estimate: String
+) {
+    val printfContent = newContent.replace("\n", "\\n")
+    val gradlew = resolve("gradlew")
+    gradlew.writeText(
+        """
+        #!/bin/sh
+        LOG="$D(cd "$D(dirname "${D}0")" && pwd)/wrapper-calls.log"
+        if [ "${D}1" = "rewriteDryRun" ]; then
+          echo "${D}1" >> "${D}LOG"
+          mkdir -p build/reports/rewrite
+          cat > build/reports/rewrite/rewrite.patch <<'PATCH'
+        diff --git a/$targetFile b/$targetFile
+        --- a/$targetFile
+        +++ b/$targetFile
+        @@ -1 +1 @@
+        -$oldLine
+        +$newLine
+        PATCH
+          mkdir -p build/reports/rewrite/datatables/2024-01-01T00-00-00Z
+          cat > build/reports/rewrite/datatables/2024-01-01T00-00-00Z/org.openrewrite.table.SourcesFileResults.csv <<'CSV'
+        sourcePath,estimatedTimeSaving
+        CSV
+          echo "Estimate time saved: $estimate"
+          exit 0
+        fi
+        if [ "${D}1" = "rewriteRun" ]; then
+          echo "${D}1" >> "${D}LOG"
+          mkdir -p build/reports/rewrite/datatables/2024-01-01T00-00-01Z
+          cat > build/reports/rewrite/datatables/2024-01-01T00-00-01Z/org.openrewrite.table.SourcesFileResults.csv <<'CSV'
+        sourcePath,estimatedTimeSaving
+        CSV
+          echo "Estimate time saved: $estimate"
+          printf '$printfContent' > $targetFile
+          exit 0
+        fi
+        exit 1
+        """.trimIndent()
+    )
+    if (!isWindows) Files.setPosixFilePermissions(gradlew, posixExecutable)
+}
+
+/**
  * Writes a fake `gradlew` that validates the generated init script contains every
  * [requiredExclusions] entry before simulating a single-file plugin change.
  */
@@ -279,6 +331,84 @@ fun Path.writeFakeMvnwSimple(
         $targetFile,420
         CSV
           fi
+          printf '$printfContent' > $targetFile
+          exit 0
+        fi
+
+        exit 1
+        """.trimIndent()
+    )
+    if (!isWindows) Files.setPosixFilePermissions(mvnw, posixExecutable)
+}
+
+/**
+ * Writes a fake `mvnw` that reproduces Maven's full estimate source chain conflict: both exported
+ * data-table locations exist but carry no per-row estimate, while plugin output reports a positive
+ * `Estimate time saved` value.
+ */
+fun Path.writeFakeMvnwWithHeaderOnlyDataTablesAndEstimate(
+    targetFile: String,
+    oldLine: String,
+    newLine: String,
+    newContent: String,
+    estimate: String
+) {
+    val printfContent = newContent.replace("\n", "\\n")
+    val mvnw = resolve("mvnw")
+    mvnw.writeText(
+        """
+        #!/bin/sh
+        LOG="$D(cd "$D(dirname "${D}0")" && pwd)/wrapper-calls.log"
+
+        goal=""
+        report_dir=""
+
+        for arg in "$D@"; do
+          case "${D}arg" in
+            *:dryRun) goal=dryRun ;;
+            *:run)    goal=run ;;
+            -DreportOutputDirectory=*) report_dir="$D{arg#-DreportOutputDirectory=}" ;;
+          esac
+        done
+
+        if [ -n "${D}goal" ]; then
+          echo "${D}goal" >> "${D}LOG"
+        fi
+
+        if [ "${D}goal" = "dryRun" ] && [ -n "${D}report_dir" ]; then
+          mkdir -p "${D}report_dir"
+          cat > "${D}report_dir/rewrite.patch" <<'PATCH'
+        diff --git a/$targetFile b/$targetFile
+        --- a/$targetFile
+        +++ b/$targetFile
+        @@ -1 +1 @@
+        -$oldLine
+        +$newLine
+        PATCH
+          mkdir -p "${D}report_dir/datatables/2024-01-01T00-00-00Z"
+          cat > "${D}report_dir/datatables/2024-01-01T00-00-00Z/org.openrewrite.table.SourcesFileResults.csv" <<'CSV'
+        sourcePath,estimatedTimeSaving
+        CSV
+          mkdir -p target/rewrite/datatables/2024-01-01T00-00-00Z
+          cat > target/rewrite/datatables/2024-01-01T00-00-00Z/org.openrewrite.table.SourcesFileResults.csv <<'CSV'
+        sourcePath,estimatedTimeSaving
+        CSV
+          echo "Estimate time saved: $estimate"
+          exit 0
+        fi
+
+        if [ "${D}goal" = "run" ]; then
+          if [ -n "${D}report_dir" ]; then
+            mkdir -p "${D}report_dir/datatables/2024-01-01T00-00-01Z"
+            cat > "${D}report_dir/datatables/2024-01-01T00-00-01Z/org.openrewrite.table.SourcesFileResults.csv" <<'CSV'
+        sourcePath,estimatedTimeSaving
+        CSV
+          fi
+          mkdir -p target/rewrite/datatables/2024-01-01T00-00-01Z
+          cat > target/rewrite/datatables/2024-01-01T00-00-01Z/org.openrewrite.table.SourcesFileResults.csv <<'CSV'
+        sourcePath,estimatedTimeSaving
+        CSV
+          echo "Estimate time saved: $estimate"
           printf '$printfContent' > $targetFile
           exit 0
         fi
