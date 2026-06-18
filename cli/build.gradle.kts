@@ -36,6 +36,18 @@ tasks.shadowJar {
     }
 }
 
+// The `-all` fat JAR (bundling all of core's transitive tree) is too large for Maven Central's
+// upload limit and conceptually isn't a library dependency. The gradleup shadow plugin
+// auto-registers `shadowRuntimeElements` into the `java` component, which vanniktech then
+// publishes; skip that variant so the fat JAR stays out of the Central publication. The
+// `shadowJar` task itself remains available to build the artifact for GitHub Releases (see the
+// release workflow and docs/adr/0009-cli-fatjar-distribution.md). The shadow plugin registers
+// the variant on the `java` component in an afterEvaluate, so the skip must be deferred too.
+afterEvaluate {
+    (components["java"] as AdhocComponentWithVariants)
+        .withVariantsFromConfiguration(configurations["shadowRuntimeElements"]) { skip() }
+}
+
 // Test partitioning. All test code lives in one source set (shares BaseIntegrationTest helpers
 // and `ToolchainCache`); the three lanes are split by Gradle `Test.filter` class-name patterns
 // rather than by Kotest tags. The split mirrors the three CI jobs:
