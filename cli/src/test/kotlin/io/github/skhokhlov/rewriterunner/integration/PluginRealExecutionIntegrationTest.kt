@@ -13,6 +13,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Assumptions
@@ -50,6 +51,41 @@ class PluginRealExecutionIntegrationTest :
 
         test("real plugin: Maven dry-run does not mutate sources").config(enabled = !isWindows) {
             runRealPluginScenario(PluginScenarios.mavenSingleFile, dryRun = true)
+        }
+
+        listOf(MultiModuleBuildTool.GRADLE, MultiModuleBuildTool.MAVEN).forEach { tool ->
+            test(
+                "real plugin: ${tool.displayName} root exclusion reaches subproject files"
+            ).config(enabled = !isWindows) {
+                runMultiModuleExclusionScenario(
+                    tool = tool,
+                    excludePaths = listOf("**/Skip.java"),
+                    expectedChangedPaths = setOf(rootSource, libKeepSource),
+                    expectedUnchangedPaths = setOf(libSkipSource)
+                )
+            }
+        }
+
+        test(
+            "real plugin: Gradle module-relative exclusion does not reach subproject file"
+        ).config(enabled = !isWindows) {
+            runMultiModuleExclusionScenario(
+                tool = MultiModuleBuildTool.GRADLE,
+                excludePaths = listOf("src/main/java/com/example/Skip.java"),
+                expectedChangedPaths = setOf(rootSource, libKeepSource, libSkipSource),
+                expectedUnchangedPaths = emptySet()
+            )
+        }
+
+        test(
+            "real plugin: Maven module-relative exclusion does not reach submodule file"
+        ).config(enabled = !isWindows) {
+            runMultiModuleExclusionScenario(
+                tool = MultiModuleBuildTool.MAVEN,
+                excludePaths = listOf("src/main/java/com/example/Skip.java"),
+                expectedChangedPaths = setOf(rootSource, libKeepSource, libSkipSource),
+                expectedUnchangedPaths = emptySet()
+            )
         }
 
         test(
@@ -210,7 +246,16 @@ class PluginRealExecutionIntegrationTest :
 
 private enum class OrphanTool { GRADLE, MAVEN }
 
+private enum class MultiModuleBuildTool(val displayName: String) {
+    GRADLE("Gradle"),
+    MAVEN("Maven")
+}
+
 private data class WrapperSet(val gradle: Boolean, val maven: Boolean)
+
+private val rootSource: Path = Path.of("src/main/java/com/example/Root.java")
+private val libKeepSource: Path = Path.of("lib/src/main/java/com/example/Keep.java")
+private val libSkipSource: Path = Path.of("lib/src/main/java/com/example/Skip.java")
 
 /** Lays out a single orphan build unit (Gradle or Maven) under [projectDir]/[name]. */
 private fun setUpOrphanUnit(projectDir: Path, name: String, tool: OrphanTool) {
@@ -256,6 +301,148 @@ private fun installRootWrapper(projectDir: Path, wrappers: WrapperSet) {
         mvnw.toFile().writeText("#!/bin/sh\nexec \"$mvnBin\" \"\$@\"\n")
         Files.setPosixFilePermissions(mvnw, posixExecutable)
     }
+}
+
+private fun runMultiModuleExclusionScenario(
+    tool: MultiModuleBuildTool,
+    excludePaths: List<String>,
+    expectedChangedPaths: Set<Path>,
+    expectedUnchangedPaths: Set<Path>
+) {
+    assumeMavenCentralReachable()
+    val projectDir = Files.createTempDirectory("real-plugin-exclusions-")
+    val cacheDir = Files.createTempDirectory("real-plugin-exclusions-cache-")
+    try {
+        setUpMultiModuleExclusionProject(projectDir, tool)
+        installRealWrapper(projectDir)
+
+        val result =
+            RewriteRunner.builder()
+                .projectDir(projectDir)
+                .activeRecipe("com.example.integration.FindAndReplace")
+                .cacheDir(cacheDir)
+                .rewriteConfig(projectDir.resolve("rewrite.yaml"))
+                .excludePaths(excludePaths)
+                .build()
+                .run()
+
+        assertEquals(
+            UsedExecutionStage.PLUGIN,
+            result.executionDiagnostics.stageUsed,
+            "Expected Stage 0 to produce the ${tool.displayName} exclusion run, " +
+                "got ${result.executionDiagnostics.stageUsed}"
+        )
+        assertEquals(
+            expectedChangedPaths,
+            result.rawDiffs.keys,
+            "Unexpected changed paths for ${tool.displayName} exclusions $excludePaths"
+        )
+        expectedChangedPaths.forEach { path ->
+            assertEquals(
+                sourceAfter(path),
+                projectDir.resolve(path).readText(),
+                "Expected $path to be rewritten"
+            )
+        }
+        expectedUnchangedPaths.forEach { path ->
+            assertFalse(
+                path in result.rawDiffs.keys,
+                "Excluded path $path should not be present in raw diffs"
+            )
+            assertEquals(
+                sourceBefore(path),
+                projectDir.resolve(path).readText(),
+                "Expected $path to remain untouched"
+            )
+        }
+        val estimatedTimeSaved = assertNotNull(result.executionDiagnostics.estimatedTimeSaved)
+        assertTrue(estimatedTimeSaved > Duration.ZERO)
+    } finally {
+        projectDir.toFile().deleteRecursively()
+        cacheDir.toFile().deleteRecursively()
+    }
+}
+
+private fun setUpMultiModuleExclusionProject(projectDir: Path, tool: MultiModuleBuildTool) {
+    when (tool) {
+        MultiModuleBuildTool.GRADLE -> setUpGradleMultiModuleExclusionProject(projectDir)
+        MultiModuleBuildTool.MAVEN -> setUpMavenMultiModuleExclusionProject(projectDir)
+    }
+    projectDir.writeClassSpacingRecipe()
+}
+
+private fun setUpGradleMultiModuleExclusionProject(projectDir: Path) {
+    projectDir.resolve("settings.gradle.kts").writeText(
+        "rootProject.name = \"multi-exclusions\"\ninclude(\"lib\")\n"
+    )
+    projectDir.resolve("build.gradle.kts").writeText(
+        "plugins { java }\nsubprojects { apply(plugin = \"java\") }\n"
+    )
+    projectDir.resolve("lib").toFile().mkdirs()
+    projectDir.resolve("lib/build.gradle.kts").writeText("")
+    writeMultiModuleSources(projectDir)
+}
+
+private fun setUpMavenMultiModuleExclusionProject(projectDir: Path) {
+    projectDir.resolve("pom.xml").writeText(
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <project>
+          <modelVersion>4.0.0</modelVersion>
+          <groupId>com.example</groupId>
+          <artifactId>parent</artifactId>
+          <version>1.0-SNAPSHOT</version>
+          <packaging>pom</packaging>
+          <modules>
+            <module>lib</module>
+          </modules>
+        </project>
+        """.trimIndent()
+    )
+    projectDir.resolve("lib").toFile().mkdirs()
+    projectDir.resolve("lib/pom.xml").writeText(
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <project>
+          <modelVersion>4.0.0</modelVersion>
+          <parent>
+            <groupId>com.example</groupId>
+            <artifactId>parent</artifactId>
+            <version>1.0-SNAPSHOT</version>
+          </parent>
+          <artifactId>lib</artifactId>
+        </project>
+        """.trimIndent()
+    )
+    writeMultiModuleSources(projectDir)
+}
+
+private fun writeMultiModuleSources(projectDir: Path) {
+    rootSource.parent?.let { projectDir.resolve(it).toFile().mkdirs() }
+    libKeepSource.parent?.let { projectDir.resolve(it).toFile().mkdirs() }
+    listOf(rootSource, libKeepSource, libSkipSource).forEach { path ->
+        projectDir.resolve(path).writeText(sourceBefore(path))
+    }
+}
+
+private fun sourceBefore(path: Path): String =
+    "class ${path.fileName.toString().removeSuffix(".java")}{}\n"
+
+private fun sourceAfter(path: Path): String = sourceBefore(path).replace("{}", " { }")
+
+private fun Path.writeClassSpacingRecipe() {
+    resolve("rewrite.yaml").writeText(
+        """
+        ---
+        type: specs.openrewrite.org/v1beta/recipe
+        name: com.example.integration.FindAndReplace
+        recipeList:
+          - org.openrewrite.text.FindAndReplace:
+              find: 'class ([A-Za-z]+)\{\}'
+              replace: 'class ${D}1 { }'
+              regex: true
+        """.trimIndent()
+    )
 }
 
 /**
