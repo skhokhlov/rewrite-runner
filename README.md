@@ -19,7 +19,7 @@ A self-hosted CLI tool for running [OpenRewrite](https://docs.openrewrite.org/) 
 
 ## Installation
 
-`rewrite-runner` is published to Maven Central. The `core` module is the library; the `cli` module ships a thin JAR plus a `-all` fat JAR for direct CLI use.
+`rewrite-runner` is published to Maven Central as libraries: the `core` module (the library) and the `cli` module's thin JAR. The runnable `-all` fat JAR is **not** on Maven Central (it exceeds Central's upload limit) — it ships as a [GitHub Releases](https://github.com/skhokhlov/rewrite-runner/releases) asset for direct CLI use.
 
 ### Gradle
 
@@ -42,12 +42,19 @@ dependencies {
 
 ### CLI fat JAR
 
-Download the `-all` jar directly from Maven Central:
+Download the `-all` jar from the GitHub release for the version you want:
 
 ```bash
 curl -L -o rewrite-runner.jar \
-  "https://repo1.maven.org/maven2/io/github/skhokhlov/rewriterunner/cli/1.0.0/cli-1.0.0-all.jar"
+  "https://github.com/skhokhlov/rewrite-runner/releases/download/v1.0.0/rewrite-runner-1.0.0-all.jar"
 java -jar rewrite-runner.jar --help
+```
+
+Or, if you have [JBang](https://www.jbang.dev/) installed, run the CLI straight from the thin
+JAR on Maven Central (JBang resolves the classpath for you — no fat JAR needed):
+
+```bash
+jbang io.github.skhokhlov.rewriterunner:cli:1.0.0 --help
 ```
 
 ## Getting Started

@@ -7,7 +7,7 @@ Located in `buildSrc/src/main/kotlin/`. Applied via `plugins { id("...") }` in s
 | Plugin | Applied to | What it does |
 |--------|-----------|--------------|
 | `kotlin-convention` | `core`, `cli` | Kotlin JVM 21 toolchain, JUnit platform, `-Xmx2g` for tests, ktlint tasks (`ktlintCheck`/`ktlintFormat`), JaCoCo XML+HTML reports auto-run after test |
-| `publishing-convention` | `core` | `maven-publish`, optional signing, Dokka sources/javadoc JARs, POM template |
+| `publishing-convention` | `core`, `cli` | `maven-publish`, optional signing, Dokka sources/javadoc JARs, POM template. In `cli`, the shadow `-all` variant is skipped from the publication so the fat JAR never goes to Maven Central |
 | `dokka-convention` | `core` | Dokka HTML docs generation |
 
 `ktlintCheck` is wired into the standard `check` lifecycle task — `./gradlew check` always enforces style.
@@ -71,7 +71,10 @@ Triggers on push/PR to `main`/`master`. Three sequential jobs gate on each other
 Because the jobs chain via `needs:`, an early failure short-circuits the later lanes: a unit-test regression never spends CI minutes downloading Gradle/Maven distributions.
 
 ### Publish workflow (`.github/workflows/publish.yml`)
-Triggers on `v*` tags — publishes `core` to Maven Central.
+Triggers on `v*` tags. Publishes `core` and the `cli` thin JAR (with sources + javadoc) to
+Maven Central, then builds the `cli` `-all` fat JAR and uploads it as a GitHub Release asset
+(`rewrite-runner-<version>-all.jar`) — the fat JAR is too large for Central. See
+[`adr/0009-cli-fatjar-distribution.md`](adr/0009-cli-fatjar-distribution.md).
 
 ## Known Issues
 

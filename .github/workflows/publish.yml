@@ -9,7 +9,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write # create the GitHub Release and upload the CLI fat JAR asset
     environment: maven-central
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -32,6 +32,22 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_KEY_CONTENTS }}
+
+      # The CLI fat JAR is too large for Maven Central, so it ships as a GitHub Release asset.
+      - name: Build CLI fat JAR
+        run: ./gradlew :cli:shadowJar --no-configuration-cache
+
+      - name: Stage release asset
+        run: |
+          version="${GITHUB_REF#refs/tags/v}"
+          src=$(ls cli/build/libs/cli-*-all.jar)
+          cp "$src" "rewrite-runner-${version}-all.jar"
+
+      - name: Upload CLI fat JAR to GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: rewrite-runner-*-all.jar
+          fail_on_unmatched_files: true
 
   deploy-docs:
     needs: publish
