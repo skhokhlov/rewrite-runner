@@ -289,6 +289,50 @@ class PluginFirstIntegrationTest :
             )
         }
 
+        test(
+            "plugin-first runs in an orphan subdir unit when the root has no build file"
+        ).config(enabled = !isWindows) {
+            // Root-less monorepo: no build file at the root, one Gradle build unit in svc-a/,
+            // and a shared root gradlew wrapper (the unit carries none, so the root wrapper
+            // is used). Stage 0 must discover svc-a, run the plugin there, and rebase the diff
+            // to svc-a/ at the repository root.
+            val unit = projectDir.resolve("svc-a")
+            unit.resolve("src/main/java").toFile().mkdirs()
+            unit.resolve("build.gradle.kts").writeText("plugins { java }\n")
+            val javaFile = unit.resolve("src/main/java/App.java")
+            javaFile.writeText("class App{}\n")
+            projectDir.writeFakeGradlew(
+                targetFile = "src/main/java/App.java",
+                oldLine = "class App{}",
+                newLine = "class App { }",
+                newContent = "class App { }\n"
+            )
+
+            val runResult =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe("com.example.integration.FindAndReplace")
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            assertEquals(
+                UsedExecutionStage.PLUGIN,
+                runResult.executionDiagnostics.stageUsed,
+                "runResult=$runResult"
+            )
+            assertEquals(
+                setOf(Path.of("svc-a/src/main/java/App.java")),
+                runResult.rawDiffs.keys
+            )
+            assertEquals("class App { }\n", javaFile.readText())
+            assertEquals(listOf(javaFile), runResult.changedFiles)
+            assertEquals(
+                "rewriteDryRun\nrewriteRun\n",
+                projectDir.resolve("wrapper-calls.log").readText()
+            )
+        }
+
         // This test specifically tests CLI bypass behavior, not recipe execution.
         // It intentionally sets up a project WITHOUT a rewrite.yaml so the LST pipeline
         // cannot find `com.example.Recipe`, producing a non-zero exit code.

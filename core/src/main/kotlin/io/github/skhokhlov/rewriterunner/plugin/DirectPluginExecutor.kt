@@ -24,15 +24,22 @@ internal data class DirectPluginInvocation(
  * 1. run dry-run to generate a patch,
  * 2. parse generated patch files for formatted output,
  * 3. run apply when changes exist and the caller is not in dry-run mode.
+ *
+ * @property projectDir Repository root used to rebase patch paths. Diffs and result keys are
+ *   reported relative to this directory.
+ * @property runDir Working directory the build command actually runs in. Equals [projectDir]
+ *   for a root-level invocation; for an orphan (root-less monorepo) build unit it is the
+ *   subdirectory of the unit, so patches produced there are rebased to [projectDir].
  */
 internal class DirectPluginExecutor(
     private val projectDir: Path,
     private val dryRun: Boolean,
-    private val execute: (Path, List<String>, StringBuilder?) -> Int?
+    private val execute: (Path, List<String>, StringBuilder?) -> Int?,
+    private val runDir: Path = projectDir
 ) {
     fun run(invocation: DirectPluginInvocation): PluginRunResult {
         val pluginOutput = StringBuilder()
-        val dryRunExit = execute(projectDir, invocation.dryRunCommand, pluginOutput)
+        val dryRunExit = execute(runDir, invocation.dryRunCommand, pluginOutput)
         if (dryRunExit != 0) {
             return PluginRunResult.Failed(invocation.dryRunFailureMessage(dryRunExit))
         }
@@ -41,7 +48,7 @@ internal class DirectPluginExecutor(
         if (diffs.isEmpty()) return PluginRunResult.NoChanges
 
         if (!dryRun) {
-            val applyExit = execute(projectDir, invocation.applyCommand, pluginOutput)
+            val applyExit = execute(runDir, invocation.applyCommand, pluginOutput)
             if (applyExit != 0) {
                 return PluginRunResult.Failed(invocation.applyFailureMessage(applyExit))
             }

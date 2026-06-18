@@ -34,9 +34,27 @@ path.
   *not* routed through the exclusive Gradle-first marker verdict of [ADR 0001](0001-build-unit-classpath-resolution.md);
   forcing it through that verdict would drop the Maven fallback.)
 - Plugin outcomes are a sealed result: `Success` (short-circuit, return the plugin's patch
-  diffs), `NoChanges` (short-circuit, empty result), `Failed`, or `Skipped` (no build tool).
-  `Failed` and `Skipped` **fall through silently** to the LST pipeline — a plugin that cannot
-  resolve, times out, or finds no build tool must never abort the run.
+  diffs), `NoChanges` (short-circuit, empty result), `Partial` (orphan-monorepo hybrid; see
+  below), `Failed`, or `Skipped` (no build tool). `Failed` and `Skipped` **fall through
+  silently** to the LST pipeline — a plugin that cannot resolve, times out, or finds no build
+  tool must never abort the run.
+- **Orphan (root-less monorepo) units.** When the project root has *no* build descriptor,
+  Stage 0 no longer gives up. It reuses `discoverBuildUnits` ([ADR 0001](0001-build-unit-classpath-resolution.md))
+  to find orphan build units in subdirectories and runs the plugin in each (distinct dir,
+  Gradle-then-Maven per dir), rebasing every diff to the repository root via the existing
+  `DirectPluginExecutor` base-dir rebasing and the 2-arg wrapper resolvers. The root path is
+  unchanged whenever any root descriptor exists. Aggregation:
+  - all discovered units covered without failure → `Success` / `NoChanges`;
+  - some units produced diffs while others failed (or discovery was truncated) → `Partial`,
+    carrying the successful units' rebased diffs;
+  - nothing usable → `Failed` / `Skipped`.
+- **Hybrid merge for `Partial`.** `RewriteRunner` keeps the `Partial` diffs and falls through
+  to the LST pipeline over the **whole project** (no exclusions — recipes are idempotent, so
+  LST is a no-op over already-applied subtrees). The two are merged with **Stage 0 winning on
+  any path collision** (an LST `Result` for a path already in the Stage 0 diffs is dropped
+  before writing), and `stageUsed` stays `PLUGIN` because the plugin contributed. This keeps
+  Stage 0's higher-fidelity results for the units where it worked while still covering the
+  remainder.
 - Diagnostics record `stageUsed = UsedExecutionStage.PLUGIN` so a consumer can tell the
   plugin path produced the run (see [ADR 0004](0004-estimated-time-saved-source.md) and the
   `ExecutionDiagnostics` work).
@@ -44,6 +62,9 @@ path.
 The plugin path returns a git-format patch rather than in-process `Result` objects, which is
 why `RunResult` carries both `rawDiffs` (Stage 0 patches) and `results` (LST/specialized-pass
 results), and why metrics like estimated-time-saved had to be sourced differently per path.
+The same `rawDiffs` + `results` split carries the orphan hybrid merge: `Partial` diffs land in
+`rawDiffs`, the leftover LST `results` in `results`, and the estimated-time-saved is the sum of
+the successful units' estimates plus the LST run's.
 
 ## Consequences
 

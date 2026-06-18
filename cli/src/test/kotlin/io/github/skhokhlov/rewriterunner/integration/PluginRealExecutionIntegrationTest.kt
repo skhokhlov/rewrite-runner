@@ -11,6 +11,7 @@ import java.nio.file.Path
 import java.time.Duration
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -49,6 +50,63 @@ class PluginRealExecutionIntegrationTest :
 
         test("real plugin: Maven dry-run does not mutate sources").config(enabled = !isWindows) {
             runRealPluginScenario(PluginScenarios.mavenSingleFile, dryRun = true)
+        }
+
+        test(
+            "real plugin: orphan Gradle subdir unit runs Stage 0 and rebases the diff"
+        ).config(enabled = !isWindows) {
+            assumeMavenCentralReachable()
+            val projectDir = Files.createTempDirectory("real-plugin-orphan-")
+            val cacheDir = Files.createTempDirectory("real-plugin-orphan-cache-")
+            try {
+                // Root-less monorepo: no build descriptor at the root, one self-contained Gradle
+                // unit in svc-a/. Stage 0 must discover svc-a, run the real plugin there, and
+                // rebase the diff to svc-a/ at the repository root.
+                val unit = projectDir.resolve("svc-a")
+                unit.resolve("src/main/java").toFile().mkdirs()
+                unit.resolve("settings.gradle.kts").writeText("rootProject.name = \"svc-a\"\n")
+                unit.resolve("build.gradle.kts").writeText("plugins { java }\n")
+                unit.resolve("src/main/java/App.java").writeText("class App{}\n")
+                projectDir.writeFindAndReplaceRecipe(
+                    find = "class App{}",
+                    replace = "class App { }"
+                )
+                val gradleBin = ToolchainCache.gradleHome().resolve("bin/gradle").toAbsolutePath()
+                val gradlew = unit.resolve("gradlew")
+                gradlew.toFile().writeText("#!/bin/sh\nexec \"$gradleBin\" \"\$@\"\n")
+                Files.setPosixFilePermissions(gradlew, posixExecutable)
+
+                val result =
+                    RewriteRunner.builder()
+                        .projectDir(projectDir)
+                        .activeRecipe("com.example.integration.FindAndReplace")
+                        .cacheDir(cacheDir)
+                        .rewriteConfig(projectDir.resolve("rewrite.yaml"))
+                        .build()
+                        .run()
+
+                assertEquals(
+                    UsedExecutionStage.PLUGIN,
+                    result.executionDiagnostics.stageUsed,
+                    "Expected Stage 0 to produce the orphan-unit run, " +
+                        "got ${result.executionDiagnostics.stageUsed}"
+                )
+                assertEquals(
+                    setOf(Path.of("svc-a/src/main/java/App.java")),
+                    result.rawDiffs.keys
+                )
+                assertEquals(
+                    "class App { }\n",
+                    unit.resolve("src/main/java/App.java").readText()
+                )
+                val estimatedTimeSaved = assertNotNull(
+                    result.executionDiagnostics.estimatedTimeSaved
+                )
+                assertTrue(estimatedTimeSaved > Duration.ZERO)
+            } finally {
+                projectDir.toFile().deleteRecursively()
+                cacheDir.toFile().deleteRecursively()
+            }
         }
     })
 

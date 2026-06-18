@@ -31,6 +31,7 @@ internal open class MavenPluginStrategy(
 ) : PluginBuildStrategy {
     override fun run(
         projectDir: Path,
+        rootDir: Path,
         activeRecipe: String,
         recipeArtifacts: List<String>,
         rewriteConfig: Path?,
@@ -46,10 +47,11 @@ internal open class MavenPluginStrategy(
                 ?: rewriteConfig
         val reportDir = createPrivateTempDirectory("rewrite-runner-report-")
         return try {
-            DirectPluginExecutor(projectDir, dryRun, ::execute).run(
+            DirectPluginExecutor(rootDir, dryRun, ::execute, runDir = projectDir).run(
                 DirectPluginInvocation(
                     dryRunCommand = buildCommand(
                         projectDir = projectDir,
+                        rootDir = rootDir,
                         goal = "dryRun",
                         activeRecipe = activeRecipe,
                         recipeArtifacts = recipeArtifacts,
@@ -60,6 +62,7 @@ internal open class MavenPluginStrategy(
                     ),
                     applyCommand = buildCommand(
                         projectDir = projectDir,
+                        rootDir = rootDir,
                         goal = "run",
                         activeRecipe = activeRecipe,
                         recipeArtifacts = recipeArtifacts,
@@ -104,6 +107,7 @@ internal open class MavenPluginStrategy(
 
     fun buildCommand(
         projectDir: Path,
+        rootDir: Path = projectDir,
         goal: String,
         activeRecipe: String,
         recipeArtifacts: List<String>,
@@ -112,7 +116,7 @@ internal open class MavenPluginStrategy(
         excludePaths: List<String> = emptyList(),
         plainTextMasks: List<String> = emptyList()
     ): List<String> = buildList {
-        add(resolveMavenCommand(projectDir))
+        add(resolveMavenCommand(projectDir, rootDir))
         add("-U")
         add("--no-transfer-progress")
         add("--batch-mode")
