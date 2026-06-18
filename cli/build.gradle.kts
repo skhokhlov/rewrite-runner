@@ -28,11 +28,22 @@ dependencies {
     testImplementation("org.openrewrite:rewrite-core")
 }
 
+val cliMainClass = "io.github.skhokhlov.rewriterunner.MainKt"
+
+// Declare the entry point on the thin jar too (not just the fat jar), so the Maven Central
+// artifact is self-describing: `jbang io.github.skhokhlov.rewriterunner:cli:<version>` and any
+// `java -cp` launcher can find the main class without an explicit `--main`.
+tasks.jar {
+    manifest {
+        attributes["Main-Class"] = cliMainClass
+    }
+}
+
 tasks.shadowJar {
     archiveClassifier.set("all")
     mergeServiceFiles()
     manifest {
-        attributes["Main-Class"] = "io.github.skhokhlov.rewriterunner.MainKt"
+        attributes["Main-Class"] = cliMainClass
     }
 }
 
