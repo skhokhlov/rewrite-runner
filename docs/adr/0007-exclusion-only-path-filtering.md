@@ -37,6 +37,31 @@ Filtering is **exclusion-only, by glob, with no allowlist.**
 A related optimization rides along: when the resolved exclusions eliminate every JVM source file,
 classpath-resolution stages 1–4 are skipped entirely.
 
+## Multi-Module Path Relativity
+
+Issue #182 questioned whether Gradle exclusions declared only in the generated init script's
+`rootProject { rewrite { ... } }` block reach subproject files. They do. In
+`rewrite-gradle-plugin` 7.32.1, the root project parser is the parser that walks subprojects, and
+it reads exclusions from the root project's single `RewriteExtension`. Keeping the exclusions in
+the root `rewrite { }` block is therefore the correct declaration site; moving them to
+`allprojects {}` would configure subproject extensions that the root parser does not use for this
+walk. The `allprojects { repositories { ... } }` block in the init script has a different purpose:
+each project still needs repositories to resolve its own dependencies.
+
+The remaining subtlety is the base path used by the upstream plugins. The real-plugin regression
+tests pin the behavior observed through rewrite-runner's default invocation shape:
+
+- Gradle 7.32.1 matches Java source exclusion globs against paths relative to the repository root.
+  A `**/Skip.java` pattern reaches `lib/src/main/java/.../Skip.java`; a module-relative
+  `src/main/java/.../Skip.java` pattern only matches a root-project file with that path.
+- Maven 6.41.0, invoked by rewrite-runner with `rewrite.runPerSubmodule=false`, shows the same
+  behavior for this multi-module Java-source case. The module-relative
+  `src/main/java/.../Skip.java` pattern does not exclude `lib/src/main/java/.../Skip.java`.
+
+Use `**/`-anchored globs for exclusions that need to reach subprojects in both Gradle and Maven
+multi-module builds. The real-plugin tests encode this observed behavior; broader cleanup or
+encoding consolidation remains #192's responsibility.
+
 ## Consequences
 
 The two execution paths now filter identically, and the surface matches upstream OpenRewrite, so

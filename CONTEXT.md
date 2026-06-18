@@ -36,6 +36,12 @@
   from in-process `Result` objects, and the Stage 0 plugin path reads the plugin-reported value from an
   exported `SourcesFileResults` data table when present, otherwise from the plugin's `Estimate time saved`
   output line.
+- **Exclusion path**: A glob pattern from `--exclude-paths` / `Builder.excludePaths(...)` /
+  `parse.excludePaths` selecting files to skip. In multi-module Stage 0 runs, upstream build
+  plugins do the final matching; the real-plugin regression suite pins Gradle and Maven Java
+  source exclusions as repository-root-relative for rewrite-runner's invocation shape. Prefer
+  `**/`-anchored globs when a pattern must reach subprojects in both tools. See
+  [[0007-exclusion-only-path-filtering]].
 - **Plain-text mask**: A glob pattern (relative to project root) selecting files to parse with
   `PlainTextParser`. The configured list replaces the built-in default. Forwarded to both Stage 0
   and the LST fallback so both paths select the same files. Specialized parsers take precedence: a
