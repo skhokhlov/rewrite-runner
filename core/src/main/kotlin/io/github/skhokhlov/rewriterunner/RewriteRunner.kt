@@ -133,6 +133,11 @@ class RewriteRunner private constructor(private val config: Builder) {
 
         val changeWriter = config.changeWriter ?: DiskChangeWriter(config.projectDir, logger)
 
+        // Stage 0 diffs kept from orphan units that succeeded while others failed. When set, the
+        // LST fallback below runs over the whole project and its result is merged with these,
+        // Stage 0 winning on any path collision (see #orphan-monorepo support).
+        var stage0Partial: PluginRunResult.Partial? = null
+
         // Stage 0: let the project's own build tool run the official OpenRewrite plugin first.
         if (!config.skipPluginRun) {
             logger.lifecycle("[0/7] Attempting plugin-first recipe execution")
@@ -202,6 +207,19 @@ class RewriteRunner private constructor(private val config: Builder) {
                         effectiveResolverRequestTimeout = effectiveResolverRequestTimeout,
                         changeWriter = changeWriter
                     )
+                }
+
+                is PluginRunResult.Partial -> {
+                    logger.lifecycle(
+                        "      Plugin partially complete: ${pluginResult.diffs.size} file(s) " +
+                            "changed in ${pluginResult.changedFiles.size} unit(s); " +
+                            "${pluginResult.failures.size} unit(s) need fallback"
+                    )
+                    pluginResult.failures.forEach {
+                        logger.info("      Plugin unit fell back: $it")
+                    }
+                    // Keep these diffs and fall through to the LST pipeline for the remainder.
+                    stage0Partial = pluginResult
                 }
 
                 is PluginRunResult.Failed ->
@@ -318,24 +336,61 @@ class RewriteRunner private constructor(private val config: Builder) {
                     " in ${System.currentTimeMillis() - recipeStart}ms"
             )
 
-            val outcome =
-                applyResults(results, config.dryRun, logger, changeWriter)
+            // When orphan Stage 0 units produced diffs, drop any LST result for a path Stage 0
+            // already owns (Stage 0 wins per-path) before writing, then merge below.
+            val stage0Diffs = stage0Partial?.diffs.orEmpty()
+            val effectiveResults =
+                if (stage0Diffs.isEmpty()) {
+                    results
+                } else {
+                    results.filterNot { resultRelativePath(it) in stage0Diffs.keys }
+                }
 
-            val timeSaved = results.fold(Duration.ZERO) { total, result ->
+            val outcome =
+                applyResults(effectiveResults, config.dryRun, logger, changeWriter)
+
+            val timeSaved = effectiveResults.fold(Duration.ZERO) { total, result ->
                 total.plus(result.timeSavings)
             }
-            RunResult(
-                results = results,
-                changedFiles = changedFiles(config.projectDir, outcome),
-                projectDir = config.projectDir,
-                executionDiagnostics =
-                    lstBuildResult.executionDiagnostics.copy(
-                        estimatedTimeSaved = timeSaved,
-                        writeOutcome = outcome
-                    )
-            )
+            val partial = stage0Partial
+            if (partial == null) {
+                RunResult(
+                    results = effectiveResults,
+                    changedFiles = changedFiles(config.projectDir, outcome),
+                    projectDir = config.projectDir,
+                    executionDiagnostics =
+                        lstBuildResult.executionDiagnostics.copy(
+                            estimatedTimeSaved = timeSaved,
+                            writeOutcome = outcome
+                        )
+                )
+            } else {
+                // Hybrid run: keep the orphan Stage 0 diffs as rawDiffs and report stageUsed=PLUGIN.
+                RunResult(
+                    results = effectiveResults,
+                    changedFiles =
+                        (
+                            partial.changedFiles + changedFiles(
+                                config.projectDir,
+                                outcome
+                            )
+                            ).distinct(),
+                    projectDir = config.projectDir,
+                    rawDiffs = partial.diffs,
+                    executionDiagnostics =
+                        lstBuildResult.executionDiagnostics.copy(
+                            stageUsed = UsedExecutionStage.PLUGIN,
+                            estimatedTimeSaved =
+                                (partial.estimatedTimeSaved ?: Duration.ZERO).plus(timeSaved),
+                            writeOutcome = outcome
+                        )
+                )
+            }
         }
     }
+
+    private fun resultRelativePath(result: Result): Path? =
+        (result.after ?: result.before)?.sourcePath
 
     private fun runSpecializedPass(
         logger: RunnerLogger,
@@ -509,6 +564,18 @@ class RewriteRunner private constructor(private val config: Builder) {
                     projectDir = projectDir,
                     executionDiagnostics =
                         ExecutionDiagnostics.PLUGIN.copy(estimatedTimeSaved = Duration.ZERO)
+                )
+
+            is PluginRunResult.Partial ->
+                RunResult(
+                    results = emptyList(),
+                    changedFiles = pluginResult.changedFiles,
+                    projectDir = projectDir,
+                    rawDiffs = pluginResult.diffs,
+                    executionDiagnostics =
+                        ExecutionDiagnostics.PLUGIN.copy(
+                            estimatedTimeSaved = pluginResult.estimatedTimeSaved
+                        )
                 )
 
             is PluginRunResult.Failed,

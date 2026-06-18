@@ -22,6 +22,12 @@
 - **LST fallback**: The in-process four-stage engine (`LstBuilder` + classpath stages) that runs
   when Stage 0 is skipped, fails, or finds no build tool. It is the fallback, not the primary path.
   _Avoid_: "LST pipeline" as a synonym for the whole tool — it is one of two execution paths.
+- **Orphan unit**: A build unit in a [[#root-less-monorepo]] subdirectory that Stage 0 runs the
+  plugin in when the root has no descriptor. Each orphan unit's diffs are rebased to the
+  repository root.
+- **Hybrid run**: A single run in which Stage 0 produced diffs for some orphan units while the
+  LST fallback handled the remainder of the project. Stage 0 wins on any per-path collision, and
+  the run still reports itself as Stage 0. _Avoid_: "partial run". See [[0006-plugin-first-execution]].
 - **Estimated time saved**: A heuristic estimate of manual developer effort avoided by a recipe run,
   not measured wall-clock. It is the sum, over every changed file, of the effort OpenRewrite attributes
   to the change — for each file the total `getEstimatedEffortPerOccurrence()` (default 5 minutes) of the

@@ -25,6 +25,7 @@ internal open class GradlePluginStrategy(
 ) : PluginBuildStrategy {
     override fun run(
         projectDir: Path,
+        rootDir: Path,
         activeRecipe: String,
         recipeArtifacts: List<String>,
         rewriteConfig: Path?,
@@ -49,12 +50,12 @@ internal open class GradlePluginStrategy(
                 plainTextMasks = plainTextMasks
             )
         return try {
-            DirectPluginExecutor(projectDir, dryRun, { path, cmd, output ->
+            DirectPluginExecutor(rootDir, dryRun, { path, cmd, output ->
                 execute(path, cmd, timeout, output)
-            }).run(
+            }, runDir = projectDir).run(
                 DirectPluginInvocation(
-                    dryRunCommand = buildCommand(projectDir, "rewriteDryRun", initScript),
-                    applyCommand = buildCommand(projectDir, "rewriteRun", initScript),
+                    dryRunCommand = buildCommand(projectDir, rootDir, "rewriteDryRun", initScript),
+                    applyCommand = buildCommand(projectDir, rootDir, "rewriteRun", initScript),
                     patchFiles = { findPatchFiles(projectDir) },
                     estimatedTimeSaved = { output ->
                         EstimatedTimeSavedResolver.resolve(
@@ -202,18 +203,22 @@ internal open class GradlePluginStrategy(
         logger = logger
     )
 
-    private fun buildCommand(projectDir: Path, task: String, initScript: Path): List<String> =
-        listOf(
-            resolveGradleCommand(projectDir),
-            task,
-            "--init-script",
-            initScript.toAbsolutePath().toString(),
-            "--no-daemon",
-            "--no-configuration-cache",
-            "--no-parallel",
-            "-S",
-            "-i"
-        )
+    private fun buildCommand(
+        projectDir: Path,
+        rootDir: Path,
+        task: String,
+        initScript: Path
+    ): List<String> = listOf(
+        resolveGradleCommand(projectDir, rootDir),
+        task,
+        "--init-script",
+        initScript.toAbsolutePath().toString(),
+        "--no-daemon",
+        "--no-configuration-cache",
+        "--no-parallel",
+        "-S",
+        "-i"
+    )
 
     private fun findPatchFiles(projectDir: Path): List<DirectPluginPatchFile> = Files.find(
         projectDir,
