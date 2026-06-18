@@ -81,11 +81,58 @@ internal class PluginRecipeRunner(
             return PluginRunResult.Skipped("no Gradle or Maven build tool found")
         }
 
+        // The plugin runs from each unit dir, not the repository root, so root-relative inputs
+        // must be rebased to keep Stage 0 equivalent to the LST fallback (which runs from root):
+        //  - an implicit root rewrite.yaml is invisible from a subdir, so resolve it explicitly
+        //    (its absolute path is forwarded to the plugin regardless of the run dir);
+        //  - exclude / plain-text globs anchored to a unit's own path must drop that prefix.
+        val effectiveRewriteConfig =
+            if (rewriteConfig == null && rewriteConfigContent == null) {
+                projectDir.resolve("rewrite.yaml").takeIf { it.exists() }
+                    ?: projectDir.resolve("rewrite.yml").takeIf { it.exists() }
+            } else {
+                rewriteConfig
+            }
+
         logger.info(
             "      Root has no build file; running plugin in ${unitDirs.size} orphan unit(s)"
         )
-        val perUnit = unitDirs.map { it to runUnit(it) }
+        val perUnit =
+            unitDirs.map { unitDir ->
+                unitDir to
+                    runForDir(
+                        unitDir = unitDir,
+                        rootDir = projectDir,
+                        activeRecipe = activeRecipe,
+                        recipeArtifacts = recipeArtifacts,
+                        rewriteConfig = effectiveRewriteConfig,
+                        rewriteConfigContent = rewriteConfigContent,
+                        dryRun = dryRun,
+                        includeMavenCentral = includeMavenCentral,
+                        artifactRepositories = artifactRepositories,
+                        excludePaths = rebaseGlobsForUnit(excludePaths, projectDir, unitDir),
+                        plainTextMasks = rebaseGlobsForUnit(plainTextMasks, projectDir, unitDir)
+                    )
+            }
         return aggregate(perUnit, truncated = discovery.truncated)
+    }
+
+    /**
+     * Rebases project-root-relative glob patterns so they apply when the plugin runs from
+     * [unitDir] instead of [rootDir]. A pattern anchored to the unit's own path (e.g.
+     * `svc-a/generated/**` for unit `svc-a`) loses that prefix; globs that match anywhere
+     * (`**/...`) or that target other units are left unchanged (the latter simply match nothing
+     * inside this unit).
+     */
+    private fun rebaseGlobsForUnit(
+        patterns: List<String>,
+        rootDir: Path,
+        unitDir: Path
+    ): List<String> {
+        if (patterns.isEmpty() || rootDir == unitDir) return patterns
+        val prefix = rootDir.relativize(unitDir).toString().replace('\\', '/')
+        if (prefix.isEmpty()) return patterns
+        return patterns.map { it.removePrefix("$prefix/") }
     }
 
     /** Runs Gradle-then-Maven for a single directory, rebasing diffs to [rootDir]. */

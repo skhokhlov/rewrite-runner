@@ -42,8 +42,13 @@ path.
   Stage 0 no longer gives up. It reuses `discoverBuildUnits` ([ADR 0001](0001-build-unit-classpath-resolution.md))
   to find orphan build units in subdirectories and runs the plugin in each (distinct dir,
   Gradle-then-Maven per dir), rebasing every diff to the repository root via the existing
-  `DirectPluginExecutor` base-dir rebasing and the 2-arg wrapper resolvers. The root path is
-  unchanged whenever any root descriptor exists. Aggregation:
+  `DirectPluginExecutor` base-dir rebasing and the 2-arg wrapper resolvers. Because the plugin
+  runs from each unit dir rather than the root, the other root-relative inputs are rebased per
+  unit so Stage 0 stays equivalent to the LST fallback (which runs from the root): an implicit
+  root `rewrite.yaml`/`rewrite.yml` is resolved to its absolute path and forwarded explicitly
+  (a subdir run would otherwise never see it), and `--exclude-paths` / `--plain-text-masks`
+  globs anchored to a unit's own path (e.g. `svc-a/generated/**` for unit `svc-a`) have that
+  prefix stripped. The root path is unchanged whenever any root descriptor exists. Aggregation:
   - all discovered units covered without failure → `Success` / `NoChanges`;
   - some units produced diffs while others failed (or discovery was truncated) → `Partial`,
     carrying the successful units' rebased diffs;

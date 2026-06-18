@@ -57,6 +57,8 @@ class PluginRecipeRunnerTest :
                 private set
             var lastPlainTextMasks: List<String>? = null
                 private set
+            var lastRewriteConfig: Path? = null
+                private set
             var callCount: Int = 0
                 private set
 
@@ -76,6 +78,7 @@ class PluginRecipeRunnerTest :
                 callCount++
                 lastExcludePaths = excludePaths
                 lastPlainTextMasks = plainTextMasks
+                lastRewriteConfig = rewriteConfig
                 return result
             }
         }
@@ -363,5 +366,81 @@ class PluginRecipeRunnerTest :
             )
 
             assertEquals(listOf(projectDir), invokedDirs)
+        }
+
+        test("resolves the implicit root rewrite.yaml for orphan units") {
+            Files.createDirectories(projectDir.resolve("svc-a"))
+            projectDir.resolve("svc-a/build.gradle.kts").writeText("")
+            val rootConfig = projectDir.resolve("rewrite.yaml")
+            rootConfig.writeText("type: specs.openrewrite.org/v1beta/recipe\n")
+
+            val gradle = CapturingStrategy(PluginRunResult.NoChanges)
+            val maven = CapturingStrategy(PluginRunResult.NoChanges)
+
+            PluginRecipeRunner(gradleStrategy = gradle, mavenStrategy = maven).run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = true,
+                includeMavenCentral = true,
+                artifactRepositories = emptyList()
+            )
+
+            // The plugin runs from svc-a, so the repository-root rewrite.yaml must be passed
+            // explicitly — otherwise the recipe defined there is never loaded.
+            assertEquals(1, gradle.callCount)
+            assertEquals(rootConfig, gradle.lastRewriteConfig)
+        }
+
+        test("does not override an explicit rewriteConfig for orphan units") {
+            Files.createDirectories(projectDir.resolve("svc-a"))
+            projectDir.resolve("svc-a/build.gradle.kts").writeText("")
+            projectDir.resolve("rewrite.yaml").writeText("# implicit root config\n")
+            val explicit = projectDir.resolve("custom.yaml")
+            explicit.writeText("type: specs.openrewrite.org/v1beta/recipe\n")
+
+            val gradle = CapturingStrategy(PluginRunResult.NoChanges)
+            val maven = CapturingStrategy(PluginRunResult.NoChanges)
+
+            PluginRecipeRunner(gradleStrategy = gradle, mavenStrategy = maven).run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = explicit,
+                rewriteConfigContent = null,
+                dryRun = true,
+                includeMavenCentral = true,
+                artifactRepositories = emptyList()
+            )
+
+            assertEquals(explicit, gradle.lastRewriteConfig)
+        }
+
+        test("rebases unit-anchored exclude and plain-text globs for orphan units") {
+            Files.createDirectories(projectDir.resolve("svc-a"))
+            projectDir.resolve("svc-a/build.gradle.kts").writeText("")
+
+            val gradle = CapturingStrategy(PluginRunResult.NoChanges)
+            val maven = CapturingStrategy(PluginRunResult.NoChanges)
+
+            PluginRecipeRunner(gradleStrategy = gradle, mavenStrategy = maven).run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = true,
+                includeMavenCentral = true,
+                artifactRepositories = emptyList(),
+                excludePaths = listOf("svc-a/generated/**", "**/*.md"),
+                plainTextMasks = listOf("svc-a/notes/*.txt", "**/CODEOWNERS")
+            )
+
+            // Unit-anchored patterns lose the unit prefix so they match against the paths the
+            // plugin sees from inside svc-a; globs that match anywhere are left untouched.
+            assertEquals(listOf("generated/**", "**/*.md"), gradle.lastExcludePaths)
+            assertEquals(listOf("notes/*.txt", "**/CODEOWNERS"), gradle.lastPlainTextMasks)
         }
     })
