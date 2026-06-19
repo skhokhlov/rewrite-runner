@@ -21,7 +21,8 @@ import java.time.Duration
 internal open class GradlePluginStrategy(
     private val logger: RunnerLogger,
     private val timeout: Duration,
-    private val rewritePluginVersion: String
+    private val rewritePluginVersion: String,
+    private val pluginJvmArgs: List<String> = emptyList()
 ) : PluginBuildStrategy {
     override fun run(
         projectDir: Path,
@@ -208,17 +209,24 @@ internal open class GradlePluginStrategy(
         rootDir: Path,
         task: String,
         initScript: Path
-    ): List<String> = listOf(
-        resolveGradleCommand(projectDir, rootDir),
-        task,
-        "--init-script",
-        initScript.toAbsolutePath().toString(),
-        "--no-daemon",
-        "--no-configuration-cache",
-        "--no-parallel",
-        "-S",
-        "-i"
-    )
+    ): List<String> = buildList {
+        add(resolveGradleCommand(projectDir, rootDir))
+        add(task)
+        add("--init-script")
+        add(initScript.toAbsolutePath().toString())
+        add("--no-daemon")
+        add("--no-configuration-cache")
+        add("--no-parallel")
+        add("-S")
+        add("-i")
+        // With --no-daemon the build runs in a forked build JVM whose heap is governed by
+        // org.gradle.jvmargs (GRADLE_OPTS only reaches the throwaway client VM). A command-line
+        // -D is the highest-precedence source, so this beats the project's gradle.properties —
+        // but it replaces, not merges, any org.gradle.jvmargs the project declared.
+        if (pluginJvmArgs.isNotEmpty()) {
+            add("-Dorg.gradle.jvmargs=${pluginJvmArgs.joinToString(" ")}")
+        }
+    }
 
     private fun findPatchFiles(projectDir: Path): List<DirectPluginPatchFile> = Files.find(
         projectDir,

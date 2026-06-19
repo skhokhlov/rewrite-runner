@@ -58,3 +58,20 @@
   on a path and does not descend into that directory's children.
 - **Write outcome**: The per-file result of the apply step: successful created/modified/deleted
   changes plus failures with their path, kind, and cause.
+- **Runner JVM**: The JVM running rewrite-runner itself (the fat JAR). It hosts the
+  [[#lst-fallback]] in-process engine, so it is the heap sized by `java -Xmx… -jar`. Distinct from
+  the **Stage 0 subprocess JVM**. _Avoid_: conflating its `-Xmx` with the plugin's heap.
+- **Stage 0 subprocess JVM**: The `gradlew`/`mvnw` JVM where OpenRewrite runs during
+  [[#stage-0-plugin-first-execution]]. Its heap is governed by **plugin JVM args**, never by the
+  runner JVM's `-Xmx`.
+- **Plugin JVM args**: JVM arguments forwarded to the Stage 0 subprocess JVM via
+  `--plugin-jvm-args` / `pluginJvmArgs` / `Builder.pluginJvmArgs(...)`. Gradle receives them as a
+  command-line `-Dorg.gradle.jvmargs` (highest precedence, **replaces** the project's value); Maven
+  receives them appended to `MAVEN_OPTS` (default-only — a project `.mvn/jvm.config` wins). Empty by
+  default. _Avoid_: assuming they are merged with the project's Gradle args, or that they can
+  override a Maven `.mvn/jvm.config`.
+- **Combined memory budget**: The peak memory of a run. Because Stage 0 and the LST fallback heaps
+  are sequential in time, the bare-host constraint is `max(runner, plugin)` plus overhead — except a
+  large runner `-Xms`/`AlwaysPreTouch` makes them coexist. In a container both JVMs share one cgroup,
+  so their combined RSS is what the kernel limits. Currently a documented model only, not enforced
+  in code. See [[0009-fork-lst-worker-jvm]].

@@ -116,6 +116,9 @@ class RewriteRunner private constructor(private val config: Builder) {
             config.excludePaths.ifEmpty { toolConfig.parse.excludePaths }
         val effectivePlainTextMasks: List<String> =
             toolConfig.resolvedPlainTextMasks(config.plainTextMasks)
+        // CLI/builder JVM args beat the YAML config when non-empty; forwarded to Stage 0 only.
+        val effectivePluginJvmArgs: List<String> =
+            config.pluginJvmArgs.ifEmpty { toolConfig.pluginJvmArgs }
         val effectiveCacheDir = config.cacheDir ?: toolConfig.resolvedCacheDir()
         val effectiveToolConfig =
             toolConfig.copy(
@@ -147,7 +150,8 @@ class RewriteRunner private constructor(private val config: Builder) {
                     logger = logger,
                     timeout = effectivePluginTimeout,
                     rewriteGradlePluginVersion = toolConfig.rewriteGradlePluginVersion,
-                    rewriteMavenPluginVersion = toolConfig.rewriteMavenPluginVersion
+                    rewriteMavenPluginVersion = toolConfig.rewriteMavenPluginVersion,
+                    pluginJvmArgs = effectivePluginJvmArgs
                 ).run(
                     projectDir = config.projectDir,
                     activeRecipe = config.activeRecipe,
@@ -649,6 +653,8 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var plainTextMasks: List<String> = emptyList()
             private set
+        internal var pluginJvmArgs: List<String> = emptyList()
+            private set
         internal var logger: RunnerLogger = NoOpRunnerLogger
             private set
         internal var changeWriter: ChangeWriter? = null
@@ -738,6 +744,19 @@ class RewriteRunner private constructor(private val config: Builder) {
 
         /** Timeout for official OpenRewrite Gradle/Maven plugin invocations in Stage 0. */
         fun pluginRunTimeout(timeout: Duration): Builder = apply { pluginRunTimeout = timeout }
+
+        /**
+         * JVM arguments forwarded to the Stage 0 plugin build-tool subprocess (e.g.
+         * `listOf("-Xmx4g")`). When non-empty, overrides `pluginJvmArgs` from the tool config.
+         *
+         * Gradle receives them as a single `-Dorg.gradle.jvmargs=…` command-line argument, which
+         * takes precedence over the project's `gradle.properties` but **replaces** rather than
+         * merges any existing `org.gradle.jvmargs`. Maven receives them appended to `MAVEN_OPTS`;
+         * a project `.mvn/jvm.config` is appended after `MAVEN_OPTS` and therefore still wins on
+         * conflicting flags such as `-Xmx`. Does not affect this (the rewrite-runner) JVM or the
+         * in-process LST fallback — size that with `java -Xmx… -jar`.
+         */
+        fun pluginJvmArgs(args: List<String>): Builder = apply { pluginJvmArgs = args }
 
         /** TCP connection timeout for Maven Resolver artifact downloads. */
         fun artifactResolverConnectTimeout(timeout: Duration): Builder =

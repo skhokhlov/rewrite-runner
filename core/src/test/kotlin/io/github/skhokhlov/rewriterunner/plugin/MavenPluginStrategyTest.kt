@@ -307,6 +307,51 @@ class MavenPluginStrategyTest :
             )
         }
 
+        test("buildEnv returns empty map when no plugin JVM args configured") {
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                )
+
+            assertTrue(strategy.buildEnv(existingMavenOpts = "-Xms1g").isEmpty())
+        }
+
+        test("buildEnv appends plugin JVM args after existing MAVEN_OPTS so ours wins") {
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
+                    pluginJvmArgs = listOf("-Xmx2g", "-XX:+UseG1GC")
+                )
+
+            assertEquals(
+                mapOf("MAVEN_OPTS" to "-Xms1g -Xmx1g -Xmx2g -XX:+UseG1GC"),
+                strategy.buildEnv(existingMavenOpts = "-Xms1g -Xmx1g")
+            )
+        }
+
+        test("buildEnv uses plugin JVM args alone when MAVEN_OPTS unset") {
+            val strategy =
+                MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
+                    pluginJvmArgs = listOf("-Xmx2g")
+                )
+
+            assertEquals(
+                mapOf("MAVEN_OPTS" to "-Xmx2g"),
+                strategy.buildEnv(existingMavenOpts = null)
+            )
+            assertEquals(
+                mapOf("MAVEN_OPTS" to "-Xmx2g"),
+                strategy.buildEnv(existingMavenOpts = "   ")
+            )
+        }
+
         test("run returns failed when dry run command exits non-zero") {
             val strategy =
                 object : MavenPluginStrategy(

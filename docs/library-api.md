@@ -35,6 +35,7 @@ val result = RewriteRunner.builder()
 | `pluginTimeout(Duration)` | `Duration?` | from config / `10m` | Timeout for official Gradle/Maven plugin invocations in Stage 0 |
 | `resolverConnectTimeout(Duration)` | `Duration?` | from config / `30s` | TCP connection timeout for Maven Resolver artifact downloads |
 | `resolverRequestTimeout(Duration)` | `Duration?` | from config / `60s` | Socket read/request timeout for Maven Resolver artifact downloads |
+| `pluginJvmArgs(List<String>)` | `List` | `[]` | JVM args for the **Stage 0 plugin subprocess** (e.g. `["-Xmx4g"]`); overrides `pluginJvmArgs` from config file. Gradle: injected as `-Dorg.gradle.jvmargs=…` (highest precedence; **replaces**, not merges, the project's value). Maven: appended to `MAVEN_OPTS` (a project `.mvn/jvm.config` still wins). Does **not** affect this JVM / the LST fallback — size that with `java -Xmx… -jar`. See [Stage 0 JVM memory](architecture.md#stage-0-jvm-memory). |
 | `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file. Forwarded both to Stage 0 (Maven `-Drewrite.exclusions=…` / Gradle `exclusion(...)` DSL) and to the LST fallback pipeline. |
 | `plainTextMasks(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) for otherwise-unhandled files to parse as plain text; overrides `parse.plainTextMasks` from config file. Both empty falls back to the upstream OpenRewrite default mask list. Forwarded both to Stage 0 (Maven `-Drewrite.plainTextMasks=…` / Gradle `plainTextMask(...)` DSL) and to the LST fallback pipeline. |
 | `includeMavenCentral(Boolean)` | `Boolean?` | from config / `true` | Include Maven Central as a remote repository. Set `false` for air-gapped or enterprise environments. |
@@ -308,6 +309,9 @@ rewriteGradlePluginVersion: 7.32.1
 rewriteMavenPluginVersion: 6.40.0
 resolverConnectTimeout: 30s
 resolverRequestTimeout: 60s
+pluginJvmArgs:
+  - "-Xmx4g"
+# CLI --plugin-jvm-args replaces this list when non-empty.
 ```
 
 ### ToolConfig fields
@@ -324,6 +328,7 @@ resolverRequestTimeout: 60s
 | `rewriteMavenPluginVersion` | `String` | `6.40.0` | Version of `org.openrewrite.maven:rewrite-maven-plugin` used for Stage 0 Maven plugin execution. |
 | `resolverConnectTimeout` | `Duration` | `30s` | TCP connection timeout for Maven Resolver artifact downloads. |
 | `resolverRequestTimeout` | `Duration` | `60s` | Socket read/request timeout for Maven Resolver artifact downloads. |
+| `pluginJvmArgs` | `List<String>` | `[]` | JVM args for the Stage 0 plugin subprocess (e.g. `-Xmx4g`). Gradle: `-Dorg.gradle.jvmargs=…` (replaces the project's value). Maven: appended to `MAVEN_OPTS` (a project `.mvn/jvm.config` wins). Does not affect the rewrite-runner JVM / LST fallback. See [Stage 0 JVM memory](architecture.md#stage-0-jvm-memory). |
 
 ### RepositoryConfig fields
 

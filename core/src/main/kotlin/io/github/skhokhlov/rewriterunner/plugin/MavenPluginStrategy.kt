@@ -27,7 +27,8 @@ import kotlin.io.path.exists
 internal open class MavenPluginStrategy(
     private val logger: RunnerLogger,
     private val timeout: Duration,
-    private val rewritePluginVersion: String
+    private val rewritePluginVersion: String,
+    private val pluginJvmArgs: List<String> = emptyList()
 ) : PluginBuildStrategy {
     override fun run(
         projectDir: Path,
@@ -153,8 +154,29 @@ internal open class MavenPluginStrategy(
             captureOutput = output,
             timeout = timeout,
             timeoutName = "pluginTimeout",
+            env = buildEnv(),
             logger = logger
         )
+
+    /**
+     * Build the subprocess environment overrides for the Maven plugin invocation.
+     *
+     * When [pluginJvmArgs] is non-empty, our args are appended **after** any inherited
+     * [existingMavenOpts] so that on a conflicting flag (e.g. `-Xmx`) ours wins (last value
+     * wins) while the user's other options are preserved. A project `.mvn/jvm.config` is still
+     * appended by Maven after `MAVEN_OPTS`, so it overrides us — by design, and there is no
+     * command-line heap override for Maven. Returns an empty map (no override) when no args are
+     * configured, leaving the inherited environment untouched.
+     */
+    internal fun buildEnv(
+        existingMavenOpts: String? = System.getenv("MAVEN_OPTS")
+    ): Map<String, String> {
+        if (pluginJvmArgs.isEmpty()) return emptyMap()
+        val ours = pluginJvmArgs.joinToString(" ")
+        val merged = listOfNotNull(existingMavenOpts?.takeIf { it.isNotBlank() }, ours)
+            .joinToString(" ")
+        return mapOf("MAVEN_OPTS" to merged)
+    }
 
     private fun findPatchFiles(projectDir: Path, reportDir: Path): List<DirectPluginPatchFile> {
         val patch = reportDir.resolve("rewrite.patch")

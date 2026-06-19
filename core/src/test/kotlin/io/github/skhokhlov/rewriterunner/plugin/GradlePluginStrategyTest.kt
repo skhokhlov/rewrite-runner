@@ -644,6 +644,85 @@ class GradlePluginStrategyTest :
             assertEquals(PluginRunResult.Failed("Gradle rewriteRun exited with 2"), result)
         }
 
+        test("run forwards plugin JVM args via -Dorg.gradle.jvmargs") {
+            val commands = mutableListOf<List<String>>()
+            val strategy =
+                object : GradlePluginStrategy(
+                    logger = NoOpRunnerLogger,
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
+                    pluginJvmArgs = listOf("-Xmx2g", "-XX:+UseG1GC")
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration,
+                        output: StringBuilder?
+                    ): Int? {
+                        commands.add(command)
+                        return 0
+                    }
+                }
+
+            strategy.run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = true,
+                includeMavenCentral = true,
+                artifactRepositories = emptyList()
+            )
+
+            assertTrue(commands.isNotEmpty(), "expected at least one command")
+            commands.forEach { command ->
+                assertTrue(
+                    command.contains("-Dorg.gradle.jvmargs=-Xmx2g -XX:+UseG1GC"),
+                    "expected joined org.gradle.jvmargs in $command"
+                )
+            }
+        }
+
+        test("run omits -Dorg.gradle.jvmargs when pluginJvmArgs empty") {
+            val commands = mutableListOf<List<String>>()
+            val strategy =
+                object : GradlePluginStrategy(
+                    logger = NoOpRunnerLogger,
+                    timeout = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    rewritePluginVersion = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        timeout: Duration,
+                        output: StringBuilder?
+                    ): Int? {
+                        commands.add(command)
+                        return 0
+                    }
+                }
+
+            strategy.run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = true,
+                includeMavenCentral = true,
+                artifactRepositories = emptyList()
+            )
+
+            assertTrue(commands.isNotEmpty(), "expected at least one command")
+            commands.forEach { command ->
+                assertTrue(
+                    command.none { it.startsWith("-Dorg.gradle.jvmargs") },
+                    "expected no org.gradle.jvmargs in $command"
+                )
+            }
+        }
+
         test("run passes configured plugin timeout to execute") {
             var capturedTimeout: Duration? = null
             val configuredTimeout = Duration.ofSeconds(42)

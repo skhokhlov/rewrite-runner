@@ -183,6 +183,23 @@ class ToolConfigTest :
                 ToolConfigDefaults.ARTIFACT_RESOLVER_REQUEST_TIMEOUT,
                 config.artifactResolverRequestTimeout
             )
+            assertEquals(ToolConfigDefaults.PLUGIN_JVM_ARGS, config.pluginJvmArgs)
+            assertTrue(config.pluginJvmArgs.isEmpty())
+        }
+
+        test("loads pluginJvmArgs from yaml") {
+            val configFile = tempDir.resolve("runner.yml")
+            configFile.writeText(
+                """
+                pluginJvmArgs:
+                  - "-Xmx4g"
+                  - "-XX:+UseG1GC"
+                """.trimIndent()
+            )
+
+            val config = ToolConfig.load(configFile, NoOpRunnerLogger)
+
+            assertEquals(listOf("-Xmx4g", "-XX:+UseG1GC"), config.pluginJvmArgs)
         }
 
         test("ignores unknown yaml fields without error") {

@@ -70,6 +70,11 @@ data class ParseConfig(
  *   used by Stage 0 plugin-first execution.
  * @property rewriteMavenPluginVersion Version of the official OpenRewrite Maven plugin
  *   used by Stage 0 plugin-first execution.
+ * @property pluginJvmArgs JVM arguments forwarded to the Stage 0 plugin build-tool subprocess
+ *   (e.g. `-Xmx4g`). For Gradle they are injected as `-Dorg.gradle.jvmargs=…` on the command
+ *   line (highest precedence; replaces, not merges, the project's `org.gradle.jvmargs`). For
+ *   Maven they are appended to `MAVEN_OPTS`; a project `.mvn/jvm.config` still wins on conflict.
+ *   Empty by default — nothing is injected.
  * @property artifactResolverConnectTimeout TCP connection timeout for Maven Resolver downloads.
  * @property artifactResolverRequestTimeout Socket read/request timeout for Maven Resolver downloads.
  */
@@ -84,6 +89,7 @@ data class ToolConfig(
     val pluginRunTimeout: Duration = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
     val rewriteGradlePluginVersion: String = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
     val rewriteMavenPluginVersion: String = ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
+    val pluginJvmArgs: List<String> = ToolConfigDefaults.PLUGIN_JVM_ARGS,
     val artifactResolverConnectTimeout: Duration =
         ToolConfigDefaults.ARTIFACT_RESOLVER_CONNECT_TIMEOUT,
     val artifactResolverRequestTimeout: Duration =

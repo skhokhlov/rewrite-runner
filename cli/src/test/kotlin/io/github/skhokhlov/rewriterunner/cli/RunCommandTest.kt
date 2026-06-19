@@ -192,6 +192,26 @@ class RunCommandTest :
             )
         }
 
+        test("--plugin-jvm-args is parsed as a comma-separated list") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs(
+                "--active-recipe",
+                "io.github.skhokhlov.rewriterunner.MyRecipe",
+                "--plugin-jvm-args",
+                "-Xmx4g,-XX:+UseG1GC"
+            )
+            assertEquals(listOf("-Xmx4g", "-XX:+UseG1GC"), cmd.pluginJvmArgs)
+        }
+
+        test("--plugin-jvm-args defaults to empty list") {
+            val cmd = RunCommand()
+            CommandLine(cmd).parseArgs(
+                "--active-recipe",
+                "io.github.skhokhlov.rewriterunner.MyRecipe"
+            )
+            assertTrue(cmd.pluginJvmArgs.isEmpty())
+        }
+
         test("timeout options are parsed") {
             val cmd = RunCommand()
             CommandLine(cmd).parseArgs(
