@@ -73,7 +73,8 @@ data class ParseConfig(
  * @property pluginJvmArgs JVM arguments forwarded to the Stage 0 plugin build-tool subprocess
  *   (e.g. `-Xmx4g`). For Gradle they are injected as `-Dorg.gradle.jvmargs=…` on the command
  *   line (highest precedence; replaces, not merges, the project's `org.gradle.jvmargs`). For
- *   Maven they are appended to `MAVEN_OPTS`; a project `.mvn/jvm.config` still wins on conflict.
+ *   Maven they are appended to `MAVEN_OPTS`, which the standard Maven launcher places after a
+ *   project `.mvn/jvm.config`, so ours wins on conflicting flags (e.g. `-Xmx`).
  *   Empty by default — nothing is injected.
  * @property artifactResolverConnectTimeout TCP connection timeout for Maven Resolver downloads.
  * @property artifactResolverRequestTimeout Socket read/request timeout for Maven Resolver downloads.

@@ -68,7 +68,7 @@ How `pluginJvmArgs` reaches each tool, and the precedence caveats:
 | Tool | Channel | Precedence behavior |
 |------|---------|---------------------|
 | Gradle | A single `-Dorg.gradle.jvmargs=<joined>` command-line argument (with `--no-daemon`, the build JVM heap is `org.gradle.jvmargs`; `GRADLE_OPTS` only reaches the throwaway client VM, so it is **not** used) | Command-line `-D` is the **highest-precedence** source — it beats the project's `gradle.properties`. But `org.gradle.jvmargs` is **replace-not-merge**: our value wipes any other daemon args the project declared (metaspace, encoding, …). rewrite-runner does not inspect project files. |
-| Maven | Appended to `MAVEN_OPTS` (after any inherited `MAVEN_OPTS`, so ours wins on a conflicting flag) | **Default-only.** A project `.mvn/jvm.config` is appended by Maven *after* `MAVEN_OPTS` and always wins, and there is no command-line heap override for Maven. So a project `.mvn/jvm.config -Xmx` overrides us by design. |
+| Maven | Appended to `MAVEN_OPTS` (after any inherited `MAVEN_OPTS`, so ours is the last value) | **Ours wins on conflicting flags.** The standard Maven 3.x launcher (`bin/mvn` line `MAVEN_OPTS="…/.mvn/jvm.config $MAVEN_OPTS"`, and `bin/mvn.cmd` which passes `%JVM_CONFIG_MAVEN_PROPS%` before `%MAVEN_OPTS%`) places a project `.mvn/jvm.config` *before* `MAVEN_OPTS` on the `java` line, so our appended args win on last-wins flags like `-Xmx`. The project's non-conflicting `jvm.config` entries (e.g. `--add-opens`, encoding) still apply, since they remain on the command line. This makes Maven symmetric with Gradle (our opt-in args win), but surgically — only the flags we pass are overridden. |
 
 ### Combined-memory model (and `-Xms`)
 

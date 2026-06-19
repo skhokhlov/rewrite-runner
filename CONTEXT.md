@@ -67,9 +67,10 @@
 - **Plugin JVM args**: JVM arguments forwarded to the Stage 0 subprocess JVM via
   `--plugin-jvm-args` / `pluginJvmArgs` / `Builder.pluginJvmArgs(...)`. Gradle receives them as a
   command-line `-Dorg.gradle.jvmargs` (highest precedence, **replaces** the project's value); Maven
-  receives them appended to `MAVEN_OPTS` (default-only — a project `.mvn/jvm.config` wins). Empty by
-  default. _Avoid_: assuming they are merged with the project's Gradle args, or that they can
-  override a Maven `.mvn/jvm.config`.
+  receives them appended to `MAVEN_OPTS`, which the standard Maven launcher places after a project
+  `.mvn/jvm.config`, so ours wins on conflicting flags such as `-Xmx` (the project's non-conflicting
+  `jvm.config` entries still apply). Empty by default. _Avoid_: assuming the Gradle args are merged
+  with the project's value, or that a Maven `.mvn/jvm.config` overrides our injected flags.
 - **Combined memory budget**: The peak memory of a run. Because Stage 0 and the LST fallback heaps
   are sequential in time, the bare-host constraint is `max(runner, plugin)` plus overhead — except a
   large runner `-Xms`/`AlwaysPreTouch` makes them coexist. In a container both JVMs share one cgroup,

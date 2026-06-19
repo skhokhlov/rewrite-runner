@@ -751,10 +751,11 @@ class RewriteRunner private constructor(private val config: Builder) {
          *
          * Gradle receives them as a single `-Dorg.gradle.jvmargs=…` command-line argument, which
          * takes precedence over the project's `gradle.properties` but **replaces** rather than
-         * merges any existing `org.gradle.jvmargs`. Maven receives them appended to `MAVEN_OPTS`;
-         * a project `.mvn/jvm.config` is appended after `MAVEN_OPTS` and therefore still wins on
-         * conflicting flags such as `-Xmx`. Does not affect this (the rewrite-runner) JVM or the
-         * in-process LST fallback — size that with `java -Xmx… -jar`.
+         * merges any existing `org.gradle.jvmargs`. Maven receives them appended to `MAVEN_OPTS`,
+         * which the standard Maven launcher places after a project `.mvn/jvm.config`, so on a
+         * conflicting flag such as `-Xmx` ours wins (the project's non-conflicting `jvm.config`
+         * entries still apply). Does not affect this (the rewrite-runner) JVM or the in-process
+         * LST fallback — size that with `java -Xmx… -jar`.
          */
         fun pluginJvmArgs(args: List<String>): Builder = apply { pluginJvmArgs = args }
 

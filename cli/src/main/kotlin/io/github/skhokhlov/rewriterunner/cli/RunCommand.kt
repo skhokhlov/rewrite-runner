@@ -125,7 +125,8 @@ class RunCommand : Callable<Int> {
         description = [
             "Comma-separated JVM args for the Stage 0 plugin subprocess (e.g. '-Xmx4g').",
             "Gradle: injected as -Dorg.gradle.jvmargs (replaces the project's value).",
-            "Maven: appended to MAVEN_OPTS (a project .mvn/jvm.config still wins).",
+            "Maven: appended to MAVEN_OPTS, which the launcher places after a project",
+            ".mvn/jvm.config, so ours wins on conflicting flags such as -Xmx.",
             "Does not affect this JVM/the LST fallback; size that with 'java -Xmx... -jar'."
         ],
         split = ","

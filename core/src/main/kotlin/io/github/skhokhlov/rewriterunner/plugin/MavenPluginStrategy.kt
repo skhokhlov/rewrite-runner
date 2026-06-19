@@ -163,10 +163,12 @@ internal open class MavenPluginStrategy(
      *
      * When [pluginJvmArgs] is non-empty, our args are appended **after** any inherited
      * [existingMavenOpts] so that on a conflicting flag (e.g. `-Xmx`) ours wins (last value
-     * wins) while the user's other options are preserved. A project `.mvn/jvm.config` is still
-     * appended by Maven after `MAVEN_OPTS`, so it overrides us — by design, and there is no
-     * command-line heap override for Maven. Returns an empty map (no override) when no args are
-     * configured, leaving the inherited environment untouched.
+     * wins) while the user's other options are preserved. The standard Maven 3.x launcher
+     * (`bin/mvn` and `bin/mvn.cmd`) places a project `.mvn/jvm.config` **before** `MAVEN_OPTS` on
+     * the `java` command line, so our `MAVEN_OPTS` also wins over `.mvn/jvm.config` for conflicting
+     * flags; the project's non-conflicting `jvm.config` entries still apply (they remain on the
+     * command line). Returns an empty map (no override) when no args are configured, leaving the
+     * inherited environment untouched.
      */
     internal fun buildEnv(
         existingMavenOpts: String? = System.getenv("MAVEN_OPTS")
