@@ -30,6 +30,20 @@ class ProcessRunnerTest :
         fun mkdir(relative: String): Path =
             projectDir.resolve(relative).also { Files.createDirectories(it) }
 
+        test("runProcess forwards env entries to the child process") {
+            val outFile = projectDir.resolve("env-out.txt")
+            val exit =
+                runProcess(
+                    workDir = projectDir,
+                    command = listOf("sh", "-c", "printf '%s' \"\$RR_TEST_ENV\" > env-out.txt"),
+                    env = mapOf("RR_TEST_ENV" to "injected-value"),
+                    logger = NoOpRunnerLogger
+                )
+
+            assertEquals(0, exit)
+            assertEquals("injected-value", outFile.toFile().readText())
+        }
+
         test("discoverBuildUnits returns root Maven unit when root pom exists") {
             projectDir.resolve("pom.xml").writeText("<project/>")
             mkdir("service").resolve("pom.xml").writeText("<project/>")

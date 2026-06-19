@@ -121,6 +121,19 @@ class RunCommand : Callable<Int> {
     var plainTextMasks: List<String> = emptyList()
 
     @Option(
+        names = ["--plugin-jvm-args"],
+        description = [
+            "Comma-separated JVM args for the Stage 0 plugin subprocess (e.g. '-Xmx4g').",
+            "Gradle: injected as -Dorg.gradle.jvmargs (replaces the project's value).",
+            "Maven: appended to MAVEN_OPTS, which the launcher places after a project",
+            ".mvn/jvm.config, so ours wins on conflicting flags such as -Xmx.",
+            "Does not affect this JVM/the LST fallback; size that with 'java -Xmx... -jar'."
+        ],
+        split = ","
+    )
+    var pluginJvmArgs: List<String> = emptyList()
+
+    @Option(
         names = ["--no-maven-central"],
         description = ["Disable Maven Central; use only repositories from config."]
     )
@@ -185,6 +198,7 @@ class RunCommand : Callable<Int> {
                 .skipPluginRun(skipPluginRun)
                 .excludePaths(excludePaths)
                 .plainTextMasks(plainTextMasks)
+                .pluginJvmArgs(pluginJvmArgs)
                 .logger(logger)
             rewriteConfig?.let { builder.rewriteConfig(it) }
             cacheDir?.let { builder.cacheDir(it) }

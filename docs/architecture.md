@@ -52,6 +52,56 @@ and to the LST fallback so both paths select the same files. Stage 0 also receiv
 owned-set exclusions unconditionally; the specialized pass receives only user/YAML exclusions so it
 can own those files beside a successful plugin run.
 
+## Stage 0 JVM memory
+
+OpenRewrite can need a large heap on big projects. There are **two separate JVMs**, controlled
+independently:
+
+1. **The rewrite-runner JVM** — runs the in-process LST fallback (all source files held in memory
+   for cross-file analysis). Size it with `java -Xmx… -jar rewrite-runner-all.jar` (e.g. `-Xmx6g`).
+2. **The Stage 0 plugin subprocess** — the `gradlew`/`mvnw` JVM where OpenRewrite runs in Stage 0.
+   Size it with `--plugin-jvm-args` / `pluginJvmArgs` / `Builder.pluginJvmArgs(...)`. Nothing is
+   injected by default.
+
+How `pluginJvmArgs` reaches each tool, and the precedence caveats:
+
+| Tool | Channel | Precedence behavior |
+|------|---------|---------------------|
+| Gradle | A single `-Dorg.gradle.jvmargs=<joined>` command-line argument (with `--no-daemon`, the build JVM heap is `org.gradle.jvmargs`; `GRADLE_OPTS` only reaches the throwaway client VM, so it is **not** used) | Command-line `-D` is the **highest-precedence** source — it beats the project's `gradle.properties`. But `org.gradle.jvmargs` is **replace-not-merge**: our value wipes any other daemon args the project declared (metaspace, encoding, …). rewrite-runner does not inspect project files. |
+| Maven | Appended to `MAVEN_OPTS` (after any inherited `MAVEN_OPTS`, so ours is the last value) | **Ours wins on conflicting flags.** The standard Maven 3.x launcher (`bin/mvn` line `MAVEN_OPTS="…/.mvn/jvm.config $MAVEN_OPTS"`, and `bin/mvn.cmd` which passes `%JVM_CONFIG_MAVEN_PROPS%` before `%MAVEN_OPTS%`) places a project `.mvn/jvm.config` *before* `MAVEN_OPTS` on the `java` line, so our appended args win on last-wins flags like `-Xmx`. The project's non-conflicting `jvm.config` entries (e.g. `--add-opens`, encoding) still apply, since they remain on the command line. This makes Maven symmetric with Gradle (our opt-in args win), but surgically — only the flags we pass are overridden. |
+
+### Combined-memory model (and `-Xms`)
+
+The two heaps barely overlap in time: Stage 0 runs first and to completion while the rewrite-runner
+JVM is essentially idle (blocked waiting on the subprocess); the LST fallback only uses its big heap
+*after* Stage 0 has finished and its subprocess has exited. `-Xmx` is an address-space reservation,
+not an upfront physical grab, so without `-Xms`/`AlwaysPreTouch` the runner's resident memory stays
+small during Stage 0. On a bare host, size for `max(runnerXmx, pluginXmx)` plus overhead, not the
+sum.
+
+**`-Xms` is the exception.** A large `-Xms` (or `AlwaysPreTouch`) commits the runner heap for the
+whole run, so it *does* coexist with the Stage 0 subprocess.
+
+**Containers.** The runner and the Stage 0 subprocess share one cgroup, so the kernel limits their
+*combined* touched RSS and OOM-kills (exit 137) when it is exceeded. JDKs also size ergonomic heaps
+(default `MaxRAMPercentage` = 25%) from the cgroup limit. A safe Stage-0 budget for the plugin heap:
+
+```
+pluginXmx  ≲  cgroupLimit − max(runnerInit, runnerCommitted) − non-heap overhead
+```
+
+Use the runner's *committed/`-Xms`* figure here (not `-Xmx`), since the runner is idle during
+Stage 0. rewrite-runner does **not** currently detect this or clamp/inject automatically — sizing is
+the operator's responsibility. Auto-sizing is a future direction; see
+[ADR 0009](adr/0009-fork-lst-worker-jvm.md).
+
+### CPU
+
+Orphan build units run **sequentially** (`PluginRecipeRunner` iterates units one at a time), and
+Gradle is invoked with `--no-daemon --no-parallel`. There is no parallel fan-out in plugin or LST
+execution, so CPU and memory are bounded to one active subprocess at a time. No scheduling knob is
+provided or needed.
+
 ## Maven Local Repository Strategy
 
 Two separate `AetherContext` instances are created per `RewriteRunner.run()` invocation, each with a distinct local Maven repository:

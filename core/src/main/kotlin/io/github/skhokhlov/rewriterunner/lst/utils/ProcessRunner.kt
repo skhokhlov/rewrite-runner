@@ -53,10 +53,14 @@ internal fun runProcess(
     captureOutput: StringBuilder? = null,
     timeout: Duration = ToolConfigDefaults.SUBPROCESS_RUN_TIMEOUT,
     timeoutName: String = "processTimeout",
+    env: Map<String, String> = emptyMap(),
     logger: RunnerLogger
 ): Int? {
     DurationParser.requirePositive(timeout, timeoutName)
     val pb = ProcessBuilder(command).directory(workDir.toFile())
+    if (env.isNotEmpty()) {
+        pb.environment().putAll(env)
+    }
 
     val process =
         try {
