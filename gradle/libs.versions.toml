@@ -11,7 +11,7 @@ maven-model = "3.9.16"
 maven-resolver = "2.0.18"
 jackson = "3.2.0"
 dokka = "2.2.0"
-com-vanniktech-maven-publish-gradle-plugin = "0.36.0"
+com-vanniktech-maven-publish-gradle-plugin = "0.37.0"
 rewrite-gradle-plugin = "7.32.1"
 rewrite-maven-plugin = "6.42.0"
 
