@@ -15,7 +15,7 @@ internal class PluginRecipeRunner(
     timeout: Duration = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
     rewriteGradlePluginVersion: String = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
     rewriteMavenPluginVersion: String = ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
-    pluginJvmArgs: List<String> = ToolConfigDefaults.PLUGIN_JVM_ARGS,
+    pluginJvmArgs: List<String> = emptyList(),
     private val gradleStrategy: PluginBuildStrategy =
         GradlePluginStrategy(logger, timeout, rewriteGradlePluginVersion, pluginJvmArgs),
     private val mavenStrategy: PluginBuildStrategy =

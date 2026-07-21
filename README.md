@@ -88,6 +88,51 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar \
   --output diff
 ```
 
+## Execution and memory
+
+`rewrite-runner` coordinates heavy work by default: the official Gradle/Maven plugin runs first,
+then any required LST work runs in one short-lived worker JVM. The stages are serialized, so a
+container does not need to carry a large coordinator heap alongside a live worker or plugin JVM.
+
+Configure runner-owned JVMs in YAML:
+
+```yaml
+execution:
+  mode: forked
+  executorJvmArgs: ["-Xmx6g"]
+  plugin:
+    jvmArgs: ["-XX:MaxMetaspaceSize=1g"]
+  lstWorker:
+    jvmArgs: ["-XX:+HeapDumpOnOutOfMemoryError"]
+    timeout: 30m
+```
+
+Or use repeatable flat CLI options. Use `=` when the JVM argument begins with `-`:
+
+```bash
+java -Xmx256m -jar rewrite-runner.jar \
+  --executor-jvm-arg=-Xmx6g \
+  --plugin-jvm-arg=-XX:MaxMetaspaceSize=1g \
+  --lst-worker-jvm-arg=-XX:+HeapDumpOnOutOfMemoryError \
+  --lst-worker-timeout=30m
+```
+
+With no explicit executor arguments or inherited JDK JVM options, rewrite-runner chooses a
+conservative container-aware `-Xmx` for runner-owned children. An explicit argument disables that
+automatic choice. `JAVA_TOOL_OPTIONS` and `JDK_JAVA_OPTIONS` remain in effect; put a
+coordinator-only heap directly on the initial `java` command rather than in those global variables.
+
+Forked library runs return diffs through `RunResult.rawDiffs` and leave `RunResult.results` empty.
+Use `executionMode(ExecutionMode.IN_PROCESS)` only when you need rich OpenRewrite `Result` values
+or a custom change writer.
+
+The release gate also runs the built fat JAR under Docker with a real `2 GiB` cgroup limit. It
+checks the worker's observed automatic heap (about `1.4 GiB`) and an explicit JVM-argument override;
+Docker/image availability is therefore a required production-verification prerequisite.
+
+Migration: `pluginJvmArgs`, `Builder.pluginJvmArgs(...)`, and `--plugin-jvm-args` were removed.
+Use `execution.plugin.jvmArgs`, `pluginExecutorJvmArgs(...)`, or `--plugin-jvm-arg` instead.
+
 ## Library Usage
 
 `rewrite-runner` can be used as a library from Java and Kotlin code without the CLI layer. Use the plain JAR (not the `-all` fat JAR) as a dependency.

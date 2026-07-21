@@ -3,12 +3,15 @@ package io.github.skhokhlov.rewriterunner.integration
 import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.RunResult
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
+import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.kotest.core.spec.style.FunSpec
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -16,7 +19,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import org.junit.jupiter.api.Assumptions
 
 /**
  * Stage 0 integration tests that exercise the REAL OpenRewrite Gradle/Maven plugins.
@@ -34,7 +36,8 @@ import org.junit.jupiter.api.Assumptions
  *    Stage 0 actually ran; without it, an LST-fallback success would pass the file-content
  *    assertions and silently mask Stage 0 regressions.
  *
- * Skipped (not failed) when Maven Central is unreachable at test start or on Windows.
+ * The Linux CI lane treats Maven Central and wrapper toolchains as required prerequisites. The
+ * POSIX wrapper fixture is not selected on Windows.
  */
 class PluginRealExecutionIntegrationTest :
     FunSpec({
@@ -51,6 +54,65 @@ class PluginRealExecutionIntegrationTest :
 
         test("real plugin: Maven dry-run does not mutate sources").config(enabled = !isWindows) {
             runRealPluginScenario(PluginScenarios.mavenSingleFile, dryRun = true)
+        }
+
+        test(
+            "real plugin: Gradle and Maven recipe JVMs observe configured executor heap"
+        ).config(enabled = !isWindows) {
+            requireMavenCentralReachable()
+            val repository = Files.createTempDirectory("real-plugin-probe-repository-")
+            try {
+                val coordinate = publishExecutorProbeArtifact(repository)
+                ProbeBuildTool.entries.forEach { tool ->
+                    val projectDir = Files.createTempDirectory("real-plugin-probe-${tool.name}-")
+                    val cacheDir = Files.createTempDirectory("real-plugin-probe-cache-")
+                    val probeOutput = projectDir.resolve("executor-probe.csv")
+                    try {
+                        setUpProbeProject(projectDir, tool, repository, probeOutput)
+                        installRealWrapper(projectDir)
+
+                        val result =
+                            RewriteRunner.builder()
+                                .projectDir(projectDir)
+                                .activeRecipe("com.example.ExecutorProbe")
+                                .recipeArtifact(coordinate)
+                                .artifactRepository(
+                                    RepositoryConfig(url = repository.toUri().toString())
+                                )
+                                .cacheDir(cacheDir)
+                                .executorJvmArgs(listOf("-Xmx512m"))
+                                .rewriteConfig(projectDir.resolve("rewrite.yaml"))
+                                .build()
+                                .run()
+
+                        assertEquals(
+                            UsedExecutionStage.PLUGIN,
+                            result.executionDiagnostics.stageUsed
+                        )
+                        val rows = readProbeRows(probeOutput)
+                        assertTrue(
+                            rows.isNotEmpty(),
+                            "${tool.name} plugin did not write probe output"
+                        )
+                        rows.forEach { row ->
+                            assertTrue(
+                                row.processId != ProcessHandle.current().pid(),
+                                "Probe ran in the coordinator instead of the ${tool.name} plugin JVM"
+                            )
+                            assertEquals(512L * 1024L * 1024L, row.maximumHeapBytes)
+                            assertTrue(
+                                "-Xmx512m" in row.inputArguments,
+                                "${tool.name} recipe JVM did not receive configured heap: ${row.inputArguments}"
+                            )
+                        }
+                    } finally {
+                        projectDir.toFile().deleteRecursively()
+                        cacheDir.toFile().deleteRecursively()
+                    }
+                }
+            } finally {
+                repository.toFile().deleteRecursively()
+            }
         }
 
         listOf(MultiModuleBuildTool.GRADLE, MultiModuleBuildTool.MAVEN).forEach { tool ->
@@ -91,7 +153,7 @@ class PluginRealExecutionIntegrationTest :
         test(
             "real plugin: orphan Gradle subdir unit runs Stage 0 and rebases the diff"
         ).config(enabled = !isWindows) {
-            assumeMavenCentralReachable()
+            requireMavenCentralReachable()
             val projectDir = Files.createTempDirectory("real-plugin-orphan-")
             val cacheDir = Files.createTempDirectory("real-plugin-orphan-cache-")
             try {
@@ -169,7 +231,7 @@ class PluginRealExecutionIntegrationTest :
             test(
                 "real plugin: root-less $label monorepo runs Stage 0 in every unit"
             ).config(enabled = !isWindows) {
-                assumeMavenCentralReachable()
+                requireMavenCentralReachable()
                 val projectDir = Files.createTempDirectory("real-plugin-rootless-")
                 val cacheDir = Files.createTempDirectory("real-plugin-rootless-cache-")
                 try {
@@ -190,7 +252,7 @@ class PluginRealExecutionIntegrationTest :
         test(
             "real plugin: root-less Gradle monorepo applies a recipe to build.gradle in every unit"
         ).config(enabled = !isWindows) {
-            assumeMavenCentralReachable()
+            requireMavenCentralReachable()
             val projectDir = Files.createTempDirectory("real-plugin-rootless-buildgradle-")
             val cacheDir = Files.createTempDirectory("real-plugin-rootless-buildgradle-cache-")
             val units = listOf("svc-a", "svc-b")
@@ -253,6 +315,112 @@ private enum class MultiModuleBuildTool(val displayName: String) {
 
 private data class WrapperSet(val gradle: Boolean, val maven: Boolean)
 
+private enum class ProbeBuildTool { GRADLE, MAVEN }
+
+private data class ExecutorProbeRow(
+    val processId: Long,
+    val maximumHeapBytes: Long,
+    val inputArguments: String
+)
+
+private const val EXECUTOR_PROBE_GROUP = "io.github.skhokhlov.rewriterunner.integration"
+private const val EXECUTOR_PROBE_ARTIFACT = "executor-probe"
+private const val EXECUTOR_PROBE_VERSION = "1.0.0"
+private const val EXECUTOR_PROBE_CLASS =
+    "io.github.skhokhlov.rewriterunner.integration.probe.ExecutorProbeRecipe"
+
+/** Publishes a test-only Java recipe artifact without adding it to the production build. */
+private fun publishExecutorProbeArtifact(repository: Path): String {
+    val artifactDirectory = repository.resolve(
+        "${EXECUTOR_PROBE_GROUP.replace('.', '/')}/" +
+            "$EXECUTOR_PROBE_ARTIFACT/$EXECUTOR_PROBE_VERSION"
+    )
+    Files.createDirectories(artifactDirectory)
+    val jar = artifactDirectory.resolve(
+        "$EXECUTOR_PROBE_ARTIFACT-$EXECUTOR_PROBE_VERSION.jar"
+    )
+    val classResource = EXECUTOR_PROBE_CLASS.replace('.', '/') + ".class"
+    val classBytes = requireNotNull(
+        Thread.currentThread().contextClassLoader.getResourceAsStream(classResource)
+    ) {
+        "Could not load compiled test probe class $classResource"
+    }
+    JarOutputStream(Files.newOutputStream(jar)).use { output ->
+        output.putNextEntry(JarEntry(classResource))
+        classBytes.use { input -> input.copyTo(output) }
+        output.closeEntry()
+    }
+    artifactDirectory.resolve("$EXECUTOR_PROBE_ARTIFACT-$EXECUTOR_PROBE_VERSION.pom").writeText(
+        """
+        <project xmlns="http://maven.apache.org/POM/4.0.0">
+          <modelVersion>4.0.0</modelVersion>
+          <groupId>$EXECUTOR_PROBE_GROUP</groupId>
+          <artifactId>$EXECUTOR_PROBE_ARTIFACT</artifactId>
+          <version>$EXECUTOR_PROBE_VERSION</version>
+        </project>
+        """.trimIndent()
+    )
+    return "$EXECUTOR_PROBE_GROUP:$EXECUTOR_PROBE_ARTIFACT:$EXECUTOR_PROBE_VERSION"
+}
+
+private fun setUpProbeProject(
+    projectDir: Path,
+    tool: ProbeBuildTool,
+    repository: Path,
+    probeOutput: Path
+) {
+    projectDir.resolve("src/main/java/com/example").toFile().mkdirs()
+    projectDir.resolve("src/main/java/com/example/App.java").writeText("class App {}\n")
+    projectDir.resolve("rewrite.yaml").writeText(
+        """
+        ---
+        type: specs.openrewrite.org/v1beta/recipe
+        name: com.example.ExecutorProbe
+        recipeList:
+          - $EXECUTOR_PROBE_CLASS:
+              outputFile: "${probeOutput.toAbsolutePath()}"
+        """.trimIndent()
+    )
+    when (tool) {
+        ProbeBuildTool.GRADLE -> {
+            projectDir.resolve("settings.gradle.kts").writeText("rootProject.name = \"probe\"\n")
+            projectDir.resolve("build.gradle.kts").writeText("plugins { java }\n")
+        }
+
+        ProbeBuildTool.MAVEN -> {
+            projectDir.resolve("pom.xml").writeText(
+                """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>com.example</groupId>
+                  <artifactId>probe</artifactId>
+                  <version>1.0.0</version>
+                  <repositories>
+                    <repository>
+                      <id>executor-probe</id>
+                      <url>${repository.toUri()}</url>
+                    </repository>
+                  </repositories>
+                </project>
+                """.trimIndent()
+            )
+        }
+    }
+}
+
+private fun readProbeRows(file: Path): List<ExecutorProbeRow> {
+    assertTrue(Files.isRegularFile(file), "Probe output was not created: $file")
+    return Files.readAllLines(file).filter(String::isNotBlank).map { line ->
+        val fields = line.split("|", limit = 3)
+        require(fields.size == 3) { "Malformed executor probe row: $line" }
+        ExecutorProbeRow(
+            processId = fields[0].toLong(),
+            maximumHeapBytes = fields[1].toLong(),
+            inputArguments = fields[2]
+        )
+    }
+}
+
 private val rootSource: Path = Path.of("src/main/java/com/example/Root.java")
 private val libKeepSource: Path = Path.of("lib/src/main/java/com/example/Keep.java")
 private val libSkipSource: Path = Path.of("lib/src/main/java/com/example/Skip.java")
@@ -309,7 +477,7 @@ private fun runMultiModuleExclusionScenario(
     expectedChangedPaths: Set<Path>,
     expectedUnchangedPaths: Set<Path>
 ) {
-    assumeMavenCentralReachable()
+    requireMavenCentralReachable()
     val projectDir = Files.createTempDirectory("real-plugin-exclusions-")
     val cacheDir = Files.createTempDirectory("real-plugin-exclusions-cache-")
     try {
@@ -483,7 +651,7 @@ private fun assertRootlessMonorepo(projectDir: Path, cacheDir: Path, unitDirs: L
 }
 
 private fun runRealPluginScenario(scenario: PluginScenario, dryRun: Boolean) {
-    assumeMavenCentralReachable()
+    requireMavenCentralReachable()
     val projectDir = Files.createTempDirectory("real-plugin-")
     val cacheDir = Files.createTempDirectory("real-plugin-cache-")
     try {
@@ -592,10 +760,10 @@ internal fun installRealWrapper(projectDir: Path) {
 }
 
 /**
- * HEAD-checks Maven Central with a 3-second timeout. Skips the calling test (JUnit assumption)
- * if unreachable so the suite does not fail on flaky network or air-gapped runs.
+ * HEAD-checks Maven Central with a 3-second timeout. The real-plugin lane is authoritative once
+ * selected, so an unavailable prerequisite is a test failure rather than an assumption skip.
  */
-internal fun assumeMavenCentralReachable() {
+internal fun requireMavenCentralReachable() {
     try {
         val conn =
             URL("https://repo.maven.apache.org/maven2/").openConnection() as HttpURLConnection
@@ -605,8 +773,8 @@ internal fun assumeMavenCentralReachable() {
         conn.connect()
         val code = conn.responseCode
         conn.disconnect()
-        Assumptions.assumeTrue(code in 200..499, "Maven Central returned HTTP $code")
+        check(code in 200..499) { "Maven Central returned HTTP $code" }
     } catch (e: Exception) {
-        Assumptions.assumeTrue(false, "Maven Central not reachable: ${e.message}")
+        throw IllegalStateException("Maven Central not reachable: ${e.message}", e)
     }
 }

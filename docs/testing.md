@@ -14,11 +14,13 @@ This applies at all layers: unit tests in `core/`, integration tests in `cli/`.
 - **JUnit 5** with `@TempDir` for temporary directories
 - **`kotlin.test` assertions**: `assertEquals`, `assertTrue`, `assertFalse`, `assertNull`, `assertNotEquals`
 - **No mocks** — subclass `ClasspathStage` implementations and override `resolve(projectDir, parseFailures)` to drive classpath behavior in tests
-- Some integration tests accept "success path OR expected fallback" to handle environment variability (e.g., no Maven in CI)
+- Critical orchestration tests assert the exact executor and outcome; they never treat a plugin success and a fallback success as equivalent.
 
 ## Integration Tests
 
-`BaseIntegrationTest.runCli()` captures stdout, stderr, and exit code by invoking `RunCommand` in-process.
+`BaseIntegrationTest.runCli()` is useful for CLI parsing and formatting, but it is not proof of
+forked execution. Worker acceptance tests launch a real child JVM and assert its PID, handshake, and
+observed maximum heap.
 
 ```kotlin
 class MyIntegrationTest : BaseIntegrationTest() {
@@ -115,19 +117,31 @@ cli/src/test/kotlin/.../
 
 ## Test Lanes
 
-Tests are split into three lanes by Gradle `Test.filter` class-name pattern. Each lane has a dedicated CI job; in CI they run sequentially so a failure shows up at the right stage.
+Tests are split into four lanes by Gradle `Test.filter` class-name pattern. Each lane has a
+dedicated CI job; in CI they run sequentially so a failure shows up at the right stage.
 
 | Lane | Gradle task | Scope | When |
 |------|-------------|-------|------|
-| Unit | `:core:test`, `:cli:test` | `core` module + `RunCommandTest`; excludes `*IntegrationTest` | `check` lifecycle, CI job 1 |
-| Integration (fake wrappers) | `:cli:testIntegration` | All `*IntegrationTest` classes **except** `PluginRealExecutionIntegrationTest`; offline-safe | CI job 2 |
+| Unit + forked acceptance | `:core:test`, `:cli:test` | Configuration, protocol, diagnostics, and real core worker JVM tests; excludes `*IntegrationTest` | `check` lifecycle, CI job 1 |
+| Integration (fake wrappers) | `:cli:testIntegration` | All ordinary `*IntegrationTest` classes except real-plugin and container acceptance; offline-safe | CI job 2 |
 | Integration (real plugins) | `:cli:testRealPlugin` | `PluginRealExecutionIntegrationTest` only; downloads Maven/Gradle distributions and pulls live plugin artifacts from Maven Central | CI job 3 |
+| Container acceptance | `:cli:testContainer` | Built CLI fat JAR running under a real Docker `--memory=2g --memory-swap=2g` cgroup | CI job 4 |
 
-`:cli:check` does **not** depend on `:cli:testIntegration` or `:cli:testRealPlugin` — those are explicit. Run `./gradlew check :cli:testIntegration` for a full offline verification before pushing; add `:cli:testRealPlugin` for the live-plugin pass.
+Root `check` includes the offline fake-wrapper integration lane. `productionCheck` additionally runs
+the real-plugin and container lanes and builds the release fat JAR. Both external-environment lanes
+are authoritative once selected: missing network, toolchain, Docker, or image prerequisites fail the
+task rather than producing a green skip. Tag publication runs `productionCheck` before publication.
 
 Class-name conventions:
-- Every integration test class name ends with `IntegrationTest` (enforced by `failOnNoMatchingTests = true` on `testIntegration` / `testRealPlugin`).
+- Every integration test class name ends with `IntegrationTest` (enforced by `failOnNoMatchingTests = true` on all dedicated integration tasks).
 - Add a new offline integration test by simply creating an `*IntegrationTest` class under `cli/src/test/kotlin/.../integration/`.
+
+## Forked worker tests
+
+The core suite exercises the worker through public `RewriteRunner` behavior: default forked result
+shape, a distinct child PID, worker-observed explicit `-Xmx`, disk application, and rejection of a
+custom change writer in forked mode. Unit tests also cover automatic heap boundaries and configuration
+precedence. Worker failures must not retry the same work in-process.
 
 ## Stage 0 Plugin Tests
 
@@ -143,6 +157,11 @@ The fake-wrapper tier gives fast feedback on orchestration logic and CLI flag wi
 **License envelope** — the real-wrapper suite only loads recipes from `rewrite-core` (Apache 2.0). The `org.openrewrite.recipe.*` artifacts (`rewrite-static-analysis`, `rewrite-spring`, `rewrite-migrate-java`, …) ship under the Moderne Source Available license, which is incompatible with this project; do not add a scenario that pulls one in via `recipeArtifacts`. The `--recipe-artifact` coordinate-resolution code path is covered by `RecipeArtifactResolver` unit tests against permissive coordinates.
 
 **Stage 0 proof** — the real-wrapper suite calls `RewriteRunner` directly (not the CLI) and asserts that `RunResult.executionDiagnostics.stageUsed == UsedExecutionStage.PLUGIN`. Non-dry-run real plugin scenarios also assert positive `estimatedTimeSaved`. Without these assertions, a Stage 0 regression that silently fell through to the LST pipeline or lost the plugin-reported estimate could still satisfy file-content checks and stay green.
+
+**Actual plugin JVM proof** — a test-only recipe is packaged into a temporary local Maven artifact
+and loaded by both official plugins. It records its executing PID, `Runtime.maxMemory()`, and JVM
+input arguments. The suite asserts that the PID is not the coordinator and that each plugin really
+observed the configured `-Xmx`, rather than merely checking the rendered Gradle/Maven command.
 
 **Scenario shape** — both tiers consume `PluginScenario` objects from `PluginScenarios.kt`. Each scenario defines the project layout, recipe, and expected outcomes so a layout change is a one-place edit.
 
@@ -160,13 +179,24 @@ The fake-wrapper tier gives fast feedback on orchestration logic and CLI flag wi
 # Real-plugin lane (downloads toolchains + plugins on first run; ~5 min warm):
 ./gradlew :cli:testRealPlugin
 
+# Release fat JAR under a real 2 GiB Docker cgroup (Docker required):
+./gradlew :cli:testContainer
+
 # Single scenario smoke:
 ./gradlew :cli:testRealPlugin --tests "*maven multi-module*"
 ```
 
-**Skip conditions for the real-wrapper suite:**
-- Windows (POSIX shell wrappers not supported)
-- Maven Central unreachable at test start (assumption skips with a message, not a failure)
+**Platform boundary for the real-wrapper suite:** Windows is not selected because its fixture
+uses POSIX wrapper shims. On supported platforms, an unreachable Maven Central is a failure: once
+`:cli:testRealPlugin` is selected it never turns an unavailable prerequisite into a green skip.
+
+## Container acceptance
+
+`ContainerForkedDistributionIntegrationTest` runs the built `-all` JAR in
+`eclipse-temurin:21-jre` with `--memory=2g --memory-swap=2g`. It checks the worker's actual
+handshake heap against the documented automatic 1433 MiB policy, then verifies that an explicit
+`--executor-jvm-arg=-Xmx768m` wins. The test invokes Docker directly and uses `--rm`, so it fails
+on unavailable Docker/image prerequisites and does not retain the container after either run.
 
 **Toolchain cache** — Maven and Gradle distributions are cached under `cli/build/test-cache/toolchains/` (`./gradlew clean` clears them). The Gradle distribution version tracks the project's own `gradle/wrapper/gradle-wrapper.properties` automatically — `cli/build.gradle.kts` reads it at configuration time and forwards it to the test JVM as `-Drewriterunner.test.gradleVersion=<v>`. Maven is pinned in `ToolchainCache.kt` (`MAVEN_VERSION`) and is the only manual bump knob.
 

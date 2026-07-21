@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.cli
 
+import io.github.skhokhlov.rewriterunner.ExecutionMode
 import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.RunResult
 import io.github.skhokhlov.rewriterunner.apply.WriteOutcome
@@ -120,18 +121,49 @@ class RunCommand : Callable<Int> {
     )
     var plainTextMasks: List<String> = emptyList()
 
-    @Option(
-        names = ["--plugin-jvm-args"],
-        description = [
-            "Comma-separated JVM args for the Stage 0 plugin subprocess (e.g. '-Xmx4g').",
-            "Gradle: injected as -Dorg.gradle.jvmargs (replaces the project's value).",
-            "Maven: appended to MAVEN_OPTS, which the launcher places after a project",
-            ".mvn/jvm.config, so ours wins on conflicting flags such as -Xmx.",
-            "Does not affect this JVM/the LST fallback; size that with 'java -Xmx... -jar'."
-        ],
-        split = ","
-    )
+    @Option(names = ["--plugin-jvm-args"], hidden = true, split = ",")
     var pluginJvmArgs: List<String> = emptyList()
+
+    @Option(
+        names = ["--execution-mode"],
+        description = ["Post-plugin LST mode: forked (default) or in-process."],
+        converter = [ExecutionModeConverter::class]
+    )
+    var executionMode: ExecutionMode? = null
+
+    @Option(
+        names = ["--executor-jvm-arg"],
+        description = [
+            "JVM argument shared by runner-owned executors; may be repeated.",
+            "Use --executor-jvm-arg=-Xmx6g when the value starts with '-'."
+        ]
+    )
+    var executorJvmArgs: List<String>? = null
+
+    @Option(
+        names = ["--plugin-jvm-arg"],
+        description = [
+            "JVM argument appended for the official Gradle/Maven plugin executor; may be repeated.",
+            "Use --plugin-jvm-arg=-XX:MaxMetaspaceSize=1g for values beginning with '-'."
+        ]
+    )
+    var pluginExecutorJvmArgs: List<String>? = null
+
+    @Option(
+        names = ["--lst-worker-jvm-arg"],
+        description = [
+            "JVM argument appended for the forked LST worker; may be repeated.",
+            "Use --lst-worker-jvm-arg=-Xmx6g for values beginning with '-'."
+        ]
+    )
+    var lstWorkerJvmArgs: List<String>? = null
+
+    @Option(
+        names = ["--lst-worker-timeout"],
+        description = ["Optional whole-worker timeout, for example 30m or PT30M."],
+        converter = [DurationConverter::class]
+    )
+    var lstWorkerTimeout: Duration? = null
 
     @Option(
         names = ["--no-maven-central"],
@@ -190,6 +222,9 @@ class RunCommand : Callable<Int> {
             LogbackRunnerLogger(showInfo = infoLogging || debugLogging, showDebug = debugLogging)
 
         return try {
+            require(pluginJvmArgs.isEmpty()) {
+                "--plugin-jvm-args was removed; use --plugin-jvm-arg instead"
+            }
             val builder = RewriteRunner.builder()
                 .projectDir(projectDir)
                 .activeRecipe(activeRecipe)
@@ -198,7 +233,6 @@ class RunCommand : Callable<Int> {
                 .skipPluginRun(skipPluginRun)
                 .excludePaths(excludePaths)
                 .plainTextMasks(plainTextMasks)
-                .pluginJvmArgs(pluginJvmArgs)
                 .logger(logger)
             rewriteConfig?.let { builder.rewriteConfig(it) }
             cacheDir?.let { builder.cacheDir(it) }
@@ -209,6 +243,11 @@ class RunCommand : Callable<Int> {
             pluginTimeout?.let { builder.pluginRunTimeout(it) }
             resolverConnectTimeout?.let { builder.artifactResolverConnectTimeout(it) }
             resolverRequestTimeout?.let { builder.artifactResolverRequestTimeout(it) }
+            executionMode?.let { builder.executionMode(it) }
+            executorJvmArgs?.let { builder.executorJvmArgs(it) }
+            pluginExecutorJvmArgs?.let { builder.pluginExecutorJvmArgs(it) }
+            lstWorkerJvmArgs?.let { builder.lstWorkerJvmArgs(it) }
+            lstWorkerTimeout?.let { builder.lstWorkerTimeout(it) }
 
             val runResult = builder.build().run()
 
@@ -262,6 +301,14 @@ private class OutputModeConverter : ITypeConverter<OutputMode> {
 private class DurationConverter : ITypeConverter<Duration> {
     override fun convert(value: String): Duration = try {
         DurationParser.parse(value)
+    } catch (e: IllegalArgumentException) {
+        throw CommandLine.TypeConversionException(e.message)
+    }
+}
+
+private class ExecutionModeConverter : ITypeConverter<ExecutionMode> {
+    override fun convert(value: String): ExecutionMode = try {
+        ExecutionMode.parse(value)
     } catch (e: IllegalArgumentException) {
         throw CommandLine.TypeConversionException(e.message)
     }

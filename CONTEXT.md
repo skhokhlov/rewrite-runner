@@ -12,16 +12,20 @@
   the configured target, recording per-file successes and failures rather than treating recipe
   execution alone as proof that disk changes landed.
 - **Change writer**: The seam responsible for applying recipe results to a target. Production uses
-  the disk-backed writer; tests can inject an in-memory writer through the internal builder hook.
+  the disk-backed writer. Custom/in-memory writers are explicit **in-process** only because rich
+  `Result` graphs do not cross the worker boundary.
 - **Classpath stage**: A `ClasspathStage` implementation in the ordered LST classpath-resolution
   chain. `resolve(projectDir, parseFailures)` returns a `ClasspathResolutionResult` to win or
   `null` to fall through to the next stage.
-- **Stage 0 / Plugin-first execution**: The default execution path, in which rewrite-runner shells
-  out to the official OpenRewrite Gradle/Maven plugin to apply the recipe, short-circuiting the
-  in-process engine on success. _Avoid_: "plugin mode", "external run". See [[0006-plugin-first-execution]].
-- **LST fallback**: The in-process four-stage engine (`LstBuilder` + classpath stages) that runs
-  when Stage 0 is skipped, fails, or finds no build tool. It is the fallback, not the primary path.
-  _Avoid_: "LST pipeline" as a synonym for the whole tool — it is one of two execution paths.
+- **Stage 0 / Plugin-first execution**: The first sequence in a coordinated run, in which
+  rewrite-runner shells out to the official OpenRewrite Gradle/Maven plugin. A successful Stage 0
+  may be followed by one specialized worker pass. _Avoid_: "plugin mode", "external run".
+- **LST worker**: A fork-per-run JVM that owns recipe resolution, LST construction, recipe execution,
+  collision filtering, and LST-generated disk application. It returns transportable diffs and
+  diagnostics, never LST graphs. See [[0010-fork-lst-worker-jvm]].
+- **LST fallback**: The four-stage engine (`LstBuilder` + classpath stages) run by the LST worker by
+  default when Stage 0 is skipped, fails, or is partial. It can run in-process only as an explicit
+  compatibility mode.
 - **Orphan unit**: A build unit in a [[#root-less-monorepo]] subdirectory that Stage 0 runs the
   plugin in when the root has no descriptor. Each orphan unit's diffs are rebased to the
   repository root.
@@ -58,21 +62,16 @@
   on a path and does not descend into that directory's children.
 - **Write outcome**: The per-file result of the apply step: successful created/modified/deleted
   changes plus failures with their path, kind, and cause.
-- **Runner JVM**: The JVM running rewrite-runner itself (the fat JAR). It hosts the
-  [[#lst-fallback]] in-process engine, so it is the heap sized by `java -Xmx… -jar`. Distinct from
-  the **Stage 0 subprocess JVM**. _Avoid_: conflating its `-Xmx` with the plugin's heap.
+- **Coordinator JVM**: The JVM running `RewriteRunner` and `RunCoordinator`. It owns configuration,
+  stage selection, process lifecycle, and aggregation. Its heap is caller-managed and does not host
+  LST work in default forked mode.
 - **Stage 0 subprocess JVM**: The `gradlew`/`mvnw` JVM where OpenRewrite runs during
   [[#stage-0-plugin-first-execution]]. Its heap is governed by **plugin JVM args**, never by the
   runner JVM's `-Xmx`.
-- **Plugin JVM args**: JVM arguments forwarded to the Stage 0 subprocess JVM via
-  `--plugin-jvm-args` / `pluginJvmArgs` / `Builder.pluginJvmArgs(...)`. Gradle receives them as a
-  command-line `-Dorg.gradle.jvmargs` (highest precedence, **replaces** the project's value); Maven
-  receives them appended to `MAVEN_OPTS`, which the standard Maven launcher places after a project
-  `.mvn/jvm.config`, so ours wins on conflicting flags such as `-Xmx` (the project's non-conflicting
-  `jvm.config` entries still apply). Empty by default. _Avoid_: assuming the Gradle args are merged
-  with the project's value, or that a Maven `.mvn/jvm.config` overrides our injected flags.
-- **Combined memory budget**: The peak memory of a run. Because Stage 0 and the LST fallback heaps
-  are sequential in time, the bare-host constraint is `max(runner, plugin)` plus overhead — except a
-  large runner `-Xms`/`AlwaysPreTouch` makes them coexist. In a container both JVMs share one cgroup,
-  so their combined RSS is what the kernel limits. Currently a documented model only, not enforced
-  in code. See [[0009-fork-lst-worker-jvm]].
+- **Executor JVM arguments**: Shared `execution.executorJvmArgs` plus stage-specific
+  `execution.plugin.jvmArgs` or `execution.lstWorker.jvmArgs`, exposed by the matching builder and
+  flat repeatable CLI methods. Gradle receives nonempty arguments as complete
+  `org.gradle.jvmargs`; Maven appends them to `MAVEN_OPTS`.
+- **Automatic heap policy**: When runner arguments, inherited JDK options, and explicit project JVM
+  settings are absent, rewrite-runner adds a conservative cgroup-aware `-Xmx` to runner-owned
+  executors. This is a heap ceiling, not aggregate RSS enforcement.

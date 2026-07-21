@@ -16,9 +16,6 @@ object ToolConfigDefaults {
     val REWRITE_GRADLE_PLUGIN_VERSION: String = BuildPluginVersions.REWRITE_GRADLE_PLUGIN_VERSION
     val REWRITE_MAVEN_PLUGIN_VERSION: String = BuildPluginVersions.REWRITE_MAVEN_PLUGIN_VERSION
 
-    /** No JVM args are injected into the Stage 0 plugin subprocess by default. */
-    val PLUGIN_JVM_ARGS: List<String> = emptyList()
-
     val DEFAULT_PLAIN_TEXT_MASKS: List<String> = listOf(
         "**/.gitattributes",
         "**/.gitignore",

@@ -53,6 +53,7 @@ class RewriteRunnerChangeWriterTest :
                     .activeRecipe("com.test.ModifyAndDelete")
                     .cacheDir(cacheDir)
                     .skipPluginRun(true)
+                    .executionMode(ExecutionMode.IN_PROCESS)
                     .plainTextMasks(listOf("**/*.txt"))
                     .changeWriter(writer)
                     .build()

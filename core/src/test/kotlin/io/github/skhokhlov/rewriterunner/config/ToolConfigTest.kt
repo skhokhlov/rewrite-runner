@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.config
 
+import io.github.skhokhlov.rewriterunner.ExecutionMode
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
@@ -183,23 +184,48 @@ class ToolConfigTest :
                 ToolConfigDefaults.ARTIFACT_RESOLVER_REQUEST_TIMEOUT,
                 config.artifactResolverRequestTimeout
             )
-            assertEquals(ToolConfigDefaults.PLUGIN_JVM_ARGS, config.pluginJvmArgs)
-            assertTrue(config.pluginJvmArgs.isEmpty())
+            assertEquals(ExecutionMode.FORKED, config.execution.mode)
+            assertTrue(config.execution.executorJvmArgs.isEmpty())
+            assertTrue(config.execution.plugin.jvmArgs.isEmpty())
+            assertTrue(config.execution.lstWorker.jvmArgs.isEmpty())
         }
 
-        test("loads pluginJvmArgs from yaml") {
+        test("loads nested execution configuration from yaml") {
             val configFile = tempDir.resolve("runner.yml")
             configFile.writeText(
                 """
-                pluginJvmArgs:
-                  - "-Xmx4g"
-                  - "-XX:+UseG1GC"
+                execution:
+                  mode: in-process
+                  executorJvmArgs: ["-Xmx4g"]
+                  plugin:
+                    jvmArgs: ["-XX:+UseG1GC"]
+                  lstWorker:
+                    jvmArgs: ["-XX:+HeapDumpOnOutOfMemoryError"]
+                    timeout: 30m
                 """.trimIndent()
             )
 
             val config = ToolConfig.load(configFile, NoOpRunnerLogger)
 
-            assertEquals(listOf("-Xmx4g", "-XX:+UseG1GC"), config.pluginJvmArgs)
+            assertEquals(ExecutionMode.IN_PROCESS, config.execution.mode)
+            assertEquals(listOf("-Xmx4g"), config.execution.executorJvmArgs)
+            assertEquals(listOf("-XX:+UseG1GC"), config.execution.plugin.jvmArgs)
+            assertEquals(
+                listOf("-XX:+HeapDumpOnOutOfMemoryError"),
+                config.execution.lstWorker.jvmArgs
+            )
+            assertEquals(Duration.ofMinutes(30), config.execution.lstWorker.timeout)
+        }
+
+        test("rejects removed pluginJvmArgs field with migration message") {
+            val configFile = tempDir.resolve("runner.yml")
+            configFile.writeText("pluginJvmArgs: [\"-Xmx4g\"]")
+
+            val error = assertFailsWith<IllegalArgumentException> {
+                ToolConfig.load(configFile, NoOpRunnerLogger)
+            }
+
+            assertTrue(error.message!!.contains("execution.plugin.jvmArgs"))
         }
 
         test("ignores unknown yaml fields without error") {

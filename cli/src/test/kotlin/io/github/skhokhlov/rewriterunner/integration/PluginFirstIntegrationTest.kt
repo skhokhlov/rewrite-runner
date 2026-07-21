@@ -183,13 +183,11 @@ class PluginFirstIntegrationTest :
                 "runResult=$runResult"
             )
             assertTrue((runResult.executionDiagnostics.parsedFileCount ?: 0) > 0)
-            assertEquals(setOf(Path.of("src/main/java/App.java")), runResult.rawDiffs.keys)
             assertEquals(
-                setOf("Dockerfile"),
-                runResult.results.map {
-                    (it.after?.sourcePath ?: it.before?.sourcePath).toString()
-                }.toSet()
+                setOf(Path.of("src/main/java/App.java"), Path.of("Dockerfile")),
+                runResult.rawDiffs.keys
             )
+            assertTrue(runResult.results.isEmpty())
             assertEquals("class App { }\n", javaFile.readText())
             assertEquals("FROM ubuntu:22.04\n", dockerfile.readText())
             assertEquals(setOf(javaFile, dockerfile), runResult.changedFiles.toSet())
