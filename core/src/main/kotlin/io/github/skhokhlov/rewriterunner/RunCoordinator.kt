@@ -327,7 +327,7 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
                     artifactResolverConnectTimeout = resolverConnectTimeout,
                     artifactResolverRequestTimeout = resolverRequestTimeout
                 ),
-            cacheDir = config.cacheDir ?: toolConfig.resolvedCacheDir(),
+            cacheDir = (config.cacheDir ?: toolConfig.resolvedCacheDir()).toAbsolutePath().normalize(),
             excludePaths = config.excludePaths.ifEmpty { toolConfig.parse.excludePaths },
             plainTextMasks = toolConfig.resolvedPlainTextMasks(config.plainTextMasks),
             repositories = toolConfig.resolvedArtifactRepositories() + config.artifactRepositories,

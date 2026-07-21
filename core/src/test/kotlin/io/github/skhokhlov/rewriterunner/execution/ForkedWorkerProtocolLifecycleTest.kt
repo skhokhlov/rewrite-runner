@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicReference
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -70,6 +71,30 @@ class ForkedWorkerProtocolLifecycleTest :
             } finally {
                 Files.deleteIfExists(pids)
             }
+        }
+
+        test("a relative cache directory is made absolute before it is sent to the worker") {
+            val relativeCacheDir = Path.of("forked-worker-cache-${UUID.randomUUID()}")
+            val serializedCacheDir = AtomicReference<String>()
+            val command =
+                WorkerCommandFactory { request ->
+                    val envelope =
+                        WorkerJson.read(
+                            Files.readString(request.requestFile),
+                            WorkerRequestEnvelope::class.java
+                        )
+                    serializedCacheDir.set(envelope.request.cacheDir)
+                    fixtureCommand("incompatible", AtomicReference()).create(request)
+                }
+
+            assertFailsWith<ForkedWorkerException> {
+                runner(projectDir, relativeCacheDir, command).run()
+            }
+
+            assertEquals(
+                relativeCacheDir.toAbsolutePath().normalize().toString(),
+                serializedCacheDir.get()
+            )
         }
     })
 
