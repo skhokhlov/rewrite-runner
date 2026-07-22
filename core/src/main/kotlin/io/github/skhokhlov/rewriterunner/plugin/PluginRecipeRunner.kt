@@ -16,10 +16,23 @@ internal class PluginRecipeRunner(
     rewriteGradlePluginVersion: String = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
     rewriteMavenPluginVersion: String = ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
     pluginJvmArgs: List<String> = emptyList(),
+    attemptCollector: (PluginProcessAttempt) -> Unit = {},
     private val gradleStrategy: PluginBuildStrategy =
-        GradlePluginStrategy(logger, timeout, rewriteGradlePluginVersion, pluginJvmArgs),
+        GradlePluginStrategy(
+            logger,
+            timeout,
+            rewriteGradlePluginVersion,
+            pluginJvmArgs,
+            attemptCollector
+        ),
     private val mavenStrategy: PluginBuildStrategy =
-        MavenPluginStrategy(logger, timeout, rewriteMavenPluginVersion, pluginJvmArgs)
+        MavenPluginStrategy(
+            logger,
+            timeout,
+            rewriteMavenPluginVersion,
+            pluginJvmArgs,
+            attemptCollector
+        )
 ) {
     /**
      * Runs the official OpenRewrite plugin for [projectDir].

@@ -1,5 +1,8 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.github.skhokhlov.rewriterunner.ExecutorOutcome
+import io.github.skhokhlov.rewriterunner.ExecutorPhase
+import io.github.skhokhlov.rewriterunner.LogicalExecutor
 import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.lst.SpecializedOwnership
@@ -10,6 +13,7 @@ import java.time.Duration
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PluginFirstIntegrationTest :
@@ -118,6 +122,13 @@ class PluginFirstIntegrationTest :
                 Duration.ofSeconds(420),
                 result.executionDiagnostics.estimatedTimeSaved
             )
+            val pluginAttempts = result.executionDiagnostics.executorAttempts
+                .filter { it.executor == LogicalExecutor.GRADLE_PLUGIN }
+            assertEquals(
+                listOf(ExecutorPhase.PLUGIN_DRY_RUN, ExecutorPhase.PLUGIN_APPLY),
+                pluginAttempts.map { it.phase }
+            )
+            assertEquals(listOf(".", "."), pluginAttempts.map { it.workingDirectory })
         }
 
         test(
@@ -194,6 +205,29 @@ class PluginFirstIntegrationTest :
             assertEquals(
                 "rewriteDryRun\nrewriteRun\n",
                 projectDir.resolve("wrapper-calls.log").readText()
+            )
+        }
+
+        test(
+            "an excluded specialized file does not start a specialized worker after plugin success"
+        ).config(enabled = !isWindows) {
+            setupFakeGradlew(PluginScenarios.gradleSingleFile)
+            projectDir.resolve("Dockerfile").writeText("FROM ubuntu:PLACEHOLDER\n")
+
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe(PluginScenarios.gradleSingleFile.activeRecipe)
+                    .cacheDir(cacheDir)
+                    .excludePaths(listOf("Dockerfile"))
+                    .build()
+                    .run()
+
+            assertEquals(UsedExecutionStage.PLUGIN, result.executionDiagnostics.stageUsed)
+            assertFalse(
+                result.executionDiagnostics.executorAttempts.any {
+                    it.executor == LogicalExecutor.LST_WORKER
+                }
             )
         }
 
@@ -329,6 +363,53 @@ class PluginFirstIntegrationTest :
                 "rewriteDryRun\nrewriteRun\n",
                 projectDir.resolve("wrapper-calls.log").readText()
             )
+            val pluginAttempts = runResult.executionDiagnostics.executorAttempts
+                .filter { it.executor == LogicalExecutor.GRADLE_PLUGIN }
+            assertEquals(
+                listOf(ExecutorPhase.PLUGIN_DRY_RUN, ExecutorPhase.PLUGIN_APPLY),
+                pluginAttempts.map { it.phase }
+            )
+            assertEquals(listOf("svc-a", "svc-a"), pluginAttempts.map { it.workingDirectory })
+        }
+
+        test(
+            "plugin diagnostics preserve the Gradle failure and actual Maven fallback"
+        ).config(enabled = !isWindows) {
+            setupFakeMvnwSimple(PluginScenarios.mavenSingleFile)
+            projectDir.resolve("build.gradle.kts").writeText("plugins { java }\n")
+            projectDir.writeFakeExitOneWrapper("gradlew")
+
+            val result =
+                RewriteRunner.builder()
+                    .projectDir(projectDir)
+                    .activeRecipe(PluginScenarios.mavenSingleFile.activeRecipe)
+                    .cacheDir(cacheDir)
+                    .build()
+                    .run()
+
+            val pluginAttempts = result.executionDiagnostics.executorAttempts.filter {
+                it.executor == LogicalExecutor.GRADLE_PLUGIN ||
+                    it.executor == LogicalExecutor.MAVEN_PLUGIN
+            }
+            assertEquals(
+                listOf(
+                    LogicalExecutor.GRADLE_PLUGIN,
+                    LogicalExecutor.MAVEN_PLUGIN,
+                    LogicalExecutor.MAVEN_PLUGIN
+                ),
+                pluginAttempts.map { it.executor }
+            )
+            assertEquals(
+                listOf(
+                    ExecutorPhase.PLUGIN_DRY_RUN,
+                    ExecutorPhase.PLUGIN_DRY_RUN,
+                    ExecutorPhase.PLUGIN_APPLY
+                ),
+                pluginAttempts.map { it.phase }
+            )
+            assertEquals(listOf(".", ".", "."), pluginAttempts.map { it.workingDirectory })
+            assertEquals(ExecutorOutcome.FAILED, pluginAttempts.first().outcome)
+            assertEquals(UsedExecutionStage.PLUGIN, result.executionDiagnostics.stageUsed)
         }
 
         // This test specifically tests CLI bypass behavior, not recipe execution.

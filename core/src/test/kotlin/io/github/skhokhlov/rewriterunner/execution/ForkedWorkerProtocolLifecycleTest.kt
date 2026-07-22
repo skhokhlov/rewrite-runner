@@ -2,8 +2,10 @@ package io.github.skhokhlov.rewriterunner.execution
 
 import io.github.skhokhlov.rewriterunner.ExecutionMode
 import io.github.skhokhlov.rewriterunner.ExecutorOutcome
+import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.RunResult
+import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.WorkerCommand
 import io.github.skhokhlov.rewriterunner.WorkerCommandFactory
 import io.github.skhokhlov.rewriterunner.WorkerCommandRequest
@@ -12,6 +14,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -131,6 +134,30 @@ class ForkedWorkerProtocolLifecycleTest :
 
             assertEquals(ExecutorOutcome.PROTOCOL_FAILURE, failure.attempt.outcome)
             assertEquals("unchanged\n", Files.readString(projectDir.resolve("sample.txt")))
+            assertFalse(Files.exists(assertNotNull(requestDirectory.get())))
+        }
+
+        test("incidental worker stdout and stderr remain debug output around framed events") {
+            val requestDirectory = AtomicReference<Path?>()
+            val logger = CapturingWorkerLogger()
+
+            val result =
+                runner(
+                    projectDir,
+                    cacheDir,
+                    fixtureCommand("incidental-output", requestDirectory) { request ->
+                        listOf(request.requestFile.toString(), request.responseFile.toString())
+                    },
+                    logger = logger
+                ).run()
+
+            assertEquals(
+                ExecutorOutcome.NO_CHANGES,
+                result.executionDiagnostics.executorAttempts.single().outcome
+            )
+            assertTrue(logger.debugMessages.any { it.contains("before framed event") })
+            assertTrue(logger.debugMessages.any { it.contains("after framed event") })
+            assertTrue(logger.debugMessages.any { it.contains("incidental stderr") })
             assertFalse(Files.exists(assertNotNull(requestDirectory.get())))
         }
 
@@ -256,7 +283,8 @@ private fun runner(
     cacheDir: Path,
     factory: WorkerCommandFactory,
     timeout: Duration? = null,
-    workerJvmArgs: List<String> = emptyList()
+    workerJvmArgs: List<String> = emptyList(),
+    logger: RunnerLogger = NoOpRunnerLogger
 ): RewriteRunner = RewriteRunner.builder()
     .projectDir(projectDir)
     .activeRecipe("com.example.NeverRuns")
@@ -264,6 +292,7 @@ private fun runner(
     .skipPluginRun(true)
     .executionMode(ExecutionMode.FORKED)
     .workerCommandFactory(factory)
+    .logger(logger)
     .apply {
         timeout?.let(::lstWorkerTimeout)
         if (workerJvmArgs.isNotEmpty()) lstWorkerJvmArgs(workerJvmArgs)
@@ -371,6 +400,17 @@ object ForkedWorkerFixture {
 
             "missing-response" -> emitHandshake()
 
+            "incidental-output" -> {
+                val requestFile = Path.of(requireNotNull(args.getOrNull(1)))
+                val responseFile = Path.of(requireNotNull(args.getOrNull(2)))
+                println("incidental stdout before framed event")
+                System.err.println("incidental stderr")
+                emitHandshake()
+                println("incidental stdout after framed event")
+                System.out.flush()
+                writeSuccessfulResponse(requestFile, responseFile)
+            }
+
             "oom" -> {
                 emitHandshake()
                 exhaustHeap()
@@ -447,5 +487,13 @@ object ForkedWorkerFixture {
                 )
         )
         System.out.flush()
+    }
+}
+
+private class CapturingWorkerLogger : RunnerLogger by NoOpRunnerLogger {
+    val debugMessages = ConcurrentLinkedQueue<String>()
+
+    override fun debug(message: String) {
+        debugMessages.add(message)
     }
 }

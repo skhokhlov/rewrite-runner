@@ -15,12 +15,19 @@ import io.github.skhokhlov.rewriterunner.execution.PostPluginExecutor
 import io.github.skhokhlov.rewriterunner.execution.ResolvedExecutionRequest
 import io.github.skhokhlov.rewriterunner.execution.WorkerScope
 import io.github.skhokhlov.rewriterunner.lst.SpecializedOwnership
+import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
+import io.github.skhokhlov.rewriterunner.plugin.PluginProcessAttempt
 import io.github.skhokhlov.rewriterunner.plugin.PluginRecipeRunner
 import io.github.skhokhlov.rewriterunner.plugin.PluginRunResult
+import java.nio.file.FileSystems
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.PathMatcher
 import java.nio.file.Paths
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantLock
@@ -57,14 +64,15 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
                 specific = effective.execution.plugin.jvmArgs
             )
         pluginPolicy.warning?.let(logger::warn)
-        val pluginStart = System.nanoTime()
+        val pluginProcessAttempts = mutableListOf<PluginProcessAttempt>()
         val pluginResult =
             PluginRecipeRunner(
                 logger = logger,
                 timeout = effective.pluginTimeout,
                 rewriteGradlePluginVersion = effective.toolConfig.rewriteGradlePluginVersion,
                 rewriteMavenPluginVersion = effective.toolConfig.rewriteMavenPluginVersion,
-                pluginJvmArgs = pluginPolicy.args
+                pluginJvmArgs = pluginPolicy.args,
+                attemptCollector = pluginProcessAttempts::add
             ).run(
                 projectDir = config.projectDir,
                 activeRecipe = config.activeRecipe,
@@ -77,7 +85,7 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
                 excludePaths = effective.excludePaths + SpecializedOwnership.stage0ExcludeGlobs,
                 plainTextMasks = effective.plainTextMasks
             )
-        attempts += pluginAttempt(pluginResult, pluginPolicy, elapsedMillis(pluginStart))
+        attempts += pluginProcessAttempts.map { pluginAttempt(it, pluginPolicy) }
 
         return@withLock when (pluginResult) {
             is PluginRunResult.Success,
@@ -141,7 +149,7 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
         pluginResult: PluginRunResult,
         attempts: MutableList<ExecutorAttempt>
     ): RunResult {
-        if (!hasSpecializedCandidate()) {
+        if (!hasSpecializedCandidate(effective.excludePaths)) {
             return pluginOnlyResult(pluginResult, attempts)
         }
         val request = effective.request(WorkerScope.SPECIALIZED_ONLY)
@@ -241,41 +249,19 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
     )
 
     private fun pluginAttempt(
-        result: PluginRunResult,
-        jvm: EffectiveJvmArguments,
-        durationMillis: Long
-    ): ExecutorAttempt {
-        val executor = if (hasBuildGradle(
-                config.projectDir
-            )
-        ) {
-            LogicalExecutor.GRADLE_PLUGIN
-        } else {
-            LogicalExecutor.MAVEN_PLUGIN
-        }
-        val outcome = when (result) {
-            is PluginRunResult.Success -> ExecutorOutcome.SUCCESS
-            PluginRunResult.NoChanges -> ExecutorOutcome.NO_CHANGES
-            is PluginRunResult.Failed -> classifyPluginFailure(result.reason)
-            is PluginRunResult.Partial -> ExecutorOutcome.FAILED
-            is PluginRunResult.Skipped -> ExecutorOutcome.START_FAILURE
-        }
-        val message = when (result) {
-            is PluginRunResult.Failed -> result.reason
-            is PluginRunResult.Skipped -> result.reason
-            is PluginRunResult.Partial -> result.failures.joinToString("; ")
-            else -> null
-        }?.take(2_000)
-        return ExecutorAttempt(
-            executor = executor,
-            phase = ExecutorPhase.PLUGIN_DRY_RUN,
-            jvmConfigurationSource = jvm.source,
-            requestedMaximumHeapBytes = jvm.maximumHeapBytes,
-            durationMillis = durationMillis,
-            outcome = outcome,
-            message = message
-        )
-    }
+        attempt: PluginProcessAttempt,
+        jvm: EffectiveJvmArguments
+    ): ExecutorAttempt = ExecutorAttempt(
+        executor = attempt.executor,
+        phase = attempt.phase,
+        workingDirectory = attempt.workingDirectory,
+        jvmConfigurationSource = jvm.source,
+        requestedMaximumHeapBytes = jvm.maximumHeapBytes,
+        durationMillis = attempt.durationMillis,
+        outcome = attempt.outcome,
+        exitCode = attempt.exitCode,
+        message = attempt.message?.take(2_000)
+    )
 
     private fun resolve(): EffectiveConfiguration {
         val configFile =
@@ -397,22 +383,61 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
         )
     }
 
-    /** Avoid starting a worker after a plugin-only run when no owned file can possibly be in scope. */
-    private fun hasSpecializedCandidate(): Boolean = try {
-        Files.walk(config.projectDir).use { paths ->
-            paths.anyMatch { path ->
-                if (!Files.isRegularFile(path)) {
-                    false
-                } else {
-                    val name = path.fileName.toString()
-                    name.startsWith("Dockerfile") ||
+    /**
+     * Avoid starting a worker after a plugin-only run when no owned file can possibly be in scope.
+     * The preflight is deliberately bounded and conservative: an excluded or conventional output
+     * directory is pruned, while reaching the depth limit returns true so an uncertain scan never
+     * suppresses a potentially required specialized pass.
+     */
+    private fun hasSpecializedCandidate(excludePaths: List<String>): Boolean = try {
+        val projectDir = config.projectDir.toAbsolutePath().normalize()
+        val excludeMatchers = excludePaths.map {
+            FileSystems.getDefault().getPathMatcher("glob:$it")
+        }
+        var found = false
+        var depthLimitReached = false
+        Files.walkFileTree(
+            projectDir,
+            emptySet(),
+            SPECIALIZED_CANDIDATE_WALK_MAX_DEPTH,
+            object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(
+                    directory: Path,
+                    attrs: BasicFileAttributes
+                ): FileVisitResult {
+                    if (directory == projectDir) return FileVisitResult.CONTINUE
+                    val relative = projectDir.relativize(directory)
+                    if (relative.any { it.toString() in FileCollector.DEFAULT_EXCLUDED_DIRS } ||
+                        matchesExcluded(relative, excludeMatchers)
+                    ) {
+                        return FileVisitResult.SKIP_SUBTREE
+                    }
+                    if (relative.nameCount >= SPECIALIZED_CANDIDATE_WALK_MAX_DEPTH) {
+                        depthLimitReached = true
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    val relative = projectDir.relativize(file)
+                    if (!attrs.isRegularFile || matchesExcluded(relative, excludeMatchers)) {
+                        return FileVisitResult.CONTINUE
+                    }
+                    val name = file.fileName.toString()
+                    if (name.startsWith("Dockerfile") ||
                         name.startsWith("Containerfile") ||
                         SpecializedOwnership.extensions.any { extension ->
                             name.endsWith(extension)
                         }
+                    ) {
+                        found = true
+                        return FileVisitResult.TERMINATE
+                    }
+                    return FileVisitResult.CONTINUE
                 }
             }
-        }
+        )
+        found || depthLimitReached
     } catch (_: Exception) {
         // A failed preflight must not suppress the owned-set execution path.
         true
@@ -436,19 +461,10 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
 
     private companion object {
         val executionGate = ReentrantLock(true)
+        const val SPECIALIZED_CANDIDATE_WALK_MAX_DEPTH = 12
 
-        fun elapsedMillis(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000
-
-        fun classifyPluginFailure(message: String): ExecutorOutcome = when {
-            message.contains(
-                "OutOfMemoryError",
-                ignoreCase = true
-            ) -> ExecutorOutcome.CONFIRMED_HEAP_OOM
-
-            message.contains("137") -> ExecutorOutcome.LIKELY_OOM
-
-            else -> ExecutorOutcome.FAILED
-        }
+        fun matchesExcluded(relative: Path, matchers: List<PathMatcher>): Boolean =
+            matchers.any { it.matches(relative) }
 
         fun pluginDiffs(result: PluginRunResult): Map<Path, String> = when (result) {
             is PluginRunResult.Success -> result.diffs

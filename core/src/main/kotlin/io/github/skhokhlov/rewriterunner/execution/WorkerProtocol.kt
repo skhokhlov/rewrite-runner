@@ -19,6 +19,7 @@ import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
 import io.github.skhokhlov.rewriterunner.plugin.createPrivateTempDirectory
+import io.github.skhokhlov.rewriterunner.plugin.createPrivateTempFile
 import io.github.skhokhlov.rewriterunner.plugin.deleteRecursively
 import java.io.BufferedReader
 import java.io.InputStream
@@ -27,7 +28,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.time.Duration
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
@@ -209,8 +209,10 @@ private fun publishFailure(responseFile: Path, message: String?, requestId: Stri
 private fun publishResponse(responseFile: Path, response: WorkerResponseEnvelope) {
     try {
         Files.createDirectories(responseFile.parent)
-        val temporary = responseFile.resolveSibling(
-            "${responseFile.fileName}.tmp-${UUID.randomUUID()}"
+        val temporary = createPrivateTempFile(
+            responseFile.parent,
+            "${responseFile.fileName}.tmp-",
+            ".json"
         )
         Files.writeString(temporary, WorkerJson.write(response))
         try {
@@ -337,7 +339,7 @@ internal class ForkedLstExecutor(
     ): ForkedExecutionResult {
         val startedAt = System.nanoTime()
         val protocolDirectory = createPrivateTempDirectory("rewrite-runner-worker-")
-        val requestFile = protocolDirectory.resolve("request.json")
+        val requestFile = createPrivateTempFile(protocolDirectory, "request-", ".json")
         val responseFile = protocolDirectory.resolve("response.json")
         try {
             Files.writeString(

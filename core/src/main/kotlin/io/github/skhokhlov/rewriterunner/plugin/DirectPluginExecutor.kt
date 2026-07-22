@@ -1,5 +1,8 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
+import io.github.skhokhlov.rewriterunner.ExecutorOutcome
+import io.github.skhokhlov.rewriterunner.ExecutorPhase
+import io.github.skhokhlov.rewriterunner.LogicalExecutor
 import java.nio.file.Path
 import java.time.Duration
 import kotlin.io.path.exists
@@ -35,23 +38,65 @@ internal class DirectPluginExecutor(
     private val projectDir: Path,
     private val dryRun: Boolean,
     private val execute: (Path, List<String>, StringBuilder?) -> Int?,
-    private val runDir: Path = projectDir
+    private val runDir: Path = projectDir,
+    private val executor: LogicalExecutor,
+    private val attemptCollector: (PluginProcessAttempt) -> Unit = {}
 ) {
     fun run(invocation: DirectPluginInvocation): PluginRunResult {
         val pluginOutput = StringBuilder()
+        val dryRunStartedAt = System.nanoTime()
         val dryRunExit = execute(runDir, invocation.dryRunCommand, pluginOutput)
+        val dryRunDurationMillis = elapsedMillis(dryRunStartedAt)
         if (dryRunExit != 0) {
-            return PluginRunResult.Failed(invocation.dryRunFailureMessage(dryRunExit))
+            val message = invocation.dryRunFailureMessage(dryRunExit)
+            record(
+                phase = ExecutorPhase.PLUGIN_DRY_RUN,
+                durationMillis = dryRunDurationMillis,
+                outcome = failureOutcome(dryRunExit, message),
+                exitCode = dryRunExit,
+                message = message
+            )
+            return PluginRunResult.Failed(message)
         }
 
         val diffs = parseDiffs(invocation.patchFiles())
-        if (diffs.isEmpty()) return PluginRunResult.NoChanges
+        if (diffs.isEmpty()) {
+            record(
+                phase = ExecutorPhase.PLUGIN_DRY_RUN,
+                durationMillis = dryRunDurationMillis,
+                outcome = ExecutorOutcome.NO_CHANGES,
+                exitCode = dryRunExit
+            )
+            return PluginRunResult.NoChanges
+        }
+        record(
+            phase = ExecutorPhase.PLUGIN_DRY_RUN,
+            durationMillis = dryRunDurationMillis,
+            outcome = ExecutorOutcome.SUCCESS,
+            exitCode = dryRunExit
+        )
 
         if (!dryRun) {
+            val applyStartedAt = System.nanoTime()
             val applyExit = execute(runDir, invocation.applyCommand, pluginOutput)
+            val applyDurationMillis = elapsedMillis(applyStartedAt)
             if (applyExit != 0) {
-                return PluginRunResult.Failed(invocation.applyFailureMessage(applyExit))
+                val message = invocation.applyFailureMessage(applyExit)
+                record(
+                    phase = ExecutorPhase.PLUGIN_APPLY,
+                    durationMillis = applyDurationMillis,
+                    outcome = failureOutcome(applyExit, message),
+                    exitCode = applyExit,
+                    message = message
+                )
+                return PluginRunResult.Failed(message)
             }
+            record(
+                phase = ExecutorPhase.PLUGIN_APPLY,
+                durationMillis = applyDurationMillis,
+                outcome = ExecutorOutcome.SUCCESS,
+                exitCode = applyExit
+            )
         }
 
         return PluginRunResult.Success(
@@ -60,6 +105,44 @@ internal class DirectPluginExecutor(
             estimatedTimeSaved = invocation.estimatedTimeSaved(pluginOutput.toString())
         )
     }
+
+    private fun record(
+        phase: ExecutorPhase,
+        durationMillis: Long,
+        outcome: ExecutorOutcome,
+        exitCode: Int?,
+        message: String? = null
+    ) {
+        attemptCollector(
+            PluginProcessAttempt(
+                executor = executor,
+                phase = phase,
+                workingDirectory = relativeWorkingDirectory(),
+                durationMillis = durationMillis,
+                outcome = outcome,
+                exitCode = exitCode,
+                message = message
+            )
+        )
+    }
+
+    private fun relativeWorkingDirectory(): String {
+        val root = projectDir.toAbsolutePath().normalize()
+        val workingDirectory = runDir.toAbsolutePath().normalize()
+        if (!workingDirectory.startsWith(root)) return "."
+        return root.relativize(workingDirectory).toString().replace('\\', '/').ifEmpty { "." }
+    }
+
+    private fun failureOutcome(exitCode: Int?, message: String): ExecutorOutcome = when {
+        message.contains("OutOfMemoryError", ignoreCase = true) ->
+            ExecutorOutcome.CONFIRMED_HEAP_OOM
+
+        exitCode == 137 || message.contains("137") -> ExecutorOutcome.LIKELY_OOM
+
+        else -> ExecutorOutcome.FAILED
+    }
+
+    private fun elapsedMillis(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000
 
     private fun parseDiffs(patchFiles: List<DirectPluginPatchFile>): Map<Path, String> = patchFiles
         .filter { it.file.exists() }

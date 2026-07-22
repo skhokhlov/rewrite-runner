@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
+import io.github.skhokhlov.rewriterunner.LogicalExecutor
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveGradleCommand
@@ -22,7 +23,8 @@ internal open class GradlePluginStrategy(
     private val logger: RunnerLogger,
     private val timeout: Duration,
     private val rewritePluginVersion: String,
-    private val pluginJvmArgs: List<String> = emptyList()
+    private val pluginJvmArgs: List<String> = emptyList(),
+    private val attemptCollector: (PluginProcessAttempt) -> Unit = {}
 ) : PluginBuildStrategy {
     override fun run(
         projectDir: Path,
@@ -51,9 +53,14 @@ internal open class GradlePluginStrategy(
                 plainTextMasks = plainTextMasks
             )
         return try {
-            DirectPluginExecutor(rootDir, dryRun, { path, cmd, output ->
-                execute(path, cmd, timeout, output)
-            }, runDir = projectDir).run(
+            DirectPluginExecutor(
+                projectDir = rootDir,
+                dryRun = dryRun,
+                execute = { path, cmd, output -> execute(path, cmd, timeout, output) },
+                runDir = projectDir,
+                executor = LogicalExecutor.GRADLE_PLUGIN,
+                attemptCollector = attemptCollector
+            ).run(
                 DirectPluginInvocation(
                     dryRunCommand = buildCommand(projectDir, rootDir, "rewriteDryRun", initScript),
                     applyCommand = buildCommand(projectDir, rootDir, "rewriteRun", initScript),

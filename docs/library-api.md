@@ -47,6 +47,12 @@ val result = RewriteRunner.builder()
 | `repository(RepositoryConfig)` | — | — | Add one extra Maven repository; accumulated, combined with config file repos |
 | `repositories(List<RepositoryConfig>)` | `List` | `[]` | Replace all extra Maven repositories; combined with config file repos |
 
+> **Production timeout guidance:** forked execution holds a JVM-wide, fair gate from the Stage 0
+> plugin attempt through the LST worker. `lstWorkerTimeout` is unlimited by default, so a hung
+> worker blocks every concurrent `RewriteRunner.run()` call in that JVM. Set a finite
+> `lstWorkerTimeout(...)` in production. Stage 0 is governed separately by `pluginTimeout`
+> (10 minutes by default), so its timeout must elapse before fallback work can begin.
+
 ### Throws
 - `IllegalArgumentException` — recipe not found in loaded JARs or classpath
 - `IllegalStateException` — `activeRecipe` not set when `build()` is called
