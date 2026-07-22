@@ -9,6 +9,7 @@ Located in `buildSrc/src/main/kotlin/`. Applied via `plugins { id("...") }` in s
 | `kotlin-convention` | `core`, `cli` | Kotlin JVM 21 toolchain, JUnit platform, `-Xmx2g` for tests, ktlint tasks (`ktlintCheck`/`ktlintFormat`), JaCoCo XML+HTML reports auto-run after test |
 | `publishing-convention` | `core`, `cli` | `maven-publish`, optional signing, Dokka sources/javadoc JARs, POM template. In `cli`, the shadow `-all` variant is skipped from the publication so the fat JAR never goes to Maven Central |
 | `dokka-convention` | `core` | Dokka HTML docs generation |
+| `sbom-convention` | `core`, `cli` | CycloneDX 1.6 JSON generation and schema/content verification. Each Maven publication includes a `cyclonedx` classifier artifact |
 
 `ktlintCheck` is wired into the standard `check` lifecycle task — `./gradlew check` always enforces style.
 
@@ -28,6 +29,7 @@ Chosen for **Gradle 9.x + JDK 25 compatibility**:
 | Apache Maven Model | `3.9.16` | |
 | Logback | `1.5.32` | `cli`: `implementation`; `core`: `testImplementation` |
 | ktlint | `1.8.0` | Google Android code style |
+| CycloneDX Gradle plugin | `3.3.0` | Generates and validates CycloneDX 1.6 JSON SBOMs for published modules |
 
 ## Build Artifacts
 
@@ -36,6 +38,8 @@ Chosen for **Gradle 9.x + JDK 25 compatibility**:
 | `core/build/libs/core-1.0-SNAPSHOT.jar` | Library JAR (no embedded deps) |
 | `core/build/libs/core-1.0-SNAPSHOT-sources.jar` | Sources JAR |
 | `cli/build/libs/cli-1.0-SNAPSHOT-all.jar` | Fat JAR for CLI use |
+| `core/build/reports/cyclonedx/bom.json` | CycloneDX 1.6 SBOM, published as `core-<version>-cyclonedx.json` |
+| `cli/build/reports/cyclonedx/bom.json` | CycloneDX 1.6 SBOM, published as `cli-<version>-cyclonedx.json` |
 
 ## Useful Build Commands
 
@@ -46,6 +50,7 @@ Chosen for **Gradle 9.x + JDK 25 compatibility**:
 ./gradlew ktlintCheck        # Lint only
 ./gradlew ktlintFormat       # Auto-fix lint issues
 ./gradlew jacocoTestReport   # Generate coverage report (auto-runs after test)
+./gradlew verifyCyclonedxBom # Generate and validate both published-module SBOMs
 ```
 
 ## CI/CD
@@ -71,8 +76,8 @@ Triggers on push/PR to `main`/`master`. Three sequential jobs gate on each other
 Because the jobs chain via `needs:`, an early failure short-circuits the later lanes: a unit-test regression never spends CI minutes downloading Gradle/Maven distributions.
 
 ### Publish workflow (`.github/workflows/publish.yml`)
-Triggers on `v*` tags. Publishes `core` and the `cli` thin JAR (with sources + javadoc) to
-Maven Central, then builds the `cli` `-all` fat JAR and uploads it as a GitHub Release asset
+Triggers on `v*` tags. Publishes `core` and the `cli` thin JAR (with sources, javadoc, and
+CycloneDX JSON SBOM classifier artifacts) to Maven Central, then builds the `cli` `-all` fat JAR and uploads it as a GitHub Release asset
 (`rewrite-runner-<version>-all.jar`) — the fat JAR is too large for Central. See
 [`adr/0009-cli-fatjar-distribution.md`](adr/0009-cli-fatjar-distribution.md).
 
