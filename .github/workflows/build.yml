@@ -50,6 +50,7 @@ jobs:
     name: Forked worker checks (Windows)
     runs-on: windows-latest
     needs: unit
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -63,8 +64,10 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
-      - name: Core worker and CLI unit tests
-        run: .\gradlew.bat :core:test :cli:test :cli:shadowJar
+      - name: Forked worker protocol, path, and distribution tests
+        run: |
+          .\gradlew.bat --no-daemon :core:test --tests io.github.skhokhlov.rewriterunner.ForkedExecutionTest --tests io.github.skhokhlov.rewriterunner.execution.ForkedWorkerProtocolLifecycleTest
+          .\gradlew.bat --no-daemon :cli:testIntegration --tests io.github.skhokhlov.rewriterunner.integration.ForkedDistributionIntegrationTest
 
   plugin-real:
     name: Integration tests (real plugins)
