@@ -180,7 +180,8 @@ class ResultFormatter(
                 )
             },
             "parsedFileCount" to diagnostics?.parsedFileCount,
-            "parseFailures" to parseFailuresJson(diagnostics)
+            "parseFailures" to parseFailuresJson(diagnostics),
+            "executorAttempts" to executorAttemptsJson(diagnostics)
         )
         json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
         out.println("Report written to: ${reportFile.absolutePath}")
@@ -215,7 +216,8 @@ class ResultFormatter(
             "totalChanged" to (rawDiffs.size + results.size),
             "results" to (rawEntries + resultEntries),
             "parsedFileCount" to diagnostics?.parsedFileCount,
-            "parseFailures" to parseFailuresJson(diagnostics)
+            "parseFailures" to parseFailuresJson(diagnostics),
+            "executorAttempts" to executorAttemptsJson(diagnostics)
         )
         json.writerWithDefaultPrettyPrinter().writeValue(reportFile, report)
         out.println("Report written to: ${reportFile.absolutePath}")
@@ -224,5 +226,22 @@ class ResultFormatter(
     private fun parseFailuresJson(diagnostics: ExecutionDiagnostics?): List<Map<String, String>> =
         (diagnostics?.parseFailures ?: emptyList()).map { f: ParseFailure ->
             mapOf("path" to f.path, "reason" to f.reason, "parser" to f.parser)
+        }
+
+    private fun executorAttemptsJson(diagnostics: ExecutionDiagnostics?): List<Map<String, Any?>> =
+        (diagnostics?.executorAttempts ?: emptyList()).map { attempt ->
+            mapOf(
+                "executor" to attempt.executor.name,
+                "phase" to attempt.phase.name,
+                "workingDirectory" to attempt.workingDirectory,
+                "processId" to attempt.processId,
+                "jvmConfigurationSource" to attempt.jvmConfigurationSource.name,
+                "requestedMaximumHeapBytes" to attempt.requestedMaximumHeapBytes,
+                "observedMaximumHeapBytes" to attempt.observedMaximumHeapBytes,
+                "durationMillis" to attempt.durationMillis,
+                "outcome" to attempt.outcome.name,
+                "exitCode" to attempt.exitCode,
+                "message" to attempt.message
+            )
         }
 }

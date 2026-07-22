@@ -9,24 +9,36 @@ Fat JAR CLI that runs OpenRewrite recipes against arbitrary project directories 
 
 ## Execution Pipeline
 
-Orchestrated by `RewriteRunner.run()`, delegated to by `RunCommand.call()`:
+`RewriteRunner.run()` delegates to `RunCoordinator`. The coordinator owns configuration, Stage 0
+routing, diagnostics, and process lifecycle; it does not retain LSTs in default forked mode.
+Its `PostPluginExecutor` seam selects either `ForkedPostPluginExecutor` (the default) or
+`InProcessLstExecutor` (explicit compatibility mode), while the shared LST engine remains the
+single implementation of full fallback and specialized-only work.
 
-| Step | Class | Description |
+```text
+Coordinator JVM
+  ├─ official Gradle/Maven plugin process tree
+  └─ one LST worker JVM after the plugin process exits
+       ├─ FULL_FALLBACK after a skipped, failed, or partial plugin attempt
+       └─ SPECIALIZED_ONLY after a successful plugin attempt
+```
+
+The fair coordinator gate serializes heavy runner-owned execution. Nested project-owned classpath
+builds remain descendants of the active worker; rewrite-runner does not change their JVM policy.
+
+| Step | Owner | Description |
 |------|-------|-------------|
-| 0 | `PluginRecipeRunner` | Try official Gradle/Maven OpenRewrite plugin first for build-owned files |
-| 1 | `ToolConfig` | Load YAML config (env var interpolation, tilde expansion) |
-| 2 | `RecipeArtifactResolver` | Resolve recipe JARs from Maven coordinates for the fallback path |
-| 3 | `RecipeLoader` | Load recipe from JARs + optional `rewrite.yaml` |
-| 4 | `LstBuilder` | Build LST via 4-stage classpath pipeline + multi-language parsing |
-| 5 | `RecipeRunner` | Execute recipe, collect `List<Result>` |
-| 6 | — | Write changed files to disk (skipped when `dryRun = true`) |
-| 7 | `ResultFormatter` | Format output (diff / files / report) |
+| 0 | Coordinator | Resolve YAML/programmatic/CLI configuration and record the memory plan |
+| 1 | Official plugin executor | Try Gradle or Maven OpenRewrite plugin for build-owned files |
+| 2 | LST worker or explicit in-process engine | Resolve recipes, build LSTs, run recipes, filter Stage 0-owned paths, and apply changes |
+| 3 | Coordinator | Merge raw diffs, changed paths, write outcomes, and compact executor attempts |
+| 4 | `ResultFormatter` | Format diff/files/report output |
 
 ## Stage 0: Plugin-First Execution
 
 Stage 0 is the default path and the in-process LST pipeline is the fallback; see [ADR 0006](adr/0006-plugin-first-execution.md) for why.
 
-`PluginRecipeRunner` checks the project root for Gradle or Maven build files and tries the official OpenRewrite plugin before the in-process LST pipeline:
+`PluginRecipeRunner` checks the project root for Gradle or Maven build files and tries the official OpenRewrite plugin before the LST executor:
 
 | Build tool | Strategy | Patch path |
 |------------|----------|------------|
@@ -37,63 +49,44 @@ The dry-run goal always runs first so `PatchParser` can split `rewrite.patch` fi
 
 Stage 0 also populates `ExecutionDiagnostics.estimatedTimeSaved` when OpenRewrite reports it. The structured path reads the latest exported `SourcesFileResults` data table; current plugin versions may only log the same value as `Estimate time saved: ...`, so the runner captures plugin stdout/stderr and falls back to that line. The value is not derived from patch contents.
 
-When Stage 0 succeeds, rewrite-runner still runs a lightweight in-process LST pass over its
-specialized owned set: Dockerfile/Containerfile, HCL/Terraform, and protobuf files. These formats are
-excluded from the plugin invocation up front, parsed classpath-free by rewrite-runner, and then merged
-with the plugin raw diffs in `RunResult` (`rawDiffs` from Stage 0 plus `results` from the specialized
-pass). If no owned files are found, the runner returns the same plugin-only result shape as before.
-The pass is best-effort: an unresolvable recipe degrades to plugin-only results with a warning.
+When Stage 0 succeeds, rewrite-runner still runs a lightweight `SPECIALIZED_ONLY` pass over its
+specialized owned set: Dockerfile/Containerfile, HCL/Terraform, and protobuf files. In default mode
+that pass is a worker JVM. These formats are excluded from the plugin invocation up front, parsed
+classpath-free by rewrite-runner, and merged with the plugin raw diffs. If the specialized worker
+fails after Stage 0 success, the plugin result is preserved with a diagnostic warning.
 See [ADR 0005](adr/0005-stage0-specialized-parser-ownership.md).
 
-If plugin execution is skipped or fails (no build file, non-zero exit, process start failure, timeout, missing recipe/plugin), the runner logs at info level and falls through to the full LST pipeline. `--skip-plugin-run` / `Builder.skipPluginRun(true)` bypasses Stage 0.
+If plugin execution is skipped or fails (no build file, non-zero exit, process start failure, timeout, missing recipe/plugin), the coordinator starts a `FULL_FALLBACK` worker. A full-fallback worker failure is terminal and is never retried in-process. `--skip-plugin-run` / `Builder.skipPluginRun(true)` bypasses Stage 0.
 
 Path exclusions and plain-text masks are resolved once by `RewriteRunner` and forwarded to Stage 0
 and to the LST fallback so both paths select the same files. Stage 0 also receives the specialized
 owned-set exclusions unconditionally; the specialized pass receives only user/YAML exclusions so it
 can own those files beside a successful plugin run.
 
-## Stage 0 JVM memory
+## Executor JVM memory
 
-OpenRewrite can need a large heap on big projects. There are **two separate JVMs**, controlled
-independently:
+Forked execution is the default. The coordinator heap remains caller-managed; memory-intensive LST
+work never runs in that JVM unless `execution.mode: in-process` is selected explicitly. Stage 0 and
+the LST worker are sequenced, not overlapped.
 
-1. **The rewrite-runner JVM** — runs the in-process LST fallback (all source files held in memory
-   for cross-file analysis). Size it with `java -Xmx… -jar rewrite-runner-all.jar` (e.g. `-Xmx6g`).
-2. **The Stage 0 plugin subprocess** — the `gradlew`/`mvnw` JVM where OpenRewrite runs in Stage 0.
-   Size it with `--plugin-jvm-args` / `pluginJvmArgs` / `Builder.pluginJvmArgs(...)`. Nothing is
-   injected by default.
+Runner-owned arguments compose as `execution.executorJvmArgs + stage-specific jvmArgs`; stage
+arguments are appended last and passed as `ProcessBuilder` tokens. CLI list options are flat and
+repeatable: `--executor-jvm-arg`, `--plugin-jvm-arg`, and `--lst-worker-jvm-arg`.
 
-How `pluginJvmArgs` reaches each tool, and the precedence caveats:
+When no runner arguments, inherited `JAVA_TOOL_OPTIONS`/`JDK_JAVA_OPTIONS`, or explicit target
+build JVM configuration exists, rewrite-runner calculates only `-Xmx` from the container-aware JDK
+memory total: 50% below 1 GiB; otherwise `min(70%, M - 512 MiB, 16 GiB)`, rounded down to MiB. It
+does not infer host memory when the JDK cannot report a valid total. Any supplied runner argument
+opts out of automatic sizing, even if it is not an `-Xmx` flag.
 
-| Tool | Channel | Precedence behavior |
-|------|---------|---------------------|
-| Gradle | A single `-Dorg.gradle.jvmargs=<joined>` command-line argument (with `--no-daemon`, the build JVM heap is `org.gradle.jvmargs`; `GRADLE_OPTS` only reaches the throwaway client VM, so it is **not** used) | Command-line `-D` is the **highest-precedence** source — it beats the project's `gradle.properties`. But `org.gradle.jvmargs` is **replace-not-merge**: our value wipes any other daemon args the project declared (metaspace, encoding, …). rewrite-runner does not inspect project files. |
-| Maven | Appended to `MAVEN_OPTS` (after any inherited `MAVEN_OPTS`, so ours is the last value) | **Ours wins on conflicting flags.** The standard Maven 3.x launcher (`bin/mvn` line `MAVEN_OPTS="…/.mvn/jvm.config $MAVEN_OPTS"`, and `bin/mvn.cmd` which passes `%JVM_CONFIG_MAVEN_PROPS%` before `%MAVEN_OPTS%`) places a project `.mvn/jvm.config` *before* `MAVEN_OPTS` on the `java` line, so our appended args win on last-wins flags like `-Xmx`. The project's non-conflicting `jvm.config` entries (e.g. `--add-opens`, encoding) still apply, since they remain on the command line. This makes Maven symmetric with Gradle (our opt-in args win), but surgically — only the flags we pass are overridden. |
+For Gradle, nonempty runner arguments become the complete `org.gradle.jvmargs` command-line value.
+For Maven, they are appended to inherited `MAVEN_OPTS`, after project `.mvn/jvm.config` arguments.
+Inherited `JAVA_TOOL_OPTIONS` and `JDK_JAVA_OPTIONS` are never removed and are reported as external
+policy. `-Xmx` is a heap ceiling, not a hard RSS/container limit.
 
-### Combined-memory model (and `-Xms`)
-
-The two heaps barely overlap in time: Stage 0 runs first and to completion while the rewrite-runner
-JVM is essentially idle (blocked waiting on the subprocess); the LST fallback only uses its big heap
-*after* Stage 0 has finished and its subprocess has exited. `-Xmx` is an address-space reservation,
-not an upfront physical grab, so without `-Xms`/`AlwaysPreTouch` the runner's resident memory stays
-small during Stage 0. On a bare host, size for `max(runnerXmx, pluginXmx)` plus overhead, not the
-sum.
-
-**`-Xms` is the exception.** A large `-Xms` (or `AlwaysPreTouch`) commits the runner heap for the
-whole run, so it *does* coexist with the Stage 0 subprocess.
-
-**Containers.** The runner and the Stage 0 subprocess share one cgroup, so the kernel limits their
-*combined* touched RSS and OOM-kills (exit 137) when it is exceeded. JDKs also size ergonomic heaps
-(default `MaxRAMPercentage` = 25%) from the cgroup limit. A safe Stage-0 budget for the plugin heap:
-
-```
-pluginXmx  ≲  cgroupLimit − max(runnerInit, runnerCommitted) − non-heap overhead
-```
-
-Use the runner's *committed/`-Xms`* figure here (not `-Xmx`), since the runner is idle during
-Stage 0. rewrite-runner does **not** currently detect this or clamp/inject automatically — sizing is
-the operator's responsibility. Auto-sizing is a future direction; see
-[ADR 0009](adr/0009-fork-lst-worker-jvm.md).
+Default forked library results intentionally contain `results = emptyList()` and the worker's
+transportable `rawDiffs`. Select `ExecutionMode.IN_PROCESS` when a library caller needs rich
+OpenRewrite `Result` objects or a custom `ChangeWriter`.
 
 ### CPU
 

@@ -1,7 +1,25 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
+import io.github.skhokhlov.rewriterunner.ExecutorOutcome
+import io.github.skhokhlov.rewriterunner.ExecutorPhase
+import io.github.skhokhlov.rewriterunner.LogicalExecutor
 import java.nio.file.Path
 import java.time.Duration
+
+/**
+ * One actual build-tool process launched by Stage 0. Kept separate from [PluginRunResult] so a
+ * Gradle-to-Maven fallback and an apply run retain every process rather than being collapsed into
+ * one inferred diagnostic record.
+ */
+internal data class PluginProcessAttempt(
+    val executor: LogicalExecutor,
+    val phase: ExecutorPhase,
+    val workingDirectory: String,
+    val durationMillis: Long,
+    val outcome: ExecutorOutcome,
+    val exitCode: Int?,
+    val message: String? = null
+)
 
 /** Result of attempting recipe execution through an official OpenRewrite build plugin. */
 sealed class PluginRunResult {

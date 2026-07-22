@@ -8,7 +8,7 @@ on:
 
 jobs:
   unit:
-    name: Unit tests
+    name: Offline checks
     runs-on: ubuntu-latest
 
     steps:
@@ -26,10 +26,11 @@ jobs:
       - name: Unit tests + lint + fat JAR
         run: ./gradlew check shadowJar
 
-  integration-fake:
-    name: Integration tests (fake wrappers)
-    runs-on: ubuntu-latest
+  windows-worker:
+    name: Forked worker checks (Windows)
+    runs-on: windows-latest
     needs: unit
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -43,13 +44,15 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
-      - name: Fake-wrapper integration tests
-        run: ./gradlew :cli:testIntegration
+      - name: Forked worker protocol, path, and distribution tests
+        run: |
+          .\gradlew.bat --no-daemon :core:test --tests io.github.skhokhlov.rewriterunner.ForkedExecutionTest --tests io.github.skhokhlov.rewriterunner.execution.ForkedWorkerProtocolLifecycleTest --tests io.github.skhokhlov.rewriterunner.plugin.PluginTempFilesTest
+          .\gradlew.bat --no-daemon :cli:testIntegration --tests io.github.skhokhlov.rewriterunner.integration.ForkedDistributionIntegrationTest
 
   plugin-real:
     name: Integration tests (real plugins)
     runs-on: ubuntu-latest
-    needs: integration-fake
+    needs: unit
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -83,3 +86,46 @@ jobs:
       - name: Real-plugin integration tests
         run: ./gradlew :cli:testRealPlugin --info
         timeout-minutes: 25
+
+      - name: Upload real-plugin diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: real-plugin-diagnostics
+          path: |
+            cli/build/reports/tests/testRealPlugin
+            cli/build/test-results/testRealPlugin
+          if-no-files-found: warn
+          retention-days: 14
+
+  container:
+    name: Container acceptance (2 GiB cgroup)
+    runs-on: ubuntu-latest
+    needs: plugin-real
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+
+      - name: Container acceptance
+        run: ./gradlew :cli:testContainer --info
+        timeout-minutes: 15
+
+      - name: Upload container diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: container-diagnostics
+          path: |
+            cli/build/reports/tests/testContainer
+            cli/build/test-results/testContainer
+          if-no-files-found: warn
+          retention-days: 14

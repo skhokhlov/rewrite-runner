@@ -60,17 +60,19 @@ afterEvaluate {
 }
 
 // Test partitioning. All test code lives in one source set (shares BaseIntegrationTest helpers
-// and `ToolchainCache`); the three lanes are split by Gradle `Test.filter` class-name patterns
-// rather than by Kotest tags. The split mirrors the three CI jobs:
+// and `ToolchainCache`); the four lanes are split by Gradle `Test.filter` class-name patterns
+// rather than by Kotest tags. The split mirrors the CI jobs:
 //
 //   :cli:test           → unit-only (RunCommandTest et al.; excludes *IntegrationTest)
 //   :cli:testIntegration → fake-wrapper integration suite; offline-safe, no network needed
 //   :cli:testRealPlugin → real OpenRewrite Maven/Gradle plugins from Maven Central
+//   :cli:testContainer  → release fat JAR in a real Docker cgroup
 //
 // Integration tests follow the `*IntegrationTest` class-name convention (enforced by the
 // `failOnNoMatchingTests` flags below — a typo would surface immediately).
 private val integrationClassPattern = "*IntegrationTest"
 private val realPluginClassPattern = "*PluginRealExecutionIntegrationTest"
+private val containerIntegrationClassPattern = "*ContainerForkedDistributionIntegrationTest"
 
 // Pin the Gradle distribution used by real-plugin tests to the same version the repo itself
 // uses (see gradle/wrapper/gradle-wrapper.properties). Read eagerly at configuration time so a
@@ -104,9 +106,17 @@ tasks.register<Test>("testIntegration") {
     filter {
         includeTestsMatching(integrationClassPattern)
         excludeTestsMatching(realPluginClassPattern)
+        excludeTestsMatching(containerIntegrationClassPattern)
         isFailOnNoMatchingTests = true
     }
     shouldRunAfter(tasks.named("test"))
+    dependsOn(tasks.shadowJar)
+    doFirst {
+        systemProperty(
+            "rewriterunner.test.fatJar",
+            tasks.shadowJar.get().archiveFile.get().asFile.absolutePath
+        )
+    }
 }
 
 // Real-plugin integration tests: download Maven/Gradle distributions on first run and execute
@@ -126,4 +136,28 @@ tasks.register<Test>("testRealPlugin") {
     systemProperty("rewriterunner.test.gradleVersion", realPluginGradleVersion)
     timeout.set(Duration.ofMinutes(20))
     shouldRunAfter(tasks.named("testIntegration"))
+}
+
+// Real cgroup acceptance for the release-shaped fat JAR. Docker and the Java runtime image are
+// intentional prerequisites: this task is selected only by the production gate and must fail if
+// its environment cannot provide them.
+tasks.register<Test>("testContainer") {
+    group = "verification"
+    description = "Runs the release fat JAR inside a Docker cgroup memory limit."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching(containerIntegrationClassPattern)
+        isFailOnNoMatchingTests = true
+    }
+    dependsOn(tasks.shadowJar)
+    doFirst {
+        systemProperty(
+            "rewriterunner.test.fatJar",
+            tasks.shadowJar.get().archiveFile.get().asFile.absolutePath
+        )
+    }
+    timeout.set(Duration.ofMinutes(10))
+    shouldRunAfter(tasks.named("testRealPlugin"))
 }

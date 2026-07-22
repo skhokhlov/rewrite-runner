@@ -31,9 +31,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 ./gradlew shadowJar              # Build fat JAR → cli/build/libs/cli-1.0-SNAPSHOT-all.jar
 ./gradlew test                   # UNIT tests only (excludes *IntegrationTest)
-./gradlew check                  # unit tests + ktlintCheck (no integration tests)
+./gradlew check                  # unit tests + ktlintCheck + offline fake-wrapper integration
 ./gradlew :cli:testIntegration   # Fake-wrapper integration tests (offline)
 ./gradlew :cli:testRealPlugin    # Real-plugin integration tests (downloads Maven/Gradle)
+./gradlew :cli:testContainer     # Fat JAR in a Docker 2 GiB cgroup
+./gradlew productionCheck        # every production lane before release publication
 ./gradlew ktlintFormat           # Auto-fix formatting
 
 # Run a single test class
@@ -65,7 +67,11 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 | `--resolver-request-timeout` | | Maven Resolver socket/request timeout | `60s` |
 | `--exclude-paths` | | Comma-separated glob patterns of files to skip (e.g. `**/generated/**,**/*.md`); forwarded to Stage 0 plugin and LST fallback alike | — |
 | `--plain-text-masks` | | Comma-separated glob patterns of otherwise-unhandled files to parse as plain text; replaces default masks when specified | upstream defaults |
-| `--plugin-jvm-args` | | Comma-separated JVM args for the Stage 0 plugin subprocess (e.g. `-Xmx4g`); Gradle gets `-Dorg.gradle.jvmargs` (replaces project value), Maven gets `MAVEN_OPTS` (the launcher places it after a project `.mvn/jvm.config`, so ours wins on conflicting flags). Does not size the runner JVM/LST fallback. | — |
+| `--execution-mode` | | `forked` (default) or `in-process` LST execution | `forked` |
+| `--executor-jvm-arg` | | Repeatable JVM arg shared by runner-owned executors; use `=` for values beginning with `-` | — |
+| `--plugin-jvm-arg` | | Repeatable JVM arg appended for the Stage 0 plugin executor | — |
+| `--lst-worker-jvm-arg` | | Repeatable JVM arg appended for the LST worker | — |
+| `--lst-worker-timeout` | | Optional whole-worker timeout | unlimited |
 | `--info` | | Enable INFO-level logging to stderr | `false` |
 | `--debug` | | Enable DEBUG-level logging (overrides `--info`) | `false` |
 | `--no-maven-central` | | Disable Maven Central; use only repos from config | `false` |
@@ -133,7 +139,13 @@ cli/src/
 - Stage 0 orphan (root-less monorepo) support: when the project root has no build descriptor, `PluginRecipeRunner` reuses `discoverBuildUnits` to find orphan build units in subdirectories and runs the plugin in each distinct dir (Gradle-then-Maven per dir), rebasing diffs to the repo root via `DirectPluginExecutor`'s base-dir rebasing (`runDir` ≠ rebase root) and the 2-arg `resolveGradleCommand`/`resolveMavenCommand` wrapper resolvers. Because the plugin runs from each unit dir, other root-relative inputs are rebased per unit (`rebaseGlobsForUnit`): an implicit root `rewrite.yaml`/`rewrite.yml` is resolved and forwarded explicitly (a subdir run would otherwise never see it), and exclude/plain-text globs anchored to a unit's path (e.g. `svc-a/generated/**`) lose that prefix. The root path is unchanged when any root descriptor exists. Aggregation returns `Success`/`NoChanges` when all units are covered, `PluginRunResult.Partial` when some units produced diffs but others failed or discovery was truncated, else `Failed`/`Skipped`. On `Partial`, `RewriteRunner` keeps the Stage 0 diffs (`rawDiffs`) and falls through to the LST pipeline over the whole project, merging with **Stage 0 winning per-path** (LST `Result`s for paths Stage 0 already produced are dropped); `stageUsed` stays `PLUGIN` and `estimatedTimeSaved` is summed. See ADR 0006.
 - Path exclusion: `--exclude-paths` (CLI) overrides `parse.excludePaths` (YAML) when non-empty. The resolved value is forwarded to Stage 0 and to the LST fallback so both apply identical filtering. When no JVM source survives the exclusion, classpath resolution stages 1–4 are skipped. Filtering is exclusion-only by design — no `--include-paths`/allowlist (see `docs/adr/0007-exclusion-only-path-filtering.md`).
 - Plain-text masks: `--plain-text-masks` (CLI) overrides `parse.plainTextMasks` (YAML) when non-empty; if both are empty, the upstream default mask list is used. The resolved value is always forwarded to Stage 0 (Maven `-Drewrite.plainTextMasks=…`; Gradle `plainTextMasks.clear()` + `plainTextMask(...)`) and to the LST fallback. Specialized parsers take precedence on the LST path, so `Dockerfile*` still uses `DockerParser`; parsing every unmatched text file is a future direction, not current behavior.
-- OpenRewrite requires all source files in memory simultaneously — for large projects use `-Xmx6g`. This sizes the **rewrite-runner JVM** (the in-process LST fallback). The **Stage 0 plugin subprocess** is a separate JVM sized via `--plugin-jvm-args` / `pluginJvmArgs` / `Builder.pluginJvmArgs(...)`: Gradle receives `-Dorg.gradle.jvmargs=…` on the command line (highest precedence, replaces the project's value; `GRADLE_OPTS` is deliberately unused since `--no-daemon` runs the build in a JVM governed by `org.gradle.jvmargs`), Maven receives an appended `MAVEN_OPTS`; the standard Maven 3.x launcher places a project `.mvn/jvm.config` *before* `MAVEN_OPTS` on the `java` line, so ours wins on conflicting flags (e.g. `-Xmx`) while the project's non-conflicting `jvm.config` entries still apply. Injection lives in `GradlePluginStrategy.buildCommand` / `MavenPluginStrategy.buildEnv` (+ `runProcess`'s `env` param). The combined-budget / `-Xms` / container model is docs-only; a fork-per-run LST worker is deferred (see `docs/architecture.md#stage-0-jvm-memory` and ADR 0009).
+- Forked execution is the default: `RunCoordinator` keeps the coordinator small, waits for Stage 0
+  to exit, and then starts one LST worker when needed. Shared `executorJvmArgs` compose before
+  stage-specific plugin/worker arguments. When no explicit runner, JDK-environment, or target-build
+  policy exists, a conservative container-aware `-Xmx` is added to runner-owned children. Use
+  `ExecutionMode.IN_PROCESS` only for rich `Result` objects or a custom `ChangeWriter`; forked runs
+  return `rawDiffs` and an empty `results` list. See `docs/architecture.md#executor-jvm-memory` and
+  ADR 0010.
 - Dockerfile/Containerfile files are collected both by extension (`.dockerfile`, `.containerfile`) and by filename prefix (`Dockerfile*`, `Containerfile*`) — all go into the `.dockerfile` bucket for `DockerParser`
 - `pom.xml` files are routed to `MavenParser` (full resolution — parent POMs, property interpolation, BOM imports); all other `.xml` files use `XmlParser`. This split happens in the `.xml` routing block inside `LstBuilder.build()` by filtering on `file.name == "pom.xml"`. `MavenParser` adds `MavenResolutionResult` marker, enabling the full `rewrite-maven` recipe catalog. Resolution uses `~/.m2/settings.xml` and local repo; artifacts already cached require no network access.
 - `LstBuilder` delegates to `FileCollector` (file walk/filtering), `VersionDetector` (Java/Kotlin version detection), `GradleDslClasspathResolver` (Gradle installation lookup), and `MarkerFactory` (provenance/build-tool markers). These are internal helpers instantiated inside `LstBuilder`'s constructor body.

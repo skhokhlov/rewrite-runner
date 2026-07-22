@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
+import io.github.skhokhlov.rewriterunner.LogicalExecutor
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.lst.utils.resolveMavenCommand
@@ -28,7 +29,8 @@ internal open class MavenPluginStrategy(
     private val logger: RunnerLogger,
     private val timeout: Duration,
     private val rewritePluginVersion: String,
-    private val pluginJvmArgs: List<String> = emptyList()
+    private val pluginJvmArgs: List<String> = emptyList(),
+    private val attemptCollector: (PluginProcessAttempt) -> Unit = {}
 ) : PluginBuildStrategy {
     override fun run(
         projectDir: Path,
@@ -48,7 +50,14 @@ internal open class MavenPluginStrategy(
                 ?: rewriteConfig
         val reportDir = createPrivateTempDirectory("rewrite-runner-report-")
         return try {
-            DirectPluginExecutor(rootDir, dryRun, ::execute, runDir = projectDir).run(
+            DirectPluginExecutor(
+                projectDir = rootDir,
+                dryRun = dryRun,
+                execute = ::execute,
+                runDir = projectDir,
+                executor = LogicalExecutor.MAVEN_PLUGIN,
+                attemptCollector = attemptCollector
+            ).run(
                 DirectPluginInvocation(
                     dryRunCommand = buildCommand(
                         projectDir = projectDir,

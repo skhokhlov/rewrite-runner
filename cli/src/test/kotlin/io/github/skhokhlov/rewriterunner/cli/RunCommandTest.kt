@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.cli
 
 import io.github.skhokhlov.rewriterunner.ExecutionDiagnostics
+import io.github.skhokhlov.rewriterunner.ExecutionMode
 import io.github.skhokhlov.rewriterunner.RunResult
 import io.github.skhokhlov.rewriterunner.apply.ApplyFailure
 import io.github.skhokhlov.rewriterunner.apply.ChangeKind
@@ -192,24 +193,35 @@ class RunCommandTest :
             )
         }
 
-        test("--plugin-jvm-args is parsed as a comma-separated list") {
+        test("execution options are flat, repeatable, and parse values beginning with a dash") {
             val cmd = RunCommand()
             CommandLine(cmd).parseArgs(
                 "--active-recipe",
                 "io.github.skhokhlov.rewriterunner.MyRecipe",
-                "--plugin-jvm-args",
-                "-Xmx4g,-XX:+UseG1GC"
+                "--execution-mode=in-process",
+                "--executor-jvm-arg=-Xmx4g",
+                "--executor-jvm-arg=-XX:+UseG1GC",
+                "--plugin-jvm-arg=-XX:MaxMetaspaceSize=1g",
+                "--lst-worker-jvm-arg=-XX:+HeapDumpOnOutOfMemoryError",
+                "--lst-worker-timeout=30m"
             )
-            assertEquals(listOf("-Xmx4g", "-XX:+UseG1GC"), cmd.pluginJvmArgs)
+            assertEquals(ExecutionMode.IN_PROCESS, cmd.executionMode)
+            assertEquals(listOf("-Xmx4g", "-XX:+UseG1GC"), cmd.executorJvmArgs)
+            assertEquals(listOf("-XX:MaxMetaspaceSize=1g"), cmd.pluginExecutorJvmArgs)
+            assertEquals(listOf("-XX:+HeapDumpOnOutOfMemoryError"), cmd.lstWorkerJvmArgs)
+            assertEquals(Duration.ofMinutes(30), cmd.lstWorkerTimeout)
         }
 
-        test("--plugin-jvm-args defaults to empty list") {
-            val cmd = RunCommand()
-            CommandLine(cmd).parseArgs(
+        test("removed plugin JVM option reports its migration target") {
+            val errors = ByteArrayOutputStream()
+            val code = cli().setErr(PrintWriter(errors)).execute(
                 "--active-recipe",
-                "io.github.skhokhlov.rewriterunner.MyRecipe"
+                "io.github.skhokhlov.rewriterunner.MyRecipe",
+                "--plugin-jvm-args=-Xmx4g"
             )
-            assertTrue(cmd.pluginJvmArgs.isEmpty())
+
+            assertEquals(1, code)
+            assertTrue(errors.toString().contains("--plugin-jvm-arg"))
         }
 
         test("timeout options are parsed") {

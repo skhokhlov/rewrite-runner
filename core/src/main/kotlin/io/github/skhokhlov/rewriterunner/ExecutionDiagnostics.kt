@@ -95,6 +95,8 @@ data class ParseFailure(val path: String, val reason: String, val parser: String
  *   estimated saving.
  * @property writeOutcome Per-file outcome from applying LST results to disk. Dry-run,
  *   plugin-only, and no-change runs use [WriteOutcome.EMPTY].
+ * @property executorAttempts Sanitized plugin/worker process attempts, including configuration
+ *   source, observed worker heap when available, outcome, and bounded failure context.
  */
 data class ExecutionDiagnostics(
     val stageUsed: UsedExecutionStage?,
@@ -102,7 +104,8 @@ data class ExecutionDiagnostics(
     val parseFailures: List<ParseFailure> = emptyList(),
     val parsedFileCount: Int? = null,
     val estimatedTimeSaved: Duration? = null,
-    val writeOutcome: WriteOutcome = WriteOutcome.EMPTY
+    val writeOutcome: WriteOutcome = WriteOutcome.EMPTY,
+    val executorAttempts: List<ExecutorAttempt> = emptyList()
 ) {
     companion object {
         val PLUGIN = ExecutionDiagnostics(UsedExecutionStage.PLUGIN, 0)

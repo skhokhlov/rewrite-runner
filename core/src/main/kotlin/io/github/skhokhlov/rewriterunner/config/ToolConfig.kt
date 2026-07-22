@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.config
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import io.github.skhokhlov.rewriterunner.ExecutionMode
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.nio.file.Path
@@ -50,6 +51,31 @@ data class ParseConfig(
     val plainTextMasks: List<String> = emptyList()
 )
 
+/** JVM configuration for the official OpenRewrite Gradle/Maven plugin executor. */
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class PluginExecutionConfig(val jvmArgs: List<String> = emptyList())
+
+/** JVM configuration for the short-lived LST worker executor. */
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class LstWorkerExecutionConfig(
+    val jvmArgs: List<String> = emptyList(),
+    val timeout: Duration? = null
+)
+
+/**
+ * Configuration shared by runner-owned executors.
+ *
+ * An empty list means that no runner arguments were supplied; the coordinator then either
+ * preserves explicit environment/project configuration or calculates a conservative heap.
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class ExecutionConfig(
+    val mode: ExecutionMode = ExecutionMode.FORKED,
+    val executorJvmArgs: List<String> = emptyList(),
+    val plugin: PluginExecutionConfig = PluginExecutionConfig(),
+    val lstWorker: LstWorkerExecutionConfig = LstWorkerExecutionConfig()
+)
+
 /**
  * Top-level tool configuration, typically loaded from `rewriterunner.yml`.
  *
@@ -70,12 +96,7 @@ data class ParseConfig(
  *   used by Stage 0 plugin-first execution.
  * @property rewriteMavenPluginVersion Version of the official OpenRewrite Maven plugin
  *   used by Stage 0 plugin-first execution.
- * @property pluginJvmArgs JVM arguments forwarded to the Stage 0 plugin build-tool subprocess
- *   (e.g. `-Xmx4g`). For Gradle they are injected as `-Dorg.gradle.jvmargs=…` on the command
- *   line (highest precedence; replaces, not merges, the project's `org.gradle.jvmargs`). For
- *   Maven they are appended to `MAVEN_OPTS`, which the standard Maven launcher places after a
- *   project `.mvn/jvm.config`, so ours wins on conflicting flags (e.g. `-Xmx`).
- *   Empty by default — nothing is injected.
+ * @property execution Runner-owned executor configuration. Forked LST execution is the default.
  * @property artifactResolverConnectTimeout TCP connection timeout for Maven Resolver downloads.
  * @property artifactResolverRequestTimeout Socket read/request timeout for Maven Resolver downloads.
  */
@@ -90,7 +111,7 @@ data class ToolConfig(
     val pluginRunTimeout: Duration = ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
     val rewriteGradlePluginVersion: String = ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION,
     val rewriteMavenPluginVersion: String = ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION,
-    val pluginJvmArgs: List<String> = ToolConfigDefaults.PLUGIN_JVM_ARGS,
+    val execution: ExecutionConfig = ExecutionConfig(),
     val artifactResolverConnectTimeout: Duration =
         ToolConfigDefaults.ARTIFACT_RESOLVER_CONNECT_TIMEOUT,
     val artifactResolverRequestTimeout: Duration =
@@ -133,6 +154,7 @@ data class ToolConfig(
             .addModule(
                 SimpleModule()
                     .addDeserializer(Duration::class.java, DurationConfigDeserializer())
+                    .addDeserializer(ExecutionMode::class.java, ExecutionModeConfigDeserializer())
             )
             .build()
 
@@ -149,6 +171,7 @@ data class ToolConfig(
         fun load(configFile: Path?, logger: RunnerLogger): ToolConfig {
             if (configFile != null && configFile.exists()) {
                 val rawText = configFile.readText()
+                rejectRemovedPluginJvmArgs(rawText)
                 val text = interpolateEnvVars(rawText, logger)
                 return try {
                     yaml.readValue(text, ToolConfig::class.java).copy(logger = logger)
@@ -159,6 +182,14 @@ data class ToolConfig(
             return ToolConfig(
                 logger = logger
             )
+        }
+
+        private fun rejectRemovedPluginJvmArgs(rawText: String) {
+            if (rawText.lineSequence().any { it.trimStart().startsWith("pluginJvmArgs:") }) {
+                throw IllegalArgumentException(
+                    "pluginJvmArgs was removed; use execution.plugin.jvmArgs instead"
+                )
+            }
         }
 
         private fun unwrapConfigException(e: Exception): Exception {

@@ -41,3 +41,16 @@ dependencies {
     dokka(project(":core"))
     dokka(project(":cli"))
 }
+
+// `check` remains the fast, offline release signal: it includes unit tests plus the fake-wrapper
+// integration suite, whose coordinator/worker boundary is a real JVM process. The live plugin
+// lane stays explicit for local development but is part of the aggregate production gate.
+tasks.named("check") {
+    dependsOn(":cli:testIntegration")
+}
+
+tasks.register("productionCheck") {
+    group = "verification"
+    description = "Runs every configured production verification lane and builds the release fat JAR."
+    dependsOn("check", ":cli:testRealPlugin", ":cli:testContainer", ":cli:shadowJar")
+}

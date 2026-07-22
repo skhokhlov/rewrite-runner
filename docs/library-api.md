@@ -30,17 +30,28 @@ val result = RewriteRunner.builder()
 | `cacheDir(Path)` | `Path?` | from config / `~/.rewriterunner/cache` | Recipe JAR cache directory; stored under `<cacheDir>/repository`. Project deps always use `~/.m2/repository`. |
 | `configFile(Path)` | `Path?` | `<projectDir>/rewriterunner.yml`, then `~/.rewriterunner/rewriterunner.yml` | `rewriterunner.yml` tool config (case-insensitive name match). Pass `null` to use auto-discovery. |
 | `dryRun(Boolean)` | `Boolean` | `false` | Run without writing files to disk |
-| `skipPluginRun(Boolean)` | `Boolean` | `false` | Bypass official Gradle/Maven plugin execution and use the in-process LST pipeline directly |
+| `skipPluginRun(Boolean)` | `Boolean` | `false` | Bypass official Gradle/Maven plugin execution and use the selected LST executor directly |
 | `processTimeout(Duration)` | `Duration?` | from config / `120s` | Timeout for build-tool subprocesses in the fallback LST pipeline |
 | `pluginTimeout(Duration)` | `Duration?` | from config / `10m` | Timeout for official Gradle/Maven plugin invocations in Stage 0 |
 | `resolverConnectTimeout(Duration)` | `Duration?` | from config / `30s` | TCP connection timeout for Maven Resolver artifact downloads |
 | `resolverRequestTimeout(Duration)` | `Duration?` | from config / `60s` | Socket read/request timeout for Maven Resolver artifact downloads |
-| `pluginJvmArgs(List<String>)` | `List` | `[]` | JVM args for the **Stage 0 plugin subprocess** (e.g. `["-Xmx4g"]`); overrides `pluginJvmArgs` from config file. Gradle: injected as `-Dorg.gradle.jvmargs=…` (highest precedence; **replaces**, not merges, the project's value). Maven: appended to `MAVEN_OPTS`, which the launcher places after a project `.mvn/jvm.config`, so ours wins on conflicting flags (e.g. `-Xmx`). Does **not** affect this JVM / the LST fallback — size that with `java -Xmx… -jar`. See [Stage 0 JVM memory](architecture.md#stage-0-jvm-memory). |
+| `executionMode(ExecutionMode)` | `ExecutionMode` | `FORKED` | `FORKED` isolates post-plugin LST work; `IN_PROCESS` preserves rich `Result` values and permits custom writers. |
+| `executorJvmArgs(List<String>)` | `List<String>` | YAML / `[]` | JVM arguments shared by runner-owned plugin and worker executors. Supplying any args disables automatic heap sizing. |
+| `pluginExecutorJvmArgs(List<String>)` | `List<String>` | YAML / `[]` | JVM arguments appended for the official Gradle/Maven plugin executor. |
+| `lstWorkerJvmArgs(List<String>)` | `List<String>` | YAML / `[]` | JVM arguments appended for the forked LST worker. |
+| `lstWorkerTimeout(Duration?)` | `Duration?` | YAML / unlimited | Whole-worker timeout; inner build-tool timeouts remain separate. |
+| `workerCommandFactory(WorkerCommandFactory)` | `WorkerCommandFactory` | default Java/classpath launch | Advanced structured launcher seam for nonstandard packaging. |
 | `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file. Forwarded both to Stage 0 (Maven `-Drewrite.exclusions=…` / Gradle `exclusion(...)` DSL) and to the LST fallback pipeline. |
 | `plainTextMasks(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) for otherwise-unhandled files to parse as plain text; overrides `parse.plainTextMasks` from config file. Both empty falls back to the upstream OpenRewrite default mask list. Forwarded both to Stage 0 (Maven `-Drewrite.plainTextMasks=…` / Gradle `plainTextMask(...)` DSL) and to the LST fallback pipeline. |
 | `includeMavenCentral(Boolean)` | `Boolean?` | from config / `true` | Include Maven Central as a remote repository. Set `false` for air-gapped or enterprise environments. |
 | `repository(RepositoryConfig)` | — | — | Add one extra Maven repository; accumulated, combined with config file repos |
 | `repositories(List<RepositoryConfig>)` | `List` | `[]` | Replace all extra Maven repositories; combined with config file repos |
+
+> **Production timeout guidance:** forked execution holds a JVM-wide, fair gate from the Stage 0
+> plugin attempt through the LST worker. `lstWorkerTimeout` is unlimited by default, so a hung
+> worker blocks every concurrent `RewriteRunner.run()` call in that JVM. Set a finite
+> `lstWorkerTimeout(...)` in production. Stage 0 is governed separately by `pluginTimeout`
+> (10 minutes by default), so its timeout must elapse before fallback work can begin.
 
 ### Throws
 - `IllegalArgumentException` — recipe not found in loaded JARs or classpath
@@ -60,10 +71,10 @@ Return type of `RewriteRunner.run()`.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `results` | `List<Result>` | Raw OpenRewrite results (one per changed file). Empty means no changes. |
+| `results` | `List<Result>` | Rich OpenRewrite results in explicit `IN_PROCESS` mode. Default forked runs intentionally return an empty list. |
 | `changedFiles` | `List<Path>` | Files written to disk during this run. Empty when `dryRun = true` or no changes. |
 | `projectDir` | `Path` | Resolved project directory (same as `Builder.projectDir`) |
-| `rawDiffs` | `Map<Path, String>` | Unified diffs from the plugin-first path. May be populated alongside `results` when the Stage 0 specialized ownership pass also changed files. |
+| `rawDiffs` | `Map<Path, String>` | Unified diffs from Stage 0 and from the forked worker. This is the default programmatic result surface. |
 | `hasChanges` | `Boolean` | `true` when the recipe produced at least one change, regardless of `dryRun` |
 | `changeCount` | `Int` | Number of changed source files (`results.size + rawDiffs.size`) |
 | `executionDiagnostics` | `ExecutionDiagnostics` | Which pipeline stage produced the run, how many JARs were on the classpath, parser failures, write outcome, and OpenRewrite's estimated time saved |
@@ -80,6 +91,7 @@ data class ExecutionDiagnostics(
     val parsedFileCount: Int? = null,
     val estimatedTimeSaved: Duration? = null,
     val writeOutcome: WriteOutcome = WriteOutcome.EMPTY,
+    val executorAttempts: List<ExecutorAttempt> = emptyList(),
 )
 
 data class ParseFailure(val path: String, val reason: String, val parser: String)
@@ -97,6 +109,7 @@ data class WriteOutcome(
 | `parsedFileCount` | Count of successfully parsed source files in the in-process LST path, excluding `ParseError` stubs. `null` when the plugin path ran because no in-process LST was built. |
 | `estimatedTimeSaved` | OpenRewrite's estimate of manual effort avoided by the run, summed across changed files. `null` means the value was not measured or could not be read; `Duration.ZERO` means the run completed and genuinely produced no estimated saving. |
 | `writeOutcome` | Per-file disk apply outcome for LST results. Successes and failures include `ChangeKind` (`CREATED`, `MODIFIED`, `DELETED`) plus project-relative path; failures also include a cause. Dry-run, plugin-only, and no-change runs use `WriteOutcome.EMPTY`. |
+| `executorAttempts` | Compact plugin/worker attempt records: logical executor, phase, PID when available, JVM-policy source, requested/observed heap, duration, outcome, exit code, and sanitized message. |
 
 ### Write outcomes
 
@@ -309,9 +322,18 @@ rewriteGradlePluginVersion: 7.32.1
 rewriteMavenPluginVersion: 6.40.0
 resolverConnectTimeout: 30s
 resolverRequestTimeout: 60s
-pluginJvmArgs:
-  - "-Xmx4g"
-# CLI --plugin-jvm-args replaces this list when non-empty.
+execution:
+  mode: forked
+  executorJvmArgs:
+    - "-Xmx4g"
+  plugin:
+    jvmArgs:
+      - "-XX:MaxMetaspaceSize=1g"
+  lstWorker:
+    jvmArgs:
+      - "-XX:+HeapDumpOnOutOfMemoryError"
+    timeout: 30m
+# CLI list options replace the corresponding YAML list when supplied.
 ```
 
 ### ToolConfig fields
@@ -328,7 +350,19 @@ pluginJvmArgs:
 | `rewriteMavenPluginVersion` | `String` | `6.40.0` | Version of `org.openrewrite.maven:rewrite-maven-plugin` used for Stage 0 Maven plugin execution. |
 | `resolverConnectTimeout` | `Duration` | `30s` | TCP connection timeout for Maven Resolver artifact downloads. |
 | `resolverRequestTimeout` | `Duration` | `60s` | Socket read/request timeout for Maven Resolver artifact downloads. |
-| `pluginJvmArgs` | `List<String>` | `[]` | JVM args for the Stage 0 plugin subprocess (e.g. `-Xmx4g`). Gradle: `-Dorg.gradle.jvmargs=…` (replaces the project's value). Maven: appended to `MAVEN_OPTS`, which the launcher places after a project `.mvn/jvm.config`, so ours wins on conflicting flags (e.g. `-Xmx`). Does not affect the rewrite-runner JVM / LST fallback. See [Stage 0 JVM memory](architecture.md#stage-0-jvm-memory). |
+| `execution.mode` | `forked` / `in-process` | `forked` | Default forked mode isolates LST memory. In-process mode is for rich results and custom writers. |
+| `execution.executorJvmArgs` | `List<String>` | `[]` | Shared runner-owned executor arguments. |
+| `execution.plugin.jvmArgs` | `List<String>` | `[]` | Arguments appended for the official plugin executor. |
+| `execution.lstWorker.jvmArgs` | `List<String>` | `[]` | Arguments appended for the LST worker. |
+| `execution.lstWorker.timeout` | `Duration?` | unlimited | Optional whole-worker timeout. |
+
+### Migration from pluginJvmArgs
+
+`pluginJvmArgs`, `Builder.pluginJvmArgs(...)`, and `--plugin-jvm-args` were intentionally removed.
+Move shared arguments to `execution.executorJvmArgs`, plugin-only arguments to
+`execution.plugin.jvmArgs`, and worker-only arguments to `execution.lstWorker.jvmArgs`. A YAML file
+using the removed field fails with a message naming `execution.plugin.jvmArgs`; the removed CLI
+option reports `--plugin-jvm-arg`.
 
 ### RepositoryConfig fields
 
