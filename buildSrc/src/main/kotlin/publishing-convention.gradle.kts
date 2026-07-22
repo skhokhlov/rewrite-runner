@@ -1,3 +1,5 @@
+import org.cyclonedx.gradle.CyclonedxDirectTask
+
 plugins {
     id("com.vanniktech.maven.publish")
     java
@@ -40,16 +42,15 @@ mavenPublishing {
     }
 }
 
-afterEvaluate {
+pluginManager.withPlugin("org.cyclonedx.bom") {
+    val cyclonedxDirectBom = tasks.named<CyclonedxDirectTask>("cyclonedxDirectBom")
+
     publishing {
-        publications {
-            named<MavenPublication>("maven") {
-                artifact(tasks.named("cyclonedxDirectBom").map { task ->
-                    (task.property("jsonOutput") as RegularFileProperty).get().asFile
-                }) {
-                    extension = "json"
-                    classifier = "cyclonedx"
-                }
+        publications.withType<MavenPublication>().configureEach {
+            artifact(cyclonedxDirectBom.flatMap { it.jsonOutput }) {
+                extension = "json"
+                classifier = "cyclonedx"
+                builtBy(cyclonedxDirectBom)
             }
         }
     }
