@@ -117,10 +117,39 @@ java -Xmx256m -jar rewrite-runner.jar \
   --lst-worker-timeout=30m
 ```
 
-With no explicit executor arguments or inherited JDK JVM options, rewrite-runner chooses a
-conservative container-aware `-Xmx` for runner-owned children. An explicit argument disables that
-automatic choice. `JAVA_TOOL_OPTIONS` and `JDK_JAVA_OPTIONS` remain in effect; put a
-coordinator-only heap directly on the initial `java` command rather than in those global variables.
+Library callers configure the same policy on the builder:
+
+```kotlin
+import io.github.skhokhlov.rewriterunner.ExecutionMode
+import io.github.skhokhlov.rewriterunner.RewriteRunner
+import java.nio.file.Path
+import java.time.Duration
+
+val result = RewriteRunner.builder()
+    .projectDir(Path.of("/path/to/project"))
+    .activeRecipe("org.openrewrite.java.migrate.UpgradeToJava21")
+    .recipeArtifact("org.openrewrite.recipe:rewrite-migrate-java:LATEST")
+    .executionMode(ExecutionMode.FORKED) // default; shown explicitly for library callers
+    .executorJvmArgs(listOf("-Xmx6g"))
+    .pluginExecutorJvmArgs(listOf("-XX:MaxMetaspaceSize=1g"))
+    .lstWorkerJvmArgs(listOf("-XX:+HeapDumpOnOutOfMemoryError"))
+    .lstWorkerTimeout(Duration.ofMinutes(30))
+    .build()
+    .run()
+```
+
+`executorJvmArgs` are shared by the official plugin and LST worker; stage-specific arguments are
+appended afterward. Each executor decides its heap independently: when its effective argument list
+is empty and no inherited or project JVM policy applies, rewrite-runner chooses a conservative
+container-aware `-Xmx`. Supplying any argument for that executor disables automatic sizing, so
+include the desired `-Xmx` yourself. `JAVA_TOOL_OPTIONS` and `JDK_JAVA_OPTIONS` remain in effect;
+put a coordinator-only heap directly on the initial `java` command rather than in those global
+variables.
+
+Set a finite LST worker timeout for production library calls. `lstWorkerTimeout` is unlimited by
+default, and each JVM serializes the whole plugin-plus-worker sequence; a hung worker therefore
+blocks other `RewriteRunner.run()` calls in that JVM. `pluginTimeout` controls Stage 0 separately
+(10 minutes by default), so its timeout must elapse before fallback work can begin.
 
 Forked library runs return diffs through `RunResult.rawDiffs` and leave `RunResult.results` empty.
 Use `executionMode(ExecutionMode.IN_PROCESS)` only when you need rich OpenRewrite `Result` values
