@@ -84,6 +84,25 @@ class ForkedExecutionTest :
             )
         }
 
+        test("forked and in-process execution produce matching changed paths and diffs") {
+            val inProcessProjectDir = Files.createTempDirectory("in-process-runner-project-")
+            val inProcessCacheDir = Files.createTempDirectory("in-process-runner-cache-")
+            try {
+                configureProject(inProcessProjectDir)
+                val forked = runner(projectDir, cacheDir, ExecutionMode.FORKED).run()
+                val inProcess =
+                    runner(inProcessProjectDir, inProcessCacheDir, ExecutionMode.IN_PROCESS).run()
+
+                assertTrue(forked.results.isEmpty())
+                assertTrue(inProcess.results.isNotEmpty())
+                assertEquals(normalizedChangedPaths(inProcess), normalizedChangedPaths(forked))
+                assertEquals(inProcessDiffs(inProcess), forked.rawDiffs.normalizePaths())
+            } finally {
+                inProcessProjectDir.toFile().deleteRecursively()
+                inProcessCacheDir.toFile().deleteRecursively()
+            }
+        }
+
         test("custom change writers are rejected before a forked run starts") {
             val error = kotlin.test.assertFailsWith<IllegalArgumentException> {
                 RewriteRunner.builder()
@@ -101,3 +120,47 @@ class ForkedExecutionTest :
             assertFalse(projectDir.resolve("sample.txt").readText().contains("new"))
         }
     })
+
+private fun configureProject(projectDir: Path) {
+    projectDir.resolve("rewrite.yaml").writeText(
+        """
+        ---
+        type: specs.openrewrite.org/v1beta/recipe
+        name: com.example.ReplaceOld
+        recipeList:
+          - org.openrewrite.text.FindAndReplace:
+              find: old
+              replace: new
+              regex: false
+              filePattern: "**/*.txt"
+              plaintextOnly: true
+        """.trimIndent()
+    )
+    projectDir.resolve("sample.txt").writeText("old\n")
+}
+
+private fun runner(projectDir: Path, cacheDir: Path, mode: ExecutionMode): RewriteRunner =
+    RewriteRunner.builder()
+        .projectDir(projectDir)
+        .activeRecipe("com.example.ReplaceOld")
+        .cacheDir(cacheDir)
+        .skipPluginRun(true)
+        .plainTextMasks(listOf("**/*.txt"))
+        .executionMode(mode)
+        .build()
+
+private fun normalizedChangedPaths(result: RunResult): Set<String> = result.changedFiles
+    .map(result.projectDir::relativize)
+    .map { it.toString().replace('\\', '/') }
+    .toSet()
+
+private fun inProcessDiffs(result: RunResult): Map<String, String> =
+    result.results.associate { rewriteResult ->
+        val path = requireNotNull(rewriteResult.after ?: rewriteResult.before).sourcePath
+        path.toString().replace('\\', '/') to rewriteResult.diff()
+    }
+
+private fun Map<Path, String>.normalizePaths(): Map<String, String> =
+    entries.associate { (path, diff) ->
+        path.toString().replace('\\', '/') to diff
+    }

@@ -456,11 +456,16 @@ internal class ForkedLstExecutor(
                     process
                 )
             if (!Files.exists(responseFile)) {
+                val failureOutcome = classifyFailure(exitCode, stderrTail.value())
                 throw failure(
                     request.scope,
                     jvm,
                     startedAt,
-                    classifyFailure(exitCode, stderrTail.value()),
+                    if (failureOutcome == ExecutorOutcome.FAILED) {
+                        ExecutorOutcome.PROTOCOL_FAILURE
+                    } else {
+                        failureOutcome
+                    },
                     "LST worker exited without a response: ${stderrTail.value()}",
                     process,
                     observed

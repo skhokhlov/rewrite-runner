@@ -3,13 +3,18 @@ package io.github.skhokhlov.rewriterunner.execution
 import io.github.skhokhlov.rewriterunner.ExecutionMode
 import io.github.skhokhlov.rewriterunner.ExecutorOutcome
 import io.github.skhokhlov.rewriterunner.RewriteRunner
+import io.github.skhokhlov.rewriterunner.RunResult
 import io.github.skhokhlov.rewriterunner.WorkerCommand
 import io.github.skhokhlov.rewriterunner.WorkerCommandFactory
+import io.github.skhokhlov.rewriterunner.WorkerCommandRequest
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -55,7 +60,7 @@ class ForkedWorkerProtocolLifecycleTest :
                     runner(
                         projectDir,
                         cacheDir,
-                        fixtureCommand("tree", requestDirectory, pids),
+                        fixtureCommand("tree", requestDirectory) { listOf(pids.toString()) },
                         timeout = Duration.ofMillis(750)
                     ).run()
                 }
@@ -96,13 +101,162 @@ class ForkedWorkerProtocolLifecycleTest :
                 serializedCacheDir.get()
             )
         }
+
+        test("a partial worker response is a terminal protocol failure") {
+            val requestDirectory = AtomicReference<Path?>()
+            val failure = assertFailsWith<ForkedWorkerException> {
+                runner(
+                    projectDir,
+                    cacheDir,
+                    fixtureCommand("partial-response", requestDirectory) { request ->
+                        listOf(request.responseFile.toString())
+                    }
+                ).run()
+            }
+
+            assertEquals(ExecutorOutcome.PROTOCOL_FAILURE, failure.attempt.outcome)
+            assertEquals("unchanged\n", Files.readString(projectDir.resolve("sample.txt")))
+            assertFalse(Files.exists(assertNotNull(requestDirectory.get())))
+        }
+
+        test("a missing worker response is a terminal protocol failure") {
+            val requestDirectory = AtomicReference<Path?>()
+            val failure = assertFailsWith<ForkedWorkerException> {
+                runner(
+                    projectDir,
+                    cacheDir,
+                    fixtureCommand("missing-response", requestDirectory)
+                ).run()
+            }
+
+            assertEquals(ExecutorOutcome.PROTOCOL_FAILURE, failure.attempt.outcome)
+            assertEquals("unchanged\n", Files.readString(projectDir.resolve("sample.txt")))
+            assertFalse(Files.exists(assertNotNull(requestDirectory.get())))
+        }
+
+        test("a real worker heap exhaustion is confirmed from its JVM output") {
+            val requestDirectory = AtomicReference<Path?>()
+            val failure = assertFailsWith<ForkedWorkerException> {
+                runner(
+                    projectDir,
+                    cacheDir,
+                    fixtureCommand("oom", requestDirectory),
+                    timeout = Duration.ofSeconds(10),
+                    workerJvmArgs = listOf("-Xmx32m")
+                ).run()
+            }
+
+            assertEquals(ExecutorOutcome.CONFIRMED_HEAP_OOM, failure.attempt.outcome)
+            assertEquals("unchanged\n", Files.readString(projectDir.resolve("sample.txt")))
+            assertFalse(Files.exists(assertNotNull(requestDirectory.get())))
+        }
+
+        test("exit 137 without heap evidence remains only likely OOM") {
+            val requestDirectory = AtomicReference<Path?>()
+            val failure = assertFailsWith<ForkedWorkerException> {
+                runner(projectDir, cacheDir, fixtureCommand("exit-137", requestDirectory)).run()
+            }
+
+            assertEquals(ExecutorOutcome.LIKELY_OOM, failure.attempt.outcome)
+            assertEquals(137, failure.attempt.exitCode)
+            assertFalse(failure.attempt.message.orEmpty().contains("OutOfMemoryError"))
+            assertFalse(Files.exists(assertNotNull(requestDirectory.get())))
+        }
+
+        test("an injected worker start failure is terminal and cleans transport files") {
+            val requestDirectory = AtomicReference<Path?>()
+            val failure = assertFailsWith<ForkedWorkerException> {
+                runner(
+                    projectDir,
+                    cacheDir,
+                    WorkerCommandFactory { request ->
+                        requestDirectory.set(request.requestDirectory)
+                        WorkerCommand(
+                            listOf(request.requestDirectory.resolve("missing-worker").toString())
+                        )
+                    }
+                ).run()
+            }
+
+            assertEquals(ExecutorOutcome.START_FAILURE, failure.attempt.outcome)
+            assertEquals("unchanged\n", Files.readString(projectDir.resolve("sample.txt")))
+            assertFalse(Files.exists(assertNotNull(requestDirectory.get())))
+        }
+
+        test("two concurrent runs do not overlap a blocking worker") {
+            val fixtureDir = Files.createTempDirectory("worker-concurrency-")
+            val firstStarted = fixtureDir.resolve("first-started")
+            val secondStarted = fixtureDir.resolve("second-started")
+            val releaseFile = fixtureDir.resolve("release")
+            val firstRequestDirectory = AtomicReference<Path?>()
+            val secondRequestDirectory = AtomicReference<Path?>()
+            val secondRunEntered = CountDownLatch(1)
+            val executor = Executors.newFixedThreadPool(2)
+            try {
+                val first =
+                    executor.submit<RunResult> {
+                        runner(
+                            projectDir,
+                            cacheDir,
+                            blockingFixtureCommand(firstStarted, releaseFile, firstRequestDirectory)
+                        ).run()
+                    }
+                assertTrue(
+                    awaitCondition { Files.exists(firstStarted) },
+                    "first worker did not begin blocking"
+                )
+
+                val second =
+                    executor.submit<RunResult> {
+                        secondRunEntered.countDown()
+                        runner(
+                            projectDir,
+                            cacheDir,
+                            blockingFixtureCommand(
+                                secondStarted,
+                                releaseFile,
+                                secondRequestDirectory
+                            )
+                        ).run()
+                    }
+                assertTrue(secondRunEntered.await(5, TimeUnit.SECONDS))
+                assertFalse(
+                    awaitCondition(Duration.ofMillis(750)) { Files.exists(secondStarted) },
+                    "second worker overlapped the first; removing executionGate must make this fail"
+                )
+
+                Files.writeString(releaseFile, "release")
+                assertTrue(
+                    awaitCondition { Files.exists(secondStarted) },
+                    "second worker did not start after the first released the gate"
+                )
+                assertEquals(
+                    ExecutorOutcome.NO_CHANGES,
+                    first.get(5, TimeUnit.SECONDS)
+                        .executionDiagnostics.executorAttempts.single().outcome
+                )
+                assertEquals(
+                    ExecutorOutcome.NO_CHANGES,
+                    second.get(5, TimeUnit.SECONDS)
+                        .executionDiagnostics.executorAttempts.single().outcome
+                )
+                assertFalse(Files.exists(assertNotNull(firstRequestDirectory.get())))
+                assertFalse(Files.exists(assertNotNull(secondRequestDirectory.get())))
+            } finally {
+                if (!Files.exists(releaseFile)) Files.writeString(releaseFile, "release")
+                executor.shutdownNow()
+                executor.awaitTermination(5, TimeUnit.SECONDS)
+                fixtureDir.toFile().deleteRecursively()
+            }
+        }
     })
 
 private fun runner(
     projectDir: Path,
     cacheDir: Path,
     factory: WorkerCommandFactory,
-    timeout: Duration? = null
+    timeout: Duration? = null,
+    workerJvmArgs: List<String> = emptyList()
 ): RewriteRunner = RewriteRunner.builder()
     .projectDir(projectDir)
     .activeRecipe("com.example.NeverRuns")
@@ -110,13 +264,16 @@ private fun runner(
     .skipPluginRun(true)
     .executionMode(ExecutionMode.FORKED)
     .workerCommandFactory(factory)
-    .apply { timeout?.let(::lstWorkerTimeout) }
+    .apply {
+        timeout?.let(::lstWorkerTimeout)
+        if (workerJvmArgs.isNotEmpty()) lstWorkerJvmArgs(workerJvmArgs)
+    }
     .build()
 
 private fun fixtureCommand(
     mode: String,
     requestDirectory: AtomicReference<Path?>,
-    pids: Path? = null
+    extraArguments: (WorkerCommandRequest) -> List<String> = { emptyList() }
 ): WorkerCommandFactory = WorkerCommandFactory { request ->
     requestDirectory.set(request.requestDirectory)
     WorkerCommand(
@@ -127,8 +284,21 @@ private fun fixtureCommand(
             add(request.classpath)
             add(ForkedWorkerFixture::class.java.name)
             add(mode)
-            pids?.let { add(it.toString()) }
+            addAll(extraArguments(request))
         }
+    )
+}
+
+private fun blockingFixtureCommand(
+    startedFile: Path,
+    releaseFile: Path,
+    requestDirectory: AtomicReference<Path?>
+): WorkerCommandFactory = fixtureCommand("block", requestDirectory) { request ->
+    listOf(
+        request.requestFile.toString(),
+        request.responseFile.toString(),
+        startedFile.toString(),
+        releaseFile.toString()
     )
 }
 
@@ -138,8 +308,11 @@ private fun waitForPids(file: Path): List<Long> {
     return Files.readAllLines(file).mapNotNull(String::toLongOrNull)
 }
 
-private fun awaitCondition(condition: () -> Boolean): Boolean {
-    val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+private fun awaitCondition(
+    timeout: Duration = Duration.ofSeconds(5),
+    condition: () -> Boolean
+): Boolean {
+    val deadline = System.nanoTime() + timeout.toNanos()
     while (System.nanoTime() < deadline) {
         if (condition()) return true
         Thread.sleep(10)
@@ -190,8 +363,70 @@ object ForkedWorkerFixture {
 
             "child" -> Thread.sleep(Duration.ofMinutes(1).toMillis())
 
+            "partial-response" -> {
+                val responseFile = Path.of(requireNotNull(args.getOrNull(1)))
+                emitHandshake()
+                Files.writeString(responseFile, "{")
+            }
+
+            "missing-response" -> emitHandshake()
+
+            "oom" -> {
+                emitHandshake()
+                exhaustHeap()
+            }
+
+            "exit-137" -> {
+                emitHandshake()
+                Runtime.getRuntime().halt(137)
+            }
+
+            "block" -> {
+                val requestFile = Path.of(requireNotNull(args.getOrNull(1)))
+                val responseFile = Path.of(requireNotNull(args.getOrNull(2)))
+                val startedFile = Path.of(requireNotNull(args.getOrNull(3)))
+                val releaseFile = Path.of(requireNotNull(args.getOrNull(4)))
+                emitHandshake()
+                Files.writeString(startedFile, ProcessHandle.current().pid().toString())
+                while (!Files.exists(releaseFile)) Thread.sleep(10)
+                writeSuccessfulResponse(requestFile, responseFile)
+            }
+
             else -> error("Unknown fixture mode ${args.firstOrNull()}")
         }
+    }
+
+    private fun exhaustHeap() {
+        val chunks = ArrayList<ByteArray>()
+        while (true) chunks.add(ByteArray(1024 * 1024))
+    }
+
+    private fun writeSuccessfulResponse(requestFile: Path, responseFile: Path) {
+        val request = WorkerJson.read(
+            Files.readString(requestFile),
+            WorkerRequestEnvelope::class.java
+        )
+        val response =
+            WorkerResponseEnvelope(
+                requestId = request.request.requestId,
+                success = true,
+                outcome =
+                    WorkerOutcomePayload(
+                        rawDiffs = emptyMap(),
+                        changedFiles = emptyList(),
+                        diagnostics =
+                            WorkerDiagnosticsPayload(
+                                stageUsed = null,
+                                resolvedJarCount = 0,
+                                parseFailures = emptyList(),
+                                parsedFileCount = 0,
+                                estimatedTimeSavedMillis = null,
+                                writeSuccesses = emptyList(),
+                                writeFailures = emptyList()
+                            )
+                    )
+            )
+        Files.writeString(responseFile, WorkerJson.write(response))
     }
 
     private fun emitHandshake(protocolVersion: Int = WORKER_PROTOCOL_VERSION) {
