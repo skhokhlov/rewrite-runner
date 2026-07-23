@@ -72,6 +72,39 @@ open class DependencyResolutionStage(
     private val staticParser = StaticBuildFileParser(logger)
     private var commandRoot: Path? = null
 
+    // ─── shared Gradle dependency-line parsing ──────────────────────────────
+
+    /**
+     * Parsed result of a single Gradle dependency-tree line.
+     * Used by both [parseProjectDependencySegment] and [parseGradleDependencyTaskOutput].
+     */
+    private data class GradleDepLine(
+        val groupArtifact: String,
+        val declaredVersion: String,
+        val resolvedVersion: String?
+    )
+
+    /**
+     * Attempts to parse a single Gradle dependency-tree line (e.g.
+     * `\--- com.google.guava:guava:32.1.2-jre` or `+--- foo:bar:1.0 -> 2.0`).
+     *
+     * Returns `null` when the line doesn't match the expected format, or when
+     * the declared version is blank or `"FAILED"` (unresolvable dependency).
+     */
+    private fun parseGradleDepLine(line: String): GradleDepLine? {
+        val match = gradleDepPattern.find(line) ?: return null
+        val groupArtifact = match.groupValues[1]
+        val declaredVersion = match.groupValues[2]
+        val resolvedVersion = match.groupValues[3].takeIf { it.isNotBlank() }
+        if (declaredVersion.isBlank() || declaredVersion == "FAILED") return null
+        return GradleDepLine(groupArtifact, declaredVersion, resolvedVersion)
+    }
+
+    /** Regex that matches a single Gradle dependency-tree line. */
+    private val gradleDepPattern = Regex(
+        """^[\s|+\\-]+([a-zA-Z][\w.\-]*:[a-zA-Z][\w.\-]+):([\w.\-]+)(?:\s*->\s*([\w.\-]+))?"""
+    )
+
     /**
      * Best-effort: runs `gradle dependencies` to collect per-project configuration data for
      * [org.openrewrite.gradle.marker.GradleProject] marker attachment. Used by [LstBuilder] when
@@ -485,9 +518,6 @@ open class DependencyResolutionStage(
         // Config header: e.g. "compileClasspath - Compile classpath for source set 'main'."
         // Must not start with tree chars (+, \, |, space) — those are dependency lines.
         val configHeaderPattern = Regex("""^([a-zA-Z][\w\-]*)\s+-\s+.+$""")
-        val depPattern = Regex(
-            """^[\s|+\\-]+([a-zA-Z][\w.\-]*:[a-zA-Z][\w.\-]+):([\w.\-]+)(?:\s*->\s*([\w.\-]+))?"""
-        )
 
         for (line in segment.lines()) {
             val trimmed = line.trimStart()
@@ -505,14 +535,9 @@ open class DependencyResolutionStage(
                 }
             }
 
-            val depMatch = depPattern.find(line) ?: continue
-            val groupArtifact = depMatch.groupValues[1]
-            val declaredVersion = depMatch.groupValues[2]
-            val resolvedVersion = depMatch.groupValues[3].takeIf { it.isNotBlank() }
-            if (declaredVersion.isNotBlank() && declaredVersion != "FAILED") {
-                requestedDeps.add("$groupArtifact:$declaredVersion")
-                resolvedDeps.add("$groupArtifact:${resolvedVersion ?: declaredVersion}")
-            }
+            val depLine = parseGradleDepLine(line) ?: continue
+            requestedDeps.add("${depLine.groupArtifact}:${depLine.declaredVersion}")
+            resolvedDeps.add("${depLine.groupArtifact}:${depLine.resolvedVersion ?: depLine.declaredVersion}")
         }
         flushConfig()
 
@@ -536,11 +561,6 @@ open class DependencyResolutionStage(
     internal fun parseGradleDependencyTaskOutput(output: String): List<String> {
         val coordinates = mutableSetOf<String>()
         val configHeaderPattern = Regex("""^([a-zA-Z][\w\-]*)\s+-\s+.+$""")
-        // Dependency lines start with tree-drawing characters (+---, \---, |    etc.)
-        // followed by group:artifact:declaredVersion, optionally overridden by -> resolvedVersion.
-        val depPattern = Regex(
-            """^[\s|+\\-]+([a-zA-Z][\w.\-]*:[a-zA-Z][\w.\-]+):([\w.\-]+)(?:\s*->\s*([\w.\-]+))?"""
-        )
         // Start in "include" mode — lines before the first config header belong to no
         // named configuration (task header lines, blank lines) and are harmless to skip.
         var inCompileConfig = false
@@ -556,15 +576,9 @@ open class DependencyResolutionStage(
                 }
             }
             if (!inCompileConfig) continue
-            val match = depPattern.find(line) ?: continue
-            val groupArtifact = match.groupValues[1]
-            val declaredVersion = match.groupValues[2]
-            val resolvedVersion = match.groupValues[3].takeIf { it.isNotBlank() }
-            val version = resolvedVersion ?: declaredVersion
-            // Skip FAILED resolutions (unresolvable dependencies) and blank versions.
-            if (version.isNotBlank() && version != "FAILED") {
-                coordinates.add("$groupArtifact:$version")
-            }
+            val depLine = parseGradleDepLine(line) ?: continue
+            val version = depLine.resolvedVersion ?: depLine.declaredVersion
+            coordinates.add("${depLine.groupArtifact}:$version")
         }
         return coordinates.toList()
     }

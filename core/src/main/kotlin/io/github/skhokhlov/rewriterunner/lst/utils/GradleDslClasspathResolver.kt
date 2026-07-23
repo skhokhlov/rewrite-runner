@@ -86,29 +86,8 @@ internal class GradleDslClasspathResolver(
         }
 
         if (Files.isDirectory(distsRoot)) {
-            val newest = Files.list(distsRoot).use { stream ->
-                stream
-                    .filter { Files.isDirectory(it) }
-                    .filter { it.fileName.toString().startsWith("gradle-") }
-                    .flatMap { distDir ->
-                        Files.list(distDir).use { hashStream ->
-                            hashStream
-                                .filter { Files.isDirectory(it) }
-                                .flatMap { hashDir ->
-                                    Files.list(hashDir).use { subStream ->
-                                        subStream
-                                            .filter { Files.isDirectory(it.resolve("lib")) }
-                                            .toList()
-                                            .stream()
-                                    }
-                                }
-                                .toList()
-                                .stream()
-                        }
-                    }
-                    .max(Comparator.comparingLong { Files.getLastModifiedTime(it).toMillis() })
-                    .orElse(null)
-            }
+            val newest = scanGradleDistributions(distsRoot)
+                .maxByOrNull { Files.getLastModifiedTime(it).toMillis() }
             if (newest != null) {
                 logger.info("Using Gradle distribution (best-effort fallback): $newest")
                 return newest
@@ -127,10 +106,22 @@ internal class GradleDslClasspathResolver(
      */
     private fun findGradleDistribution(distsRoot: Path, version: String): Path? {
         if (!Files.isDirectory(distsRoot)) return null
+        return scanGradleDistributions(distsRoot)
+            .filter { it.fileName.toString().startsWith("gradle-$version-") }
+            .firstOrNull()
+    }
+
+    /**
+     * Traverses the three-level Gradle distribution hierarchy under [distsRoot]
+     * and returns all leaf directories that contain a `lib/` subdirectory.
+     *
+     * Hierarchy: `<distsRoot>/<distDir>/<hashDir>/<gradleHomeDir>/`
+     * where the innermost directory is the actual Gradle home (it contains `lib/`).
+     */
+    private fun scanGradleDistributions(distsRoot: Path): List<Path> {
         return Files.list(distsRoot).use { stream ->
             stream
                 .filter { Files.isDirectory(it) }
-                .filter { it.fileName.toString().startsWith("gradle-$version-") }
                 .flatMap { distDir ->
                     Files.list(distDir).use { hashStream ->
                         hashStream
@@ -147,8 +138,7 @@ internal class GradleDslClasspathResolver(
                             .stream()
                     }
                 }
-                .findFirst()
-                .orElse(null)
+                .toList()
         }
     }
 }
