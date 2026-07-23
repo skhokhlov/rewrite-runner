@@ -56,24 +56,32 @@ Chosen for **Gradle 9.x + JDK 25 compatibility**:
 ## CI/CD
 
 ### Build workflow (`.github/workflows/build.yml`)
-Triggers on push/PR to `main`/`master`. Three sequential jobs gate on each other so each failure surfaces at the right lane.
+Triggers on push/PR to `main`/`master`. Offline checks gate the Windows worker and live-plugin
+jobs; container acceptance follows the live-plugin lane.
 
-**`unit` job** (fast lane):
+**`unit` job** (offline checks):
 1. Set up JDK 21 (Temurin)
-2. `./gradlew check shadowJar` (`check` = `ktlintCheck` + `test`; `test` excludes everything matching `*IntegrationTest`)
+2. `./gradlew check shadowJar` — unit tests and lint plus `:cli:testIntegration`. The integration
+   task includes per-language tests, fake-wrapper Stage 0 coverage, and the real nested-Gradle
+   fallback-attribution fixture. Nested Gradle reuses the current distribution and runs offline.
 3. Fat JAR is produced as a build artifact of the same command
 
-**`integration-fake` job** (offline integration lane, needs `unit`):
+**`windows-worker` job** (needs `unit`):
 1. Set up JDK 21 (Temurin)
-2. `./gradlew :cli:testIntegration` — runs every `*IntegrationTest` except `PluginRealExecutionIntegrationTest`, including the per-language LST integration tests and the fake-wrapper Stage 0 suite. No network calls; no toolchain downloads.
+2. Run the focused core worker protocol/path tests and the fat-JAR distribution test on Windows.
 
-**`plugin-real` job** (real-plugin lane, needs `integration-fake`):
+**`plugin-real` job** (real-plugin lane, needs `unit`):
 1. Set up JDK 21 (Temurin)
 2. Cache `~/.m2/repository` and `cli/build/test-cache/toolchains/` (the toolchain cache key embeds `hashFiles('gradle/wrapper/gradle-wrapper.properties')` so bumping the wrapper auto-evicts the stale Gradle distribution)
 3. `./gradlew :cli:testRealPlugin --info` — runs only `PluginRealExecutionIntegrationTest` against the live OpenRewrite Maven/Gradle plugins
 4. Timeout: 25 minutes (covers first-run downloads from Maven Central)
 
-Because the jobs chain via `needs:`, an early failure short-circuits the later lanes: a unit-test regression never spends CI minutes downloading Gradle/Maven distributions.
+**`container` job** (needs `plugin-real`):
+1. Set up JDK 21 (Temurin)
+2. Run the release fat JAR under a real 2 GiB Docker cgroup.
+
+Because the external-environment jobs depend on earlier evidence, an offline regression never
+spends CI minutes downloading plugin toolchains or starting container acceptance.
 
 ### Publish workflow (`.github/workflows/publish.yml`)
 Triggers on `v*` tags. Publishes `core` and the `cli` thin JAR (with sources, javadoc, and

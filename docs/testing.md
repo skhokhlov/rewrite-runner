@@ -117,17 +117,17 @@ cli/src/test/kotlin/.../
 
 ## Test Lanes
 
-Tests are split into four lanes by Gradle `Test.filter` class-name pattern. Each lane has a
-dedicated CI job; in CI they run sequentially so a failure shows up at the right stage.
+Tests are split into four lanes by Gradle `Test.filter` class-name pattern. The offline lanes run
+under root `check`; live-plugin and container evidence use explicit CI jobs.
 
 | Lane | Gradle task | Scope | When |
 |------|-------------|-------|------|
-| Unit + forked acceptance | `:core:test`, `:cli:test` | Configuration, protocol, diagnostics, and real core worker JVM tests; excludes `*IntegrationTest` | `check` lifecycle, CI job 1 |
-| Integration (fake wrappers) | `:cli:testIntegration` | All ordinary `*IntegrationTest` classes except real-plugin and container acceptance; offline-safe | CI job 2 |
-| Integration (real plugins) | `:cli:testRealPlugin` | `PluginRealExecutionIntegrationTest` only; downloads Maven/Gradle distributions and pulls live plugin artifacts from Maven Central | CI job 3 |
-| Container acceptance | `:cli:testContainer` | Built CLI fat JAR running under a real Docker `--memory=2g --memory-swap=2g` cgroup | CI job 4 |
+| Unit + forked acceptance | `:core:test`, `:cli:test` | Configuration, protocol, diagnostics, and real core worker JVM tests; excludes `*IntegrationTest` | Root `check` |
+| Integration (offline) | `:cli:testIntegration` | Ordinary `*IntegrationTest` classes: fake wrappers, per-language coverage, and real nested-Gradle fallback attribution; no network or toolchain download | Root `check` |
+| Integration (real plugins) | `:cli:testRealPlugin` | `PluginRealExecutionIntegrationTest` only; downloads Maven/Gradle distributions and pulls live plugin artifacts from Maven Central | `plugin-real` CI job |
+| Container acceptance | `:cli:testContainer` | Built CLI fat JAR running under a real Docker `--memory=2g --memory-swap=2g` cgroup | `container` CI job |
 
-Root `check` includes the offline fake-wrapper integration lane. `productionCheck` additionally runs
+Root `check` includes the offline integration lane. `productionCheck` additionally runs
 the real-plugin and container lanes and builds the release fat JAR. Both external-environment lanes
 are authoritative once selected: missing network, toolchain, Docker, or image prerequisites fail the
 task rather than producing a green skip. Tag publication runs `productionCheck` before publication.
@@ -142,6 +142,22 @@ The core suite exercises the worker through public `RewriteRunner` behavior: def
 shape, a distinct child PID, worker-observed explicit `-Xmx`, disk application, and rejection of a
 custom change writer in forked mode. Unit tests also cover automatic heap boundaries and configuration
 precedence. Worker failures must not retry the same work in-process.
+
+## LST fallback type-attribution tests
+
+`FallbackTypeAttributionIntegrationTest` proves that the Stage 1 and Stage 2 classpaths affect
+type-sensitive recipe behavior, not just diagnostics. It compiles `com.acme.External` into a real
+JAR, publishes it to a temporary Maven-layout file repository, and runs `ChangeType` through the
+public `RewriteRunner` path. A direct negative control first proves the recipe produces no result
+without that JAR.
+
+Both recovery scenarios attempt Stage 0 with a deliberately unavailable Gradle plugin from the
+file repository. The fixture reuses the Gradle distribution already running the test task, forces
+all nested invocations offline, and gives the project, rewrite-runner cache, Gradle user home,
+runner user home, and Maven repository temporary directories. Stage 2 adds an unresolved
+`runtimeOnly` dependency and records real wrapper exit codes to prove Stage 1 failed while the
+`dependencies` task remained usable. Both scenarios assert the winning stage and the exact
+`External` to `Replacement` source changes.
 
 ## Stage 0 Plugin Tests
 
@@ -173,7 +189,7 @@ observed the configured `-Xmx`, rather than merely checking the rendered Gradle/
 # Unit only (fast):
 ./gradlew :cli:test
 
-# Full offline verification (unit + fake-wrapper integration):
+# Full offline verification (unit + offline integration):
 ./gradlew check :cli:testIntegration
 
 # Real-plugin lane (downloads toolchains + plugins on first run; ~5 min warm):
