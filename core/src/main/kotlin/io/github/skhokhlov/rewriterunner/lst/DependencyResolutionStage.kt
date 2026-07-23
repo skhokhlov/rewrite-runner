@@ -537,7 +537,9 @@ open class DependencyResolutionStage(
 
             val depLine = parseGradleDepLine(line) ?: continue
             requestedDeps.add("${depLine.groupArtifact}:${depLine.declaredVersion}")
-            resolvedDeps.add("${depLine.groupArtifact}:${depLine.resolvedVersion ?: depLine.declaredVersion}")
+            resolvedDeps.add(
+                "${depLine.groupArtifact}:${depLine.resolvedVersion ?: depLine.declaredVersion}"
+            )
         }
         flushConfig()
 

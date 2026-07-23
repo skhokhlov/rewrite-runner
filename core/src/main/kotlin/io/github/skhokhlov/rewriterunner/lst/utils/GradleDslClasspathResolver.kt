@@ -118,8 +118,8 @@ internal class GradleDslClasspathResolver(
      * Hierarchy: `<distsRoot>/<distDir>/<hashDir>/<gradleHomeDir>/`
      * where the innermost directory is the actual Gradle home (it contains `lib/`).
      */
-    private fun scanGradleDistributions(distsRoot: Path): List<Path> {
-        return Files.list(distsRoot).use { stream ->
+    private fun scanGradleDistributions(distsRoot: Path): List<Path> =
+        Files.list(distsRoot).use { stream ->
             stream
                 .filter { Files.isDirectory(it) }
                 .flatMap { distDir ->
@@ -140,5 +140,4 @@ internal class GradleDslClasspathResolver(
                 }
                 .toList()
         }
-    }
 }
