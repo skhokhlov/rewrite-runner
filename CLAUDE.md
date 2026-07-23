@@ -31,8 +31,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 ./gradlew shadowJar              # Build fat JAR → cli/build/libs/cli-1.0-SNAPSHOT-all.jar
 ./gradlew test                   # UNIT tests only (excludes *IntegrationTest)
-./gradlew check                  # unit tests + ktlintCheck + offline fake-wrapper integration
-./gradlew :cli:testIntegration   # Fake-wrapper integration tests (offline)
+./gradlew check                  # unit tests + ktlintCheck + offline integration
+./gradlew :cli:testIntegration   # Offline integration (fake wrappers + real fallback Gradle)
 ./gradlew :cli:testRealPlugin    # Real-plugin integration tests (downloads Maven/Gradle)
 ./gradlew :cli:testContainer     # Fat JAR in a Docker 2 GiB cgroup
 ./gradlew productionCheck        # every production lane before release publication
@@ -154,10 +154,10 @@ cli/src/
 - Upstream `rewrite-gradle-plugin` and `rewrite-maven-plugin` versions live in `gradle/libs.versions.toml` (`rewrite-gradle-plugin`, `rewrite-maven-plugin` keys). The `generatePluginVersions` task in `core/build.gradle.kts` emits a generated `BuildPluginVersions` object that `ToolConfigDefaults.REWRITE_*_PLUGIN_VERSION` reads from. Bump in the TOML — never edit the generated file.
 - Tests are split into three lanes by Gradle `Test.filter` class-name pattern (no Kotest tags):
   - `:cli:test` — unit tests only, excludes `*IntegrationTest`. Wired into `check`.
-  - `:cli:testIntegration` — fake-wrapper / per-language integration suite (offline, no toolchain downloads). Includes `*IntegrationTest`, excludes `PluginRealExecutionIntegrationTest`.
+  - `:cli:testIntegration` — offline integration suite: per-language tests, fake-wrapper Stage 0 coverage, and real nested-Gradle fallback attribution using the current distribution. Includes `*IntegrationTest`, excludes `PluginRealExecutionIntegrationTest`.
   - `:cli:testRealPlugin` — real OpenRewrite Maven/Gradle plugins (downloads distributions, hits Maven Central). The Gradle distribution under test tracks the project's own `gradle-wrapper.properties` (forwarded via `-Drewriterunner.test.gradleVersion`).
 - Stage 0 plugin execution is covered both by fake-wrapper tests (`PluginFirstIntegrationTest`, in the `testIntegration` lane) and real-wrapper tests (`PluginRealExecutionIntegrationTest`, in the `testRealPlugin` lane). The real-wrapper suite calls `RewriteRunner` directly and asserts `executionDiagnostics.stageUsed == UsedExecutionStage.PLUGIN`, and non-dry-run real plugin scenarios assert positive `estimatedTimeSaved`, so an accidental LST-fallback success or plugin-output drift cannot mask a Stage 0 regression.
-- CI runs three sequential jobs (`unit` → `integration-fake` → `plugin-real`) so a unit regression short-circuits before any toolchain download. See [`docs/testing.md`](docs/testing.md) and [`docs/build.md`](docs/build.md).
+- CI runs offline checks first; Windows worker and real-plugin jobs follow, then container acceptance follows the real-plugin lane. See [`docs/testing.md`](docs/testing.md) and [`docs/build.md`](docs/build.md).
 
 ## Logging
 

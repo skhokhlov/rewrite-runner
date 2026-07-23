@@ -27,6 +27,7 @@ dependencies {
     // OpenRewrite needed in test scope for integration tests (Result, SourceFile, etc.)
     testImplementation(platform(libs.rewrite.recipe.bom))
     testImplementation("org.openrewrite:rewrite-core")
+    testImplementation("org.openrewrite:rewrite-java")
 }
 
 val cliMainClass = "io.github.skhokhlov.rewriterunner.MainKt"
@@ -65,7 +66,7 @@ afterEvaluate {
 // rather than by Kotest tags. The split mirrors the CI jobs:
 //
 //   :cli:test           → unit-only (RunCommandTest et al.; excludes *IntegrationTest)
-//   :cli:testIntegration → fake-wrapper integration suite; offline-safe, no network needed
+//   :cli:testIntegration → offline integration suite; no network or toolchain downloads
 //   :cli:testRealPlugin → real OpenRewrite Maven/Gradle plugins from Maven Central
 //   :cli:testContainer  → release fat JAR in a real Docker cgroup
 //
@@ -87,8 +88,20 @@ private val realPluginGradleVersion: String = run {
         ?: error("Could not parse Gradle version from $wrapperProps")
 }
 
-// `:cli:test` runs unit tests only. Integration suites are dedicated tasks so CI can sequence
-// the three lanes (unit → fake-wrapper → real-plugin) and surface failures at the right stage.
+// The offline fallback-attribution fixture executes a real nested Gradle build. Reuse the
+// distribution already running this build instead of downloading another toolchain.
+private val currentGradleExecutable: String = requireNotNull(gradle.gradleHomeDir) {
+    "The integration test lane requires a Gradle distribution home"
+}.resolve("bin")
+    .resolve(if (System.getProperty("os.name").contains("win", ignoreCase = true)) {
+        "gradle.bat"
+    } else {
+        "gradle"
+    })
+    .absolutePath
+
+// `:cli:test` runs unit tests only. Integration suites are dedicated tasks so CI can select
+// offline, real-plugin, and container evidence independently.
 tasks.named<Test>("test") {
     filter {
         excludeTestsMatching(integrationClassPattern)
@@ -96,11 +109,12 @@ tasks.named<Test>("test") {
     }
 }
 
-// Fake-wrapper integration tests: per-language LST coverage + Stage 0 plugin-orchestration
-// tests that drive fake `gradlew`/`mvnw` shell scripts. Fully offline; no toolchain downloads.
+// Offline integration tests: per-language LST coverage, fake-wrapper Stage 0 orchestration, and
+// real nested-Gradle fallback attribution using this build's distribution. No network or toolchain
+// download is required.
 tasks.register<Test>("testIntegration") {
     group = "verification"
-    description = "Runs integration tests with fake build-tool wrappers (offline-safe)."
+    description = "Runs offline integration tests, including real fallback attribution."
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     useJUnitPlatform()
@@ -117,6 +131,7 @@ tasks.register<Test>("testIntegration") {
             "rewriterunner.test.fatJar",
             tasks.shadowJar.get().archiveFile.get().asFile.absolutePath
         )
+        systemProperty("rewriterunner.test.gradleExecutable", currentGradleExecutable)
     }
 }
 

@@ -42,9 +42,10 @@ dependencies {
     dokka(project(":cli"))
 }
 
-// `check` remains the fast, offline release signal: it includes unit tests plus the fake-wrapper
-// integration suite, whose coordinator/worker boundary is a real JVM process. The live plugin
-// lane stays explicit for local development but is part of the aggregate production gate.
+// `check` remains the offline release signal: it includes unit tests plus the integration suite,
+// whose coordinator/worker boundary and fallback-attribution Gradle builds use real processes.
+// The live plugin lane stays explicit for local development but is part of the aggregate
+// production gate.
 tasks.named("check") {
     dependsOn(":cli:testIntegration")
 }
