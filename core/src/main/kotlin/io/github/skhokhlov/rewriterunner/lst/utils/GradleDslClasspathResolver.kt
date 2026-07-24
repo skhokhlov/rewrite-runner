@@ -107,8 +107,7 @@ internal class GradleDslClasspathResolver(
     private fun findGradleDistribution(distsRoot: Path, version: String): Path? {
         if (!Files.isDirectory(distsRoot)) return null
         return scanGradleDistributions(distsRoot)
-            .filter { it.fileName.toString().startsWith("gradle-$version-") }
-            .firstOrNull()
+            .firstOrNull { it.fileName.toString().startsWith("gradle-$version") }
     }
 
     /**
