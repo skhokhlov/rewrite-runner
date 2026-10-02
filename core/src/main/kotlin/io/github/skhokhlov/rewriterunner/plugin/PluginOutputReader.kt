@@ -22,10 +22,11 @@ internal object PluginOutputReader {
     private val recipesNotFound = Regex("""Recipe\(s\) not found:[ \t]*(.+)""")
 
     /**
-     * A resolution gap that names no recipe. This literal appears verbatim in
+     * A validation failure that need not be a resolution gap. This literal appears verbatim in
      * `AbstractRewriteBaseRunMojo` (rewrite-maven-plugin) and `DefaultProjectParser`
      * (rewrite-gradle-plugin), and is only ever logged when a validation actually failed, so it
-     * cannot be produced by a healthy run.
+     * cannot be produced by a healthy run. Invalid recipe options can also trigger it; without
+     * a missing-name marker, report validation failure rather than guessing its cause.
      *
      * `No recipes were activated.` was **deliberately not** included. It is a genuine upstream
      * marker, but it adds no detection here — rewrite-runner always passes an active recipe, and
@@ -55,14 +56,14 @@ internal object PluginOutputReader {
      * @param output Combined stdout/stderr captured from the plugin invocation.
      * @param action Human-readable label for the invocation (e.g. `Maven rewrite:dryRun`), used to
      *   attribute the failure when both build tools are tried in turn.
-     * @return A failure reason naming the unresolved recipes, or `null` when the output carries no
-     *   unresolved-recipe marker.
+     * @return A failure reason naming unresolved recipes when available, otherwise reporting
+     *   validation errors; `null` when neither kind of failure marker is present.
      */
     fun unresolvedRecipeFailure(output: String, action: String): String? {
         val names = unresolvedRecipeNames(output)
         if (names.isEmpty() && VALIDATION_ERRORS_MARKER !in output) return null
         return if (names.isEmpty()) {
-            "$action exited 0 but reported unresolved recipes"
+            "$action exited 0 but reported recipe validation errors"
         } else {
             "$action exited 0 but did not resolve recipe(s): ${names.joinToString(", ")}"
         }

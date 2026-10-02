@@ -113,7 +113,7 @@ class PluginOutputReaderTest :
             )
         }
 
-        test("reports validation errors even when no recipe name is quoted") {
+        test("reports unnamed validation failures without claiming a recipe is missing") {
             val reason =
                 PluginOutputReader.unresolvedRecipeFailure(
                     "[ERROR] Recipe validation errors detected as part of one or more " +
@@ -121,7 +121,10 @@ class PluginOutputReaderTest :
                     "Gradle rewriteDryRun"
                 )
 
-            assertNotNull(reason)
+            assertEquals(
+                "Gradle rewriteDryRun exited 0 but reported recipe validation errors",
+                reason
+            )
         }
 
         test("returns null for verbose plugin output that resolved every recipe") {

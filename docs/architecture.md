@@ -70,6 +70,8 @@ apply also keeps a partial migration off disk. The check runs even when Stage 0 
 sub-recipe gap coexists with real patches, so "diffs exist" is not evidence of a complete run.
 `PluginOutputReader.unresolvedRecipeFailure` owns the marker set; it is anchored on exact upstream
 strings and is therefore version-coupled to the pinned plugin versions in `gradle/libs.versions.toml`.
+The generic validation-error marker also fails the stage, but does not establish that a recipe is
+missing; when no missing name is available, the diagnostic reports a recipe validation failure.
 
 Path exclusions and plain-text masks are resolved once by `RewriteRunner` and forwarded to Stage 0
 and to the LST fallback so both paths select the same files. Stage 0 also receives the specialized
