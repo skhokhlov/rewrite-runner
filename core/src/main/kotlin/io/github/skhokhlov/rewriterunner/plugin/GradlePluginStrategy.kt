@@ -140,8 +140,8 @@ internal open class GradlePluginStrategy(
                         "        configFile = file(\"${it.toAbsolutePath().toString().groovyString()}\")"
                     )
                 }
-                excludePaths.forEach {
-                    appendLine("        exclusion(\"${it.groovyString()}\")")
+                PluginExclusionEncoding.gradleDsl(excludePaths).forEach {
+                    appendLine("        $it")
                 }
                 if (plainTextMasks.isNotEmpty()) {
                     appendLine("        plainTextMasks.clear()")
@@ -251,7 +251,4 @@ internal open class GradlePluginStrategy(
             )
         }.toList()
     }
-
-    private fun String.groovyString(): String =
-        replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")
 }
