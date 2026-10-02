@@ -148,8 +148,8 @@ internal open class MavenPluginStrategy(
         if (recipeArtifacts.isNotEmpty()) {
             add("-Drewrite.recipeArtifactCoordinates=${recipeArtifacts.joinToString(",")}")
         }
-        if (excludePaths.isNotEmpty()) {
-            add("-Drewrite.exclusions=${excludePaths.joinToString(",")}")
+        PluginExclusionEncoding.mavenCsv(excludePaths)?.let {
+            add("-Drewrite.exclusions=$it")
         }
         if (plainTextMasks.isNotEmpty()) {
             add("-Drewrite.plainTextMasks=${plainTextMasks.joinToString(",")}")
