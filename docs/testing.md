@@ -179,6 +179,18 @@ and loaded by both official plugins. It records its executing PID, `Runtime.maxM
 input arguments. The suite asserts that the PID is not the coordinator and that each plugin really
 observed the configured `-Xmx`, rather than merely checking the rendered Gradle/Maven command.
 
+**Stage 0 self-verification** — `DirectPluginExecutorTest` drives `DirectPluginExecutor` with a fake
+`execute` lambda that emits upstream's unresolved-recipe markers and returns exit 0, asserting
+`PluginRunResult.Failed`. The load-bearing case produces patch files *and* a marker, because a
+missing sub-recipe coexists with real diffs; a `diffs.isEmpty()` guard would pass a broken
+implementation. `PluginFirstIntegrationTest` covers the same defect end to end through a fake
+`gradlew` and asserts the run reaches the LST stage. `PluginRealExecutionIntegrationTest` also
+runs a composite with a valid change and a missing sub-recipe through both real plugins. It asserts
+that the dry-run exits zero and produces a patch, no apply goal runs, sources remain unchanged,
+and the independent LST loader rejects the same missing recipe. This guards the marker literals
+against drift when the plugin versions in `gradle/libs.versions.toml` change. A generic validation
+marker fails Stage 0 too, but is reported as a validation failure rather than an unresolved name.
+
 **Scenario shape** — both tiers consume `PluginScenario` objects from `PluginScenarios.kt`. Each scenario defines the project layout, recipe, and expected outcomes so a layout change is a one-place edit.
 
 **Task partitioning** — all three test tasks share one source set; Gradle `Test.filter` selects which class runs in each lane (see the Test Lanes table above). There is no Kotest tag involved.

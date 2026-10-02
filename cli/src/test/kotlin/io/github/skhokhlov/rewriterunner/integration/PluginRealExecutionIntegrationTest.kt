@@ -16,6 +16,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -50,6 +51,76 @@ class PluginRealExecutionIntegrationTest :
             test("real plugin: ${scenario.name} — happy path").config(enabled = !isWindows) {
                 runRealPluginScenario(scenario, dryRun = false)
             }
+        }
+
+        listOf(
+            PluginScenarios.gradleSingleFile,
+            PluginScenarios.mavenSingleFile
+        ).forEach { scenario ->
+            test("real plugin: ${scenario.name} rejects a missing sub-recipe before apply")
+                .config(enabled = !isWindows) {
+                    requireMavenCentralReachable()
+                    val projectDir = Files.createTempDirectory("real-plugin-unresolved-")
+                    val cacheDir = Files.createTempDirectory("real-plugin-unresolved-cache-")
+                    try {
+                        scenario.setUpProject(projectDir)
+                        val source = projectDir.resolve("src/main/java/App.java")
+                        val original = source.readText()
+                        val yaml = projectDir.resolve("rewrite.yaml")
+                        yaml.writeText(yaml.readText() + "\n  - com.example.MissingSubRecipe\n")
+                        installRealWrapper(projectDir)
+                        val isMaven = projectDir.resolve("pom.xml").exists()
+                        val wrapper = projectDir.resolve(if (isMaven) "mvnw" else "gradlew")
+                        // Keep the real tool and output, recording its exit status and goals so
+                        // infrastructure failures cannot masquerade as marker detection. Copy Maven
+                        // output before the strategy cleans up its private report directory.
+                        val dollar = '$'
+                        wrapper.writeText(
+                            wrapper.readText().replace("exec ", "") +
+                                """
+                                status=$dollar?
+                                for arg in "$dollar@"; do
+                                  case "$dollar{arg}" in
+                                    -DreportOutputDirectory=*)
+                                      report_dir="$dollar{arg#-DreportOutputDirectory=}"
+                                      cp "$dollar{report_dir}/rewrite.patch" observed-rewrite.patch
+                                      ;;
+                                  esac
+                                done
+                                printf '%s|%s\n' "$dollar*" "$dollar{status}" >> wrapper-calls.log
+                                exit $dollar{status}
+                                """.trimIndent() + "\n"
+                        )
+
+                        val failure = assertFailsWith<IllegalStateException> {
+                            RewriteRunner.builder()
+                                .projectDir(projectDir)
+                                .activeRecipe(scenario.activeRecipe)
+                                .rewriteConfig(yaml)
+                                .cacheDir(cacheDir)
+                                .build()
+                                .run()
+                        }
+                        // The independent LST loader also cannot resolve this fixture's recipe.
+                        assertTrue("com.example.MissingSubRecipe" in failure.message.orEmpty())
+                        val calls = projectDir.resolve("wrapper-calls.log").readText().lines()
+                        val dryRun = calls.single { "dryRun" in it || "rewriteDryRun" in it }
+                        assertTrue(dryRun.endsWith("|0"), dryRun)
+                        assertTrue(calls.none { "rewriteRun" in it || ":run " in it })
+                        val patch = projectDir.resolve(
+                            if (isMaven) {
+                                "observed-rewrite.patch"
+                            } else {
+                                "build/reports/rewrite/rewrite.patch"
+                            }
+                        )
+                        assertTrue("+class App { }" in patch.readText())
+                        assertEquals(original, source.readText())
+                    } finally {
+                        projectDir.toFile().deleteRecursively()
+                        cacheDir.toFile().deleteRecursively()
+                    }
+                }
         }
 
         test("real plugin: Maven dry-run does not mutate sources").config(enabled = !isWindows) {
