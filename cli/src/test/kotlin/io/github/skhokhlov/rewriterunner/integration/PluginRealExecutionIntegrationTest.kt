@@ -72,10 +72,24 @@ class PluginRealExecutionIntegrationTest :
                         val isMaven = projectDir.resolve("pom.xml").exists()
                         val wrapper = projectDir.resolve(if (isMaven) "mvnw" else "gradlew")
                         // Keep the real tool and output, recording its exit status and goals so
-                        // infrastructure failures cannot masquerade as marker detection.
+                        // infrastructure failures cannot masquerade as marker detection. Copy Maven
+                        // output before the strategy cleans up its private report directory.
+                        val dollar = '$'
                         wrapper.writeText(
                             wrapper.readText().replace("exec ", "") +
-                                "status=${'$'}?\nprintf '%s|%s\\n' \"${'$'}*\" \"${'$'}status\" >> wrapper-calls.log\nexit ${'$'}status\n"
+                                """
+                                status=$dollar?
+                                for arg in "$dollar@"; do
+                                  case "$dollar{arg}" in
+                                    -DreportOutputDirectory=*)
+                                      report_dir="$dollar{arg#-DreportOutputDirectory=}"
+                                      cp "$dollar{report_dir}/rewrite.patch" observed-rewrite.patch
+                                      ;;
+                                  esac
+                                done
+                                printf '%s|%s\n' "$dollar*" "$dollar{status}" >> wrapper-calls.log
+                                exit $dollar{status}
+                                """.trimIndent() + "\n"
                         )
 
                         val failure = assertFailsWith<IllegalStateException> {
@@ -95,7 +109,7 @@ class PluginRealExecutionIntegrationTest :
                         assertTrue(calls.none { "rewriteRun" in it || ":run " in it })
                         val patch = projectDir.resolve(
                             if (isMaven) {
-                                "target/rewrite/rewrite.patch"
+                                "observed-rewrite.patch"
                             } else {
                                 "build/reports/rewrite/rewrite.patch"
                             }
