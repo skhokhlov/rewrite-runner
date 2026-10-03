@@ -160,6 +160,53 @@ class MavenPluginStrategyTest :
             assertTrue(result.reason.contains("repository integration"))
         }
 
+        test("credential redaction preserves missing recipe detection before apply") {
+            val commands = mutableListOf<List<String>>()
+            val strategy = object : MavenPluginStrategy(
+                NoOpRunnerLogger,
+                ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+            ) {
+                override fun execute(
+                    projectDir: Path,
+                    command: List<String>,
+                    output: StringBuilder?
+                ): Int? {
+                    commands.add(command)
+                    val config = Path.of(
+                        command.single {
+                            it.startsWith("-Drewrite.runner.repositories=")
+                        }.substringAfter('=')
+                    )
+                    config.resolveSibling("repositories-ready").writeText("ready")
+                    extractReportDir(command)!!.resolve("rewrite.patch").writeText(
+                        "diff --git a/pom.xml b/pom.xml\n--- a/pom.xml\n+++ b/pom.xml\n@@ -1 +1 @@\n-<project/>\n+<project></project>\n"
+                    )
+                    output?.append("[ERROR] recipe 'com.example.Missing' does not exist.\n")
+                    return 0
+                }
+            }
+            val result = strategy.run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = false,
+                includeMavenCentral = false,
+                artifactRepositories = listOf(
+                    io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                        "https://example.com/repo",
+                        "recipe",
+                        "password"
+                    )
+                )
+            )
+            assertIs<PluginRunResult.Failed>(result)
+            assertTrue(result.reason.contains("com.example.Missing"))
+            assertEquals(1, commands.size)
+        }
+
         test("existing Maven extension classpath is preserved by falling back without executing") {
             projectDir.resolve(".mvn").createDirectories().resolve("jvm.config").writeText(
                 "-Dmaven.ext.class.path=/custom/extension.jar"

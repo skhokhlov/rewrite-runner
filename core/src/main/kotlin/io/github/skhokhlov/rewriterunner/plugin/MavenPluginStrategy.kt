@@ -50,6 +50,8 @@ internal open class MavenPluginStrategy(
             createRewriteConfigFile(rewriteConfigContent)
                 ?: rewriteConfig
         val reportDir = createPrivateTempDirectory("rewrite-runner-report-")
+        val secrets = artifactRepositories.flatMap { listOfNotNull(it.username, it.password) }
+            .filter { it.isNotEmpty() }.sortedByDescending { it.length }
         return try {
             val repositories = try {
                 if (artifactRepositories.isEmpty()) {
@@ -65,27 +67,13 @@ internal open class MavenPluginStrategy(
                 projectDir = rootDir,
                 dryRun = dryRun,
                 execute = { dir, command, output ->
-                    repositorySecrets.set(
-                        artifactRepositories.flatMap {
-                            listOfNotNull(it.username, it.password)
-                        }.filter { it.isNotEmpty() }
-                    )
+                    repositorySecrets.set(secrets)
                     try {
                         if (repositories != null) {
                             Files.deleteIfExists(reportDir.resolve("repositories-ready"))
                         }
-                        val exit = execute(dir, command, output)
-                        output?.let { captured ->
-                            var sanitized = captured.toString()
-                            repositorySecrets.get().orEmpty().sortedByDescending {
-                                it.length
-                            }.forEach {
-                                sanitized = sanitized.replace(it, "<redacted>")
-                            }
-                            captured.setLength(0)
-                            captured.append(sanitized)
-                        }
-                        exit
+                        // Keep internal output intact: verification uses exact upstream markers.
+                        execute(dir, command, output)
                     } finally {
                         repositorySecrets.remove()
                     }
@@ -153,7 +141,7 @@ internal open class MavenPluginStrategy(
                             PluginOutputReader.unresolvedRecipeFailure(
                                 output,
                                 "Maven rewrite:dryRun"
-                            )
+                            )?.let { redact(it, secrets) }
                         }
                     }
                 )
@@ -258,12 +246,13 @@ internal open class MavenPluginStrategy(
         )
     }
 
+    private fun redact(message: String, secrets: List<String>): String =
+        secrets.fold(message) { text, secret -> text.replace(secret, "<redacted>") }
+
     private fun redactingLogger(): RunnerLogger {
-        val secrets = repositorySecrets.get().orEmpty().sortedByDescending { it.length }
+        val secrets = repositorySecrets.get().orEmpty()
         if (secrets.isEmpty()) return logger
-        fun redact(message: String): String = secrets.fold(message) { text, secret ->
-            text.replace(secret, "<redacted>")
-        }
+        fun redact(message: String): String = redact(message, secrets)
         return object : RunnerLogger {
             override fun lifecycle(message: String) = logger.lifecycle(redact(message))
             override fun info(message: String) = logger.info(redact(message))
