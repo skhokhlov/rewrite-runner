@@ -1,0 +1,14 @@
+<component-set>
+  <components>
+    <component>
+      <role>org.apache.maven.eventspy.EventSpy</role>
+      <role-hint>rewrite-runner-repositories</role-hint>
+      <implementation>io.github.skhokhlov.rewriterunner.maven.RepositoryEventSpy</implementation>
+    </component>
+    <component>
+      <role>org.apache.maven.AbstractMavenLifecycleParticipant</role>
+      <role-hint>rewrite-runner-repository-guard</role-hint>
+      <implementation>io.github.skhokhlov.rewriterunner.maven.RepositoryLifecycleGuard</implementation>
+    </component>
+  </components>
+</component-set>

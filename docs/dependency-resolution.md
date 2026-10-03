@@ -98,3 +98,31 @@ Both recipe and project `AetherContext` instances apply the following settings:
 | Parallel download threads | configurable (`--download-threads`, default 5) | Tune for network bandwidth vs resource constraints |
 | `CONNECT_TIMEOUT` | configurable (`resolverConnectTimeout`, default `30s`) | Avoid hanging on slow connections |
 | `REQUEST_TIMEOUT` | configurable (`resolverRequestTimeout`, default `60s`) | Abort if a server accepts the connection but never responds |
+
+### Maven Stage 0 repositories
+
+Runner `repositories` / `artifactRepositories` add sources for recipe artifacts, build plugins,
+and project dependencies, with releases and snapshots enabled. Maven owns resolution and caching;
+Stage 0 does not use the LST worker's resolver or recipe cache.
+
+A bundled core extension adds an active profile after Maven merges its settings. User and global
+settings, including alternate settings selected by a wrapper or `.mvn/maven.config`, remain in
+place. Existing mirrors, proxies, servers, local repository and profile configuration apply.
+A mirror can redirect a runner-configured URL; authentication for the mirror uses Maven's
+existing server configuration. Direct repository credentials come from runner configuration.
+There is no runner option for repository IDs or alternate Maven settings files.
+
+`includeMavenCentral=false` / `--no-maven-central` omits runner-added Central. It does not remove
+Central from Maven's Super POM, project POMs or settings. These options alone do not make Maven
+Stage 0 offline or restrict it to the runner's repository list.
+
+Both dry-run and apply use the same private repository transport. Credentials stay out of command
+arguments; transport files have owner-only access and are deleted on success or failure. URLs
+must be absolute and contain no embedded credentials, query strings or fragments; supply Basic
+Auth credentials through `username` and `password`.
+
+The extension is verified against Maven 3.9.9 through real wrapper execution. If it cannot initialize,
+Stage 0 reports a repository integration failure and follows the normal LST fallback. Existing
+`maven.ext.class.path` overrides are rejected rather than replaced; `.mvn/extensions.xml` extensions
+continue to load normally. Maven versions that do not expose the settings event also fail this
+initialization check rather than silently ignoring repositories.

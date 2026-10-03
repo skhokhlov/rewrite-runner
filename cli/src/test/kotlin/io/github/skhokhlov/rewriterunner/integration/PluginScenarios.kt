@@ -158,9 +158,7 @@ object PluginScenarios {
         expectedDryRunDiffContains = listOf("-// FINDME", "+// REPLACED")
     )
 
-    // No `--recipe-artifact` scenarios are exercised against the real plugin: every OpenRewrite
-    // recipe artifact outside `rewrite-core` (e.g. `rewrite-static-analysis`) ships under the
-    // Moderne Source Available license, which is incompatible with this project's distribution
-    // terms. Coordinate-resolution for `--recipe-artifact` is covered by `RecipeArtifactResolver`
-    // unit tests against permissive coordinates; do not add scenarios here that pull MSAL JARs.
+    // Shared scenarios use rewrite-core recipes. The real-plugin suite also publishes its
+    // own permissive test recipes to exercise recipeArtifact resolution; it must not pull
+    // MSAL recipe artifacts such as rewrite-static-analysis or rewrite-spring.
 }

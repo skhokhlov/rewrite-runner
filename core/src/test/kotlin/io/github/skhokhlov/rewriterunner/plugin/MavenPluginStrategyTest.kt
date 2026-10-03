@@ -48,6 +48,157 @@ class MavenPluginStrategyTest :
 
         afterEach { projectDir.toFile().deleteRecursively() }
 
+        listOf(0, 1).forEach { exitCode ->
+            test("repository credentials are private and temporary for Maven exit $exitCode") {
+                val commands = mutableListOf<List<String>>()
+                val files = mutableListOf<Path>()
+                val strategy = object : MavenPluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+                ) {
+                    override fun execute(
+                        projectDir: Path,
+                        command: List<String>,
+                        output: StringBuilder?
+                    ): Int? {
+                        commands.add(command)
+                        val file = Path.of(
+                            command.single {
+                                it.startsWith("-Drewrite.runner.repositories=")
+                            }.substringAfter('=')
+                        )
+                        files.add(file)
+                        val properties = java.util.Properties()
+                        Files.newInputStream(file).use { properties.load(it) }
+                        assertEquals("private-user", properties.getProperty("repo.0.username"))
+                        assertEquals("private-password", properties.getProperty("repo.0.password"))
+                        assertEquals("1", properties.getProperty("count"))
+                        if (Files.getFileStore(file).supportsFileAttributeView("posix")) {
+                            assertEquals(
+                                "rw-------",
+                                java.nio.file.attribute.PosixFilePermissions.toString(
+                                    Files.getPosixFilePermissions(file)
+                                )
+                            )
+                        }
+                        file.resolveSibling("repositories-ready").writeText("ready")
+                        extractReportDir(command)!!.resolve("rewrite.patch").writeText(
+                            "diff --git a/pom.xml b/pom.xml\n--- a/pom.xml\n+++ b/pom.xml\n@@ -1 +1 @@\n-<project/>\n+<project></project>\n"
+                        )
+                        return exitCode
+                    }
+                }
+                val result = strategy.run(
+                    projectDir = projectDir,
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = emptyList(),
+                    rewriteConfig = null,
+                    rewriteConfigContent = null,
+                    dryRun = false,
+                    includeMavenCentral = false,
+                    artifactRepositories = listOf(
+                        io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                            "https://example.com/repo",
+                            "private-user",
+                            "private-password"
+                        )
+                    )
+                )
+                if (exitCode == 0) {
+                    assertIs<PluginRunResult.Success>(result)
+                    assertEquals(2, commands.size)
+                    assertEquals(files[0], files[1])
+                } else {
+                    assertIs<PluginRunResult.Failed>(result)
+                    assertEquals(1, commands.size)
+                }
+                assertTrue(
+                    commands.flatten().none {
+                        "private-password" in it ||
+                            "private-user" in it
+                    }
+                )
+                assertTrue(files.all { !it.exists() && !it.parent.exists() })
+            }
+        }
+
+        test(
+            "configured repositories fail closed when Maven does not load repository integration"
+        ) {
+            val strategy = object : MavenPluginStrategy(
+                NoOpRunnerLogger,
+                ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+            ) {
+                override fun execute(
+                    projectDir: Path,
+                    command: List<String>,
+                    output: StringBuilder?
+                ): Int? {
+                    extractReportDir(command)!!.resolve("rewrite.patch").writeText(
+                        "diff --git a/pom.xml b/pom.xml\n--- a/pom.xml\n+++ b/pom.xml\n@@ -1 +1 @@\n-<project/>\n+<project></project>\n"
+                    )
+                    return 0
+                }
+            }
+            val result = strategy.run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = false,
+                includeMavenCentral = false,
+                artifactRepositories = listOf(
+                    io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                        "https://example.com/repo"
+                    )
+                )
+            )
+            assertIs<PluginRunResult.Failed>(result)
+            assertTrue(result.reason.contains("repository integration"))
+        }
+
+        test("existing Maven extension classpath is preserved by falling back without executing") {
+            projectDir.resolve(".mvn").createDirectories().resolve("jvm.config").writeText(
+                "-Dmaven.ext.class.path=/custom/extension.jar"
+            )
+            val strategy = object : MavenPluginStrategy(
+                NoOpRunnerLogger,
+                ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                ToolConfigDefaults.REWRITE_MAVEN_PLUGIN_VERSION
+            ) {
+                override fun execute(
+                    projectDir: Path,
+                    command: List<String>,
+                    output: StringBuilder?
+                ): Int? {
+                    error("Maven must not run after repository setup fails")
+                }
+            }
+            val result = strategy.run(
+                projectDir = projectDir,
+                activeRecipe = "com.example.Recipe",
+                recipeArtifacts = emptyList(),
+                rewriteConfig = null,
+                rewriteConfigContent = null,
+                dryRun = false,
+                includeMavenCentral = true,
+                artifactRepositories = listOf(
+                    io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                        "https://example.com/repo"
+                    )
+                )
+            )
+            assertIs<PluginRunResult.Failed>(result)
+            assertTrue(result.reason.contains("Existing Maven extension classpath"))
+            assertEquals(
+                "-Dmaven.ext.class.path=/custom/extension.jar",
+                projectDir.resolve(".mvn/jvm.config").toFile().readText()
+            )
+        }
+
         test("buildCommand includes active recipe, artifacts, and config location") {
             val config = Files.createTempFile("rewrite", ".yml")
             val reportDir = Files.createTempDirectory("report-")

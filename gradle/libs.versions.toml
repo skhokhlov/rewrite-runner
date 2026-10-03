@@ -8,6 +8,7 @@ kotest-runner-junit5 = "6.2.5"
 rewrite-recipe-bom = "3.35.0"
 rewrite-gradle = "8.90.4"
 maven-model = "3.10.0"
+maven-extension-api = "3.9.9"
 maven-resolver = "2.0.23"
 jackson = "3.2.3"
 dokka = "2.2.0"
@@ -25,6 +26,9 @@ ktlint-cli = { group = "com.pinterest.ktlint", name = "ktlint-cli", version.ref 
 kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
 rewrite-recipe-bom = { group = "org.openrewrite.recipe", name = "rewrite-recipe-bom", version.ref = "rewrite-recipe-bom" }
 rewrite-gradle = { group = "org.openrewrite", name = "rewrite-gradle", version.ref = "rewrite-gradle" }
+maven-core = { group = "org.apache.maven", name = "maven-core", version.ref = "maven-extension-api" }
+maven-settings-builder = { group = "org.apache.maven", name = "maven-settings-builder", version.ref = "maven-extension-api" }
+maven-plugin-api = { group = "org.apache.maven", name = "maven-plugin-api", version.ref = "maven-extension-api" }
 maven-model = { group = "org.apache.maven", name = "maven-model", version.ref = "maven-model" }
 maven-resolver-api = { group = "org.apache.maven.resolver", name = "maven-resolver-api", version.ref = "maven-resolver" }
 maven-resolver-impl = { group = "org.apache.maven.resolver", name = "maven-resolver-impl", version.ref = "maven-resolver" }

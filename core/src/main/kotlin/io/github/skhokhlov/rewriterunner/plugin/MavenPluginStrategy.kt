@@ -32,6 +32,7 @@ internal open class MavenPluginStrategy(
     private val pluginJvmArgs: List<String> = emptyList(),
     private val attemptCollector: (PluginProcessAttempt) -> Unit = {}
 ) : PluginBuildStrategy {
+    private val repositorySecrets = ThreadLocal<List<String>>()
     override fun run(
         projectDir: Path,
         rootDir: Path,
@@ -50,10 +51,45 @@ internal open class MavenPluginStrategy(
                 ?: rewriteConfig
         val reportDir = createPrivateTempDirectory("rewrite-runner-report-")
         return try {
+            val repositories = try {
+                if (artifactRepositories.isEmpty()) {
+                    null
+                } else {
+                    requireNoExtensionOverride(projectDir)
+                    MavenRepositoryIntegration(reportDir, includeMavenCentral, artifactRepositories)
+                }
+            } catch (e: Exception) {
+                return repositoryIntegrationFailure(e)
+            }
             DirectPluginExecutor(
                 projectDir = rootDir,
                 dryRun = dryRun,
-                execute = ::execute,
+                execute = { dir, command, output ->
+                    repositorySecrets.set(
+                        artifactRepositories.flatMap {
+                            listOfNotNull(it.username, it.password)
+                        }.filter { it.isNotEmpty() }
+                    )
+                    try {
+                        if (repositories != null) {
+                            Files.deleteIfExists(reportDir.resolve("repositories-ready"))
+                        }
+                        val exit = execute(dir, command, output)
+                        output?.let { captured ->
+                            var sanitized = captured.toString()
+                            repositorySecrets.get().orEmpty().sortedByDescending {
+                                it.length
+                            }.forEach {
+                                sanitized = sanitized.replace(it, "<redacted>")
+                            }
+                            captured.setLength(0)
+                            captured.append(sanitized)
+                        }
+                        exit
+                    } finally {
+                        repositorySecrets.remove()
+                    }
+                },
                 runDir = projectDir,
                 executor = LogicalExecutor.MAVEN_PLUGIN,
                 attemptCollector = attemptCollector
@@ -68,7 +104,8 @@ internal open class MavenPluginStrategy(
                         rewriteConfig = effectiveRewriteConfig,
                         reportOutputDirectory = reportDir,
                         excludePaths = excludePaths,
-                        plainTextMasks = plainTextMasks
+                        plainTextMasks = plainTextMasks,
+                        repositoryArguments = repositories?.arguments.orEmpty()
                     ),
                     applyCommand = buildCommand(
                         projectDir = projectDir,
@@ -79,7 +116,8 @@ internal open class MavenPluginStrategy(
                         rewriteConfig = effectiveRewriteConfig,
                         reportOutputDirectory = reportDir,
                         excludePaths = excludePaths,
-                        plainTextMasks = plainTextMasks
+                        plainTextMasks = plainTextMasks,
+                        repositoryArguments = repositories?.arguments.orEmpty()
                     ),
                     patchFiles = { findPatchFiles(projectDir, reportDir) },
                     estimatedTimeSaved = { output ->
@@ -99,10 +137,24 @@ internal open class MavenPluginStrategy(
                             )
                         )
                     },
-                    dryRunFailureMessage = { pluginFailureMessage("Maven rewrite:dryRun", it) },
+                    dryRunFailureMessage = {
+                        if (repositories != null && !repositories.ready) {
+                            "Maven repository integration did not initialize; " +
+                                pluginFailureMessage("Maven rewrite:dryRun", it)
+                        } else {
+                            pluginFailureMessage("Maven rewrite:dryRun", it)
+                        }
+                    },
                     applyFailureMessage = { pluginFailureMessage("Maven rewrite:run", it) },
                     unresolvedRecipeFailure = { output ->
-                        PluginOutputReader.unresolvedRecipeFailure(output, "Maven rewrite:dryRun")
+                        if (repositories != null && !repositories.ready) {
+                            "Maven repository integration did not initialize; falling back to LST"
+                        } else {
+                            PluginOutputReader.unresolvedRecipeFailure(
+                                output,
+                                "Maven rewrite:dryRun"
+                            )
+                        }
                     }
                 )
             )
@@ -127,9 +179,11 @@ internal open class MavenPluginStrategy(
         rewriteConfig: Path?,
         reportOutputDirectory: Path,
         excludePaths: List<String> = emptyList(),
-        plainTextMasks: List<String> = emptyList()
+        plainTextMasks: List<String> = emptyList(),
+        repositoryArguments: List<String> = emptyList()
     ): List<String> = buildList {
         add(resolveMavenCommand(projectDir, rootDir))
+        addAll(repositoryArguments)
         add("-U")
         add("--no-transfer-progress")
         add("--batch-mode")
@@ -167,7 +221,7 @@ internal open class MavenPluginStrategy(
             timeout = timeout,
             timeoutName = "pluginTimeout",
             env = buildEnv(),
-            logger = logger
+            logger = redactingLogger()
         )
 
     /**
@@ -190,6 +244,55 @@ internal open class MavenPluginStrategy(
         val merged = listOfNotNull(existingMavenOpts?.takeIf { it.isNotBlank() }, ours)
             .joinToString(" ")
         return mapOf("MAVEN_OPTS" to merged)
+    }
+
+    private fun repositoryIntegrationFailure(failure: Exception): PluginRunResult.Failed {
+        // Malformed URLs and transport errors can contain secrets; use known-safe diagnostics.
+        val detail = if (failure is MavenRepositoryIntegrationException) {
+            failure.message
+        } else {
+            failure.javaClass.simpleName
+        }
+        return PluginRunResult.Failed(
+            "Maven repository integration failed: $detail; falling back to LST"
+        )
+    }
+
+    private fun redactingLogger(): RunnerLogger {
+        val secrets = repositorySecrets.get().orEmpty().sortedByDescending { it.length }
+        if (secrets.isEmpty()) return logger
+        fun redact(message: String): String = secrets.fold(message) { text, secret ->
+            text.replace(secret, "<redacted>")
+        }
+        return object : RunnerLogger {
+            override fun lifecycle(message: String) = logger.lifecycle(redact(message))
+            override fun info(message: String) = logger.info(redact(message))
+            override fun debug(message: String) = logger.debug(redact(message))
+            override fun warn(message: String) = logger.warn(redact(message))
+            override fun error(message: String, cause: Throwable?) = logger.error(redact(message))
+        }
+    }
+
+    private fun requireNoExtensionOverride(projectDir: Path) {
+        val inherited =
+            listOfNotNull(
+                System.getenv("MAVEN_OPTS"),
+                System.getenv("MAVEN_ARGS"),
+                System.getenv("JAVA_TOOL_OPTIONS"),
+                System.getenv("JDK_JAVA_OPTIONS"),
+                System.getenv("_JAVA_OPTIONS")
+            ) + pluginJvmArgs
+        val config = generateSequence(projectDir.toAbsolutePath()) { it.parent }
+            .flatMap { dir ->
+                listOf(dir.resolve(".mvn/jvm.config"), dir.resolve(".mvn/maven.config"))
+            }
+            .filter { Files.exists(it) }
+            .map { Files.readString(it) }.toList()
+        if ((inherited + config).any { it.contains("maven.ext.class.path") }) {
+            throw MavenRepositoryIntegrationException(
+                "Existing Maven extension classpath cannot be safely augmented"
+            )
+        }
     }
 
     private fun findPatchFiles(projectDir: Path, reportDir: Path): List<DirectPluginPatchFile> {

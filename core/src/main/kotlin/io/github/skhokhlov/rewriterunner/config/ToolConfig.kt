@@ -16,7 +16,8 @@ import tools.jackson.module.kotlin.KotlinModule
 /**
  * Configuration for a single Maven-compatible remote repository.
  *
- * Used by [io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver] and
+ * Forwarded to official build plugins in Stage 0, and used by
+ * [io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver] and
  * [io.github.skhokhlov.rewriterunner.lst.DependencyResolutionStage] when resolving JARs.
  *
  * Environment variable placeholders (`${VAR_NAME}`) in [url], [username], and [password]
