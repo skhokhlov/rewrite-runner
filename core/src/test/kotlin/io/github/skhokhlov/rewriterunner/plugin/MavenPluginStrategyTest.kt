@@ -212,6 +212,20 @@ class MavenPluginStrategyTest :
                         )
                     )
                 )
+                val runnerRepositories = io.github.skhokhlov.rewriterunner.AetherContext.build(
+                    localRepoDir = directories[0].resolve("repository"),
+                    logger = io.github.skhokhlov.rewriterunner.NoOpRunnerLogger,
+                    includeMavenCentral = false,
+                    extraRepositories = listOf(
+                        io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                            "https://example.com/b"
+                        ),
+                        io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                            "https://example.com/a"
+                        )
+                    )
+                ).remoteRepos.associate { it.url to it.id }
+                assertEquals(first, runnerRepositories)
                 assertEquals(first, second)
                 assertEquals(2, first.values.toSet().size)
             } finally {

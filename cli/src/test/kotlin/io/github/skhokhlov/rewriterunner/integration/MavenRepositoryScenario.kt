@@ -288,6 +288,33 @@ internal fun runMavenRepositoryScenario() {
             requests.size,
             "Cached releases caused another repository request"
         )
+        // The LST/recipe resolver must recognize Maven's source attribution in a shared cache.
+        val runnerResolver = io.github.skhokhlov.rewriterunner.AetherContext.build(
+            localRepoDir = java.nio.file.Path.of(
+                System.getProperty("user.home"),
+                ".m2",
+                "repository"
+            ),
+            extraRepositories = listOf(RepositoryConfig(url, "repo-user", "repo-password")),
+            includeMavenCentral = false,
+            logger = logger
+        )
+        listOf("private-recipe", "private-dependency").forEach { artifact ->
+            val resolved = runnerResolver.system.resolveArtifact(
+                runnerResolver.session,
+                org.eclipse.aether.resolution.ArtifactRequest(
+                    org.eclipse.aether.artifact.DefaultArtifact("$group:$artifact:1.0"),
+                    runnerResolver.remoteRepos,
+                    null
+                )
+            )
+            assertTrue(resolved.artifact.path.toFile().isFile)
+        }
+        assertEquals(
+            requestsBeforeOffline,
+            requests.size,
+            "Runner re-downloaded Maven-cached artifacts"
+        )
         wrapper.writeText(onlineWrapper)
         // Maven swallows EventSpy exceptions. Verify the lifecycle guard aborts before
         // any build goal when repository transport cannot be read, including on apply.
