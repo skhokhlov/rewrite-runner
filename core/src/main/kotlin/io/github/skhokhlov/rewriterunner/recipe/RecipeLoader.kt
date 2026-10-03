@@ -4,12 +4,22 @@ import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import java.io.ByteArrayInputStream
 import java.io.FileInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.URI
 import java.net.URLClassLoader
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.Properties
+import java.util.jar.JarFile
+import java.util.zip.CRC32
 import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
+import kotlin.io.path.isReadable
+import kotlin.io.path.isRegularFile
 import org.openrewrite.Recipe
 import org.openrewrite.RecipeException
 import org.openrewrite.config.ClasspathScanningLoader
@@ -115,11 +125,101 @@ class RecipeLoader(val logger: RunnerLogger) : AutoCloseable {
 
     private data class YamlSource(val stream: () -> InputStream, val uri: URI)
 
+    /**
+     * Validate the supplied classpath before scanning or unresolved-recipe validation can
+     * misdiagnose missing recipes. Upstream silently ignores archive and class-entry I/O errors.
+     *
+     * Check archive structure plus the size and CRC of class files and recipe YAML using a
+     * fixed-size buffer. Other resources are not decompressed. This checks storage integrity,
+     * not class bytecode or YAML semantics, and does not change Aether's checksum policy.
+     * Exploded directories must be traversable and their class/recipe files readable.
+     */
+    private fun verifyReadableArchives(recipeJars: List<Path>) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        for (jar in recipeJars.distinct()) {
+            val problem = archiveProblem(jar, buffer) ?: continue
+            val message =
+                "Recipe classpath entry is unusable: $jar ($problem). " +
+                    "Check the path and permissions. If this is a cached artifact, " +
+                    "remove only the affected cached JAR and re-run to fetch a fresh copy; " +
+                    "otherwise restore or rebuild the supplied classpath entry."
+            logger.error(message)
+            throw IllegalArgumentException(message)
+        }
+    }
+
+    private fun archiveProblem(entry: Path, buffer: ByteArray): String? {
+        if (!entry.exists()) return "file does not exist"
+        if (!entry.isReadable()) return "file is not readable"
+        return try {
+            if (entry.isDirectory()) {
+                verifyDirectory(entry.toRealPath(), buffer)
+            } else {
+                if (!entry.isRegularFile()) return "not a regular file or directory"
+                JarFile(entry.toFile()).use { jar ->
+                    for (candidate in jar.entries()) {
+                        if (candidate.isDirectory || !isScannedResource(candidate.name)) continue
+                        try {
+                            val crc = CRC32()
+                            val size = jar.getInputStream(candidate).use { stream ->
+                                drain(stream, buffer, crc)
+                            }
+                            if (size != candidate.size || crc.value != candidate.crc) {
+                                throw IOException("entry size or CRC mismatch")
+                            }
+                        } catch (e: IOException) {
+                            throw IOException("${candidate.name}: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+            null
+        } catch (e: IOException) {
+            "not readable: ${e.message ?: e.javaClass.simpleName}"
+        } catch (e: SecurityException) {
+            "access or archive verification failed: ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    private fun verifyDirectory(root: Path, buffer: ByteArray) {
+        Files.walkFileTree(
+            root,
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    val relative = root.relativize(file).joinToString("/")
+                    if (isScannedResource(relative)) {
+                        if (!file.isRegularFile()) throw IOException("not a regular file: $file")
+                        Files.newInputStream(file).use { drain(it, buffer) }
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+            }
+        )
+    }
+
+    private fun drain(stream: InputStream, buffer: ByteArray, crc: CRC32? = null): Long {
+        var size = 0L
+        while (true) {
+            val count = stream.read(buffer)
+            if (count < 0) return size
+            crc?.update(buffer, 0, count)
+            size += count
+        }
+    }
+
+    private fun isScannedResource(name: String): Boolean = name.endsWith(".class") ||
+        (
+            name.startsWith(RECIPE_RESOURCE_PREFIX) &&
+                (name.endsWith(".yml") || name.endsWith(".yaml"))
+            )
+
     private fun buildAndActivate(
         recipeJars: List<Path>,
         activeRecipeName: String,
         yamlSource: YamlSource?
     ): Recipe {
+        verifyReadableArchives(recipeJars)
+
         val props = Properties()
         val parentLoader = Thread.currentThread().contextClassLoader
 
@@ -138,26 +238,26 @@ class RecipeLoader(val logger: RunnerLogger) : AutoCloseable {
 
         val builder = Environment.builder()
 
-        // Scan each recipe JAR for OpenRewrite recipes/styles/categories
+        // Scan each recipe JAR for OpenRewrite recipes/styles/categories.
+        //
+        // No try/catch here on purpose: the 4-arg ClasspathScanningLoader constructor only
+        // stores lambdas and performs no I/O, so a guard around it would catch nothing —
+        // the actual scan runs lazily inside Environment.activateRecipes(), well outside
+        // any block we could wrap here. Unreadable archives are rejected up-front by
+        // verifyReadableArchives() instead; see [verifyReadableArchives].
         for (jar in recipeJars) {
             logger.debug("Scanning recipe JAR: $jar")
-            try {
-                builder.load(ClasspathScanningLoader(jar, props, emptyList(), classLoader))
-            } catch (e: Exception) {
-                logger.warn("Failed to scan recipe JAR $jar (skipping): ${e.message}")
-            }
+            builder.load(ClasspathScanningLoader(jar, props, emptyList(), classLoader))
         }
 
         // Scan the tool's own classpath for built-in recipes only when no recipe JARs are provided.
         // When recipe JARs are present their transitive deps already include all OpenRewrite core
         // jars, so a blanket classpath scan would register the same recipes twice and cause
         // duplicate-key errors in Environment.activateRecipes().
+        // (Same reasoning as above: the 2-arg constructor performs no I/O either, so a
+        // try/catch around it could never fire.)
         if (recipeJars.isEmpty()) {
-            try {
-                builder.load(ClasspathScanningLoader(props, classLoader))
-            } catch (e: Exception) {
-                logger.warn("Failed to scan tool classpath (skipping): ${e.message}")
-            }
+            builder.load(ClasspathScanningLoader(props, classLoader))
         }
 
         // Load rewrite.yaml if provided
@@ -231,5 +331,8 @@ class RecipeLoader(val logger: RunnerLogger) : AutoCloseable {
          * `<recipe name>.recipeList[<index>] (in <source>)`.
          */
         const val RECIPE_LIST_ENTRY_PROPERTY = ".recipeList["
+
+        /** JAR path prefix under which upstream looks for declarative recipe definitions. */
+        const val RECIPE_RESOURCE_PREFIX = "META-INF/rewrite/"
     }
 }
