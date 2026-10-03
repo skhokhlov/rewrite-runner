@@ -167,7 +167,10 @@ class RunCommand : Callable<Int> {
 
     @Option(
         names = ["--no-maven-central"],
-        description = ["Disable Maven Central; use only repositories from config."]
+        description = [
+            "Disable runner-added Maven Central. " +
+                "Maven project/settings repositories remain active."
+        ]
     )
     var noMavenCentral: Boolean = false
 

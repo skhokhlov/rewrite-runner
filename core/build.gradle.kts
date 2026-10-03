@@ -81,3 +81,25 @@ val generatePluginVersions by tasks.registering {
 }
 
 kotlin.sourceSets["main"].kotlin.srcDir(generatePluginVersions.map { generatedPluginVersionsDir })
+
+// Loaded only inside the target Maven JVM. Maven supplies every dependency; the runner
+// transports this small JAR as a resource instead of bundling Maven's runtime into the CLI.
+val mavenExtension = sourceSets.create("mavenExtension")
+dependencies {
+    add(mavenExtension.compileOnlyConfigurationName, libs.maven.core)
+    add(mavenExtension.compileOnlyConfigurationName, libs.maven.settings.builder)
+}
+tasks.named<JavaCompile>(mavenExtension.compileJavaTaskName) {
+    options.release.set(8)
+}
+val mavenExtensionJar by tasks.registering(Jar::class) {
+    archiveFileName.set("maven-repositories-extension.jar")
+    from(mavenExtension.output)
+}
+tasks.named<ProcessResources>("processResources") {
+    from(mavenExtensionJar)
+}
+
+tasks.named<Jar>("sourcesJar") {
+    from(mavenExtension.allSource) { into("mavenExtension") }
+}

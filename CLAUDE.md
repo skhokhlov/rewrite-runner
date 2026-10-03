@@ -74,7 +74,7 @@ java -jar cli/build/libs/cli-1.0-SNAPSHOT-all.jar --help
 | `--lst-worker-timeout` | | Optional whole-worker timeout | unlimited |
 | `--info` | | Enable INFO-level logging to stderr | `false` |
 | `--debug` | | Enable DEBUG-level logging (overrides `--info`) | `false` |
-| `--no-maven-central` | | Disable Maven Central; use only repos from config | `false` |
+| `--no-maven-central` | | Disable runner-added Maven Central; Maven project/settings repositories remain active | `false` |
 
 **Output modes**: `diff` (unified diffs) · `files` (one path per line) · `report` (JSON to `openrewrite-report.json`)
 

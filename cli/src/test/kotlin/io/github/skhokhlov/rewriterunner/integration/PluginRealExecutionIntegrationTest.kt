@@ -123,6 +123,13 @@ class PluginRealExecutionIntegrationTest :
                 }
         }
 
+        test(
+            "real plugin: Maven resolves authenticated recipes snapshots plugins and dependencies with existing settings"
+        )
+            .config(enabled = !isWindows) {
+                runMavenRepositoryScenario()
+            }
+
         test("real plugin: Maven dry-run does not mutate sources").config(enabled = !isWindows) {
             runRealPluginScenario(PluginScenarios.mavenSingleFile, dryRun = true)
         }

@@ -28,6 +28,7 @@ dependencies {
     testImplementation(platform(libs.rewrite.recipe.bom))
     testImplementation("org.openrewrite:rewrite-core")
     testImplementation("org.openrewrite:rewrite-java")
+    testImplementation(libs.maven.plugin.api)
 }
 
 val cliMainClass = "io.github.skhokhlov.rewriterunner.MainKt"
