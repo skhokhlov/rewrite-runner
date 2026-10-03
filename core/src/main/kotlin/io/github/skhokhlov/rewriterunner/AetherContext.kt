@@ -169,10 +169,10 @@ class AetherContext(
                     ).setPolicy(trustPolicy).build()
                 )
             }
-            extraRepositories.forEachIndexed { index, cfg ->
-                // Use a stable, URL-safe ID: "extra-0", "extra-1", etc.
+            extraRepositories.distinctBy { it.url }.forEach { cfg ->
+                // Match Maven Stage 0 so a shared local repository recognizes the same source.
                 val builder = RemoteRepository.Builder(
-                    "extra-$index",
+                    repositoryId(cfg.url),
                     "default",
                     cfg.url
                 ).setPolicy(trustPolicy)
