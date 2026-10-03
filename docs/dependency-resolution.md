@@ -108,6 +108,9 @@ Stage 0 does not use the LST worker's resolver or recipe cache.
 A bundled core extension adds an active profile after Maven merges its settings. User and global
 settings, including alternate settings selected by a wrapper or `.mvn/maven.config`, remain in
 place. Existing mirrors, proxies, servers, local repository and profile configuration apply.
+Repository IDs are stable hashes of source URLs, independent of profile IDs, ordering and
+credentials, so Maven recognizes cached releases across invocations and build units. Repeated
+identical URLs use the first configured credentials.
 A mirror can redirect a runner-configured URL; authentication for the mirror uses Maven's
 existing server configuration. Direct repository credentials come from runner configuration.
 There is no runner option for repository IDs or alternate Maven settings files.

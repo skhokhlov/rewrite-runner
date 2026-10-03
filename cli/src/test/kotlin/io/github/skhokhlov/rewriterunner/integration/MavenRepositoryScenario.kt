@@ -257,6 +257,38 @@ internal fun runMavenRepositoryScenario() {
                 "Maven did not download $artifact"
             )
         }
+        // A second invocation must recognize the first invocation's cached releases. The
+        // random profile may change, but Maven's _remote.repositories source IDs must not.
+        val onlineWrapper = wrapper.readText()
+        wrapper.writeText(onlineWrapper.replace("\"\$@\"", "--offline \"\$@\""))
+        userSettings.writeText("<settings/>")
+        source.writeText(original)
+        project.resolve("rewrite.yaml").writeText(originalRecipe)
+        val requestsBeforeOffline = requests.size
+        val cached = RewriteRunner.builder()
+            .projectDir(project)
+            .activeRecipe(PluginScenarios.mavenSingleFile.activeRecipe)
+            .recipeArtifact("$group:private-recipe:1.0")
+            .artifactRepository(RepositoryConfig(url, "repo-user", "repo-password"))
+            .includeMavenCentral(false)
+            .executorJvmArgs(listOf("-Xmx512m"))
+            .logger(logger)
+            .dryRun(true)
+            .rewriteConfig(project.resolve("rewrite.yaml"))
+            .build().run()
+        assertEquals(
+            UsedExecutionStage.PLUGIN,
+            cached.executionDiagnostics.stageUsed,
+            logs.joinToString("\n")
+        )
+        assertTrue(cached.rawDiffs.isNotEmpty())
+        assertEquals(original, source.readText())
+        assertEquals(
+            requestsBeforeOffline,
+            requests.size,
+            "Cached releases caused another repository request"
+        )
+        wrapper.writeText(onlineWrapper)
         // Maven swallows EventSpy exceptions. Verify the lifecycle guard aborts before
         // any build goal when repository transport cannot be read, including on apply.
         val extension = project.resolve("guard-test-extension.jar")
