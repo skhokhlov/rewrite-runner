@@ -153,7 +153,10 @@ class RewriteRunner private constructor(private val config: Builder) {
             artifactResolverRequestTimeout = timeout
         }
 
-        /** Override whether Maven Central is included for artifact resolution. */
+        /**
+         * Override whether the runner adds Maven Central for artifact resolution.
+         * Maven Stage 0 retains repositories declared by project POMs and Maven settings.
+         */
         fun includeMavenCentral(value: Boolean): Builder = apply { includeMavenCentral = value }
 
         /** Add an extra Maven repository. Repeated calls accumulate. */

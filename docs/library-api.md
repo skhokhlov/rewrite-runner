@@ -43,7 +43,7 @@ val result = RewriteRunner.builder()
 | `workerCommandFactory(WorkerCommandFactory)` | `WorkerCommandFactory` | default Java/classpath launch | Advanced structured launcher seam for nonstandard packaging. |
 | `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file. Forwarded both to Stage 0 (Maven `-Drewrite.exclusions=…` / Gradle `exclusion(...)` DSL) and to the LST fallback pipeline. |
 | `plainTextMasks(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) for otherwise-unhandled files to parse as plain text; overrides `parse.plainTextMasks` from config file. Both empty falls back to the upstream OpenRewrite default mask list. Forwarded both to Stage 0 (Maven `-Drewrite.plainTextMasks=…` / Gradle `plainTextMask(...)` DSL) and to the LST fallback pipeline. |
-| `includeMavenCentral(Boolean)` | `Boolean?` | from config / `true` | Include Maven Central as a remote repository. Set `false` for air-gapped or enterprise environments. |
+| `includeMavenCentral(Boolean)` | `Boolean?` | from config / `true` | Add Maven Central to runner repositories. Maven Stage 0 retains project/settings repositories even when `false`. |
 | `repository(RepositoryConfig)` | — | — | Add one extra Maven repository; accumulated, combined with config file repos |
 | `repositories(List<RepositoryConfig>)` | `List` | `[]` | Replace all extra Maven repositories; combined with config file repos |
 
@@ -353,7 +353,7 @@ execution:
 | `cacheDir` | `String` | `~/.rewriterunner/cache` | Recipe JAR cache root; `~` and env vars expanded. Recipes are stored under `<cacheDir>/repository`. Project dependencies always resolve from `~/.m2/repository`. |
 | `repositories` | `List<RepositoryConfig>` | `[]` | Extra Maven repos for resolution |
 | `parse` | `ParseConfig` | defaults | File exclusion and plain-text mask config |
-| `includeMavenCentral` | `Boolean` | `true` | Include Maven Central as a remote repository. Set `false` to restrict to only the repositories listed in `repositories`. |
+| `includeMavenCentral` | `Boolean` | `true` | Add Maven Central to runner repositories. Maven Stage 0 retains project/settings repositories even when `false`. |
 | `processTimeout` | `Duration` | `120s` | Timeout for Stage 1/2 build-tool subprocesses, compile attempts, and build-tool metadata commands. |
 | `pluginTimeout` | `Duration` | `10m` | Timeout for Stage 0 official OpenRewrite plugin invocations. |
 | `rewriteGradlePluginVersion` | `String` | `7.32.1` | Version of `org.openrewrite:plugin` used for Stage 0 Gradle plugin execution. |
@@ -396,7 +396,7 @@ val runner = RewriteRunner.builder()
         username = System.getenv("NEXUS_USER"),
         password = System.getenv("NEXUS_PASS")
     ))
-    .includeMavenCentral(false)   // use only the Nexus repository above
+    .includeMavenCentral(false)   // omit runner-added Central; Maven project/settings repositories remain active
     .build()
 ```
 

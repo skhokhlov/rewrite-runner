@@ -361,7 +361,7 @@ val result = RewriteRunner.builder()
         username = System.getenv("NEXUS_USER"),
         password = System.getenv("NEXUS_PASS")
     ))
-    .includeMavenCentral(false)  // restrict resolution to the Nexus repository only
+    .includeMavenCentral(false)  // omit runner-added Central; Maven project/settings repositories remain active
     .build()
     .run()
 ```
@@ -426,7 +426,7 @@ Usage: rewrite-runner [-h] [--dry-run] [--skip-plugin-run] [--info] [--debug]
 | `--artifact-resolver-request-timeout` | Socket read/request timeout for Maven Resolver downloads. Accepts `ms`, `s`, `m`, `h`, `d`, or ISO-8601 values. | `60s` |
 | `--exclude-paths`                     | Comma-separated glob patterns of files to skip (e.g. `**/generated/**,**/*.md`). Forwarded to both the Stage 0 plugin (Maven: `-Drewrite.exclusions=…`; Gradle: `exclusion(...)` DSL) and to the LST fallback pipeline. Stage 0 also receives Docker/HCL/protobuf ownership exclusions. | — |
 | `--plain-text-masks`                  | Comma-separated glob patterns of otherwise-unhandled files to parse as plain text (e.g. `**/CODEOWNERS,**/*.txt`). Replaces the upstream default mask list when specified and is forwarded to both Stage 0 and the LST fallback pipeline. | upstream defaults |
-| `--no-maven-central`                  | Disable Maven Central; use only repositories from the config file | `false` |
+| `--no-maven-central`                  | Disable runner-added Maven Central; Maven project/settings repositories remain active | `false` |
 | `--info`                              | Enable INFO-level logging to stderr | `false` |
 | `--debug`                             | Enable DEBUG-level logging to stderr (overrides `--info`) | `false` |
 
