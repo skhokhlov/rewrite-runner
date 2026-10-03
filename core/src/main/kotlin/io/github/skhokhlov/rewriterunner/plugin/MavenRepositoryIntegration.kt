@@ -4,6 +4,8 @@ import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.Properties
 import java.util.UUID
 
@@ -25,11 +27,12 @@ internal class MavenRepositoryIntegration(
             "Maven repository extension resource is missing"
         }.use { input -> Files.newOutputStream(jar).use { input.copyTo(it) } }
         val config = createPrivateTempFile(directory, "repositories-", ".properties")
-        val sources = repositories + if (includeMavenCentral) {
+        val central = if (includeMavenCentral) {
             listOf(RepositoryConfig("https://repo.maven.apache.org/maven2"))
         } else {
             emptyList()
         }
+        val sources = (repositories + central).distinctBy { it.url }
         val properties = Properties()
         properties.setProperty("prefix", "rewrite-runner-${UUID.randomUUID()}")
         properties.setProperty("count", sources.size.toString())
@@ -43,6 +46,12 @@ internal class MavenRepositoryIntegration(
                         "credentials, query strings or fragments"
                 )
             }
+            val sourceDigest = MessageDigest.getInstance("SHA-256")
+                .digest(repo.url.toByteArray(Charsets.UTF_8))
+            properties.setProperty(
+                "repo.$index.id",
+                "rewrite-runner-repo-${HexFormat.of().formatHex(sourceDigest)}"
+            )
             properties.setProperty("repo.$index.url", repo.url)
             repo.username?.let { properties.setProperty("repo.$index.username", it) }
             repo.password?.let { properties.setProperty("repo.$index.password", it) }

@@ -160,6 +160,65 @@ class MavenPluginStrategyTest :
             assertTrue(result.reason.contains("repository integration"))
         }
 
+        test(
+            "Maven repository identities survive reordered configuration and rotated credentials"
+        ) {
+            val directories =
+                listOf(
+                    createPrivateTempDirectory("repo-identity-"),
+                    createPrivateTempDirectory("repo-identity-")
+                )
+            try {
+                fun identities(
+                    directory: Path,
+                    repos: List<io.github.skhokhlov.rewriterunner.config.RepositoryConfig>
+                ): Map<String, String> {
+                    val integration = MavenRepositoryIntegration(directory, false, repos)
+                    val config = Path.of(
+                        integration.arguments.single {
+                            it.startsWith("-Drewrite.runner.repositories=")
+                        }.substringAfter('=')
+                    )
+                    val properties = java.util.Properties()
+                    Files.newInputStream(config).use { properties.load(it) }
+                    return (0 until properties.getProperty("count").toInt()).associate { index ->
+                        properties.getProperty("repo.$index.url") to
+                            assertNotNull(properties.getProperty("repo.$index.id"))
+                    }
+                }
+                val first = identities(
+                    directories[0],
+                    listOf(
+                        io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                            "https://example.com/a",
+                            "old-user",
+                            "old-password"
+                        ),
+                        io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                            "https://example.com/b"
+                        )
+                    )
+                )
+                val second = identities(
+                    directories[1],
+                    listOf(
+                        io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                            "https://example.com/b"
+                        ),
+                        io.github.skhokhlov.rewriterunner.config.RepositoryConfig(
+                            "https://example.com/a",
+                            "new-user",
+                            "new-password"
+                        )
+                    )
+                )
+                assertEquals(first, second)
+                assertEquals(2, first.values.toSet().size)
+            } finally {
+                directories.forEach(::deleteRecursively)
+            }
+        }
+
         test("credential redaction preserves missing recipe detection before apply") {
             val commands = mutableListOf<List<String>>()
             val strategy = object : MavenPluginStrategy(

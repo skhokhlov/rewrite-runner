@@ -37,7 +37,10 @@ public final class RepositoryEventSpy extends AbstractEventSpy {
         int count = Integer.parseInt(properties.getProperty("count"));
         for (int i = 0; i < count; i++) {
             String key = "repo." + i;
-            String id = prefix + "-" + i;
+            String id = properties.getProperty(key + ".id");
+            if (id == null || properties.getProperty(key + ".url") == null) {
+                throw new IllegalStateException("Runner repository transport is incomplete");
+            }
             for (Server existing : settings.getServers()) {
                 if (id.equals(existing.getId())) {
                     throw new IllegalStateException("Runner repository server ID collision");
