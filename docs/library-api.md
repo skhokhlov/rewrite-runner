@@ -55,9 +55,13 @@ val result = RewriteRunner.builder()
 
 ### Throws
 - `IllegalArgumentException` — the requested recipe could not be loaded in full. Raised when:
-  - a resolved recipe classpath entry is missing, unreadable, or not a readable archive (e.g. a
-    truncated JAR left in the cache) — the message names the offending path; delete it and re-run
-    to fetch a fresh copy;
+  - a supplied recipe classpath entry is missing, unreadable, or a damaged archive. The loader
+    checks archive structure and reads class files plus `META-INF/rewrite/*.yml`/`*.yaml`
+    resources (including nested paths), validating their sizes and CRCs with a fixed-size buffer.
+    Exploded directories must be traversable and their class/recipe files readable. The message
+    names the offending path: check permissions, restore caller-owned files, or remove only the
+    affected cached JAR and re-run to download it again. Other archive resources and bytecode/YAML
+    semantics are outside this integrity check; repository checksum policy is unchanged;
   - the recipe is not found in the loaded JARs or on the classpath;
   - a requested declarative recipe names a recipe in its `recipeList` that cannot be resolved
     (running only the entries that did resolve would report success for an incomplete migration).

@@ -8,13 +8,18 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.URI
 import java.net.URLClassLoader
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.Properties
-import java.util.jar.JarEntry
 import java.util.jar.JarFile
+import java.util.zip.CRC32
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isReadable
+import kotlin.io.path.isRegularFile
 import org.openrewrite.Recipe
 import org.openrewrite.RecipeException
 import org.openrewrite.config.ClasspathScanningLoader
@@ -121,102 +126,92 @@ class RecipeLoader(val logger: RunnerLogger) : AutoCloseable {
     private data class YamlSource(val stream: () -> InputStream, val uri: URI)
 
     /**
-     * Reject unreadable recipe classpath entries *before* they reach OpenRewrite's scanner.
+     * Validate the supplied classpath before scanning or unresolved-recipe validation can
+     * misdiagnose missing recipes. Upstream silently ignores archive and class-entry I/O errors.
      *
-     * OpenRewrite's `ClasspathScanningLoader` opens every regular classpath entry with
-     * `new JarFile(...)` and swallows the resulting `IOException`, so a truncated or
-     * otherwise corrupt JAR silently contributes zero recipes. Combined with
-     * `CHECKSUM_POLICY_IGNORE` on the resolver session (a deliberate choice for corporate
-     * proxies that omit checksum files) and `UPDATE_POLICY_DAILY`, a half-written JAR in
-     * the local cache survives indefinitely and can only be inferred from a downstream
-     * symptom: a misleading "Recipe '…' not found", or — when a `rewrite.yaml` composes
-     * recipes the corrupt JAR was supposed to supply — the unresolved-recipe failure
-     * raised by [unresolvedRecipeNames], which blames the recipe names rather than the file.
-     *
-     * This probe mirrors what the scanner will do — directories are scanned as exploded
-     * class/resource trees and are therefore accepted as-is; every regular file must open
-     * as a ZIP/JAR archive and yield readable recipe definitions — and fails loudly,
-     * naming the offending path.
-     *
-     * It must stay the **first** statement of [buildAndActivate]: both downstream failures
-     * above are real diagnoses of their own conditions, so whichever check runs first
-     * decides which cause the user is told about, and the corrupt file is the root cause.
-     *
-     * ## Known gap: corrupt `.class` entries are not detected
-     *
-     * Only the `.yml` and `.yaml` entries under `META-INF/rewrite/` are drained — exactly what
-     * upstream reads eagerly in `addYamlResourcesFromJar` to discover **declarative** recipes. Damage
-     * confined to a `.class` entry is not caught here, and upstream swallows it per entry
-     * as well (`catch (IOException | IllegalArgumentException ignored)` around
-     * `jarFile.getInputStream(entry)` in `buildSuperclassMapFromPath`), so an **imperative**
-     * recipe can still be dropped silently.
-     *
-     * That is a deliberate cost trade rather than an oversight. Decompressing every entry of
-     * every recipe JAR — a realistic run resolves ~95 of them, thousands of class files each,
-     * plus multi-megabyte resources such as `rewrite-spring`'s `classpath.tsv.gz` — would add
-     * seconds to every invocation to catch a failure mode that truncation cannot even produce:
-     * truncation destroys the central directory, which is written last, and that is already
-     * caught by the [JarFile] constructor.
-     *
-     * Draining is in any case not a complete check: [java.util.zip.ZipFile] does not verify
-     * entry CRCs, so corruption that still inflates without error is invisible no matter how
-     * much of the archive is read.
+     * Check archive structure plus the size and CRC of class files and recipe YAML using a
+     * fixed-size buffer. Other resources are not decompressed. This checks storage integrity,
+     * not class bytecode or YAML semantics, and does not change Aether's checksum policy.
+     * Exploded directories must be traversable and their class/recipe files readable.
      */
     private fun verifyReadableArchives(recipeJars: List<Path>) {
-        for (jar in recipeJars) {
-            val problem = archiveProblem(jar) ?: continue
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        for (jar in recipeJars.distinct()) {
+            val problem = archiveProblem(jar, buffer) ?: continue
             val message =
                 "Recipe classpath entry is unusable: $jar ($problem). " +
-                    "The cached artifact is missing or corrupt — delete it and re-run to " +
-                    "fetch a fresh copy."
+                    "Check the path and permissions. If this is a cached artifact, " +
+                    "remove only the affected cached JAR and re-run to fetch a fresh copy; " +
+                    "otherwise restore or rebuild the supplied classpath entry."
             logger.error(message)
             throw IllegalArgumentException(message)
         }
     }
 
-    /**
-     * @return a human-readable description of why [entry] cannot be scanned, or `null`
-     *   when it is usable.
-     */
-    private fun archiveProblem(entry: Path): String? {
-        // Existence and readability are checked before the directory short-circuit: an
-        // exploded recipe directory that exists but cannot be read is just as unusable as
-        // an unreadable JAR, and upstream's Files.walk over it would silently yield nothing.
+    private fun archiveProblem(entry: Path, buffer: ByteArray): String? {
         if (!entry.exists()) return "file does not exist"
         if (!entry.isReadable()) return "file is not readable"
-        // ClasspathScanningLoader walks directories of class files / META-INF resources,
-        // so an exploded classpath entry is legitimate and needs no archive probe.
-        if (entry.isDirectory()) return null
         return try {
-            JarFile(entry.toFile()).use { jar ->
-                // The JarFile constructor reads the ZIP central directory, which is precisely
-                // the structure a truncated download destroys.
-                //
-                // Draining the recipe definitions then covers damage confined to the
-                // entry-data region, which leaves that central directory intact — a local
-                // header or deflate stream broken by a partial overwrite rather than a
-                // truncation. See the "Known gap" note on verifyReadableArchives for what
-                // this deliberately does not cover.
-                jar.entries()
-                    .asSequence()
-                    .filter { candidate -> isRecipeDefinition(candidate) }
-                    .forEach { definition ->
-                        jar.getInputStream(definition).use { stream -> stream.readBytes() }
+            if (entry.isDirectory()) {
+                verifyDirectory(entry.toRealPath(), buffer)
+            } else {
+                if (!entry.isRegularFile()) return "not a regular file or directory"
+                JarFile(entry.toFile()).use { jar ->
+                    for (candidate in jar.entries()) {
+                        if (candidate.isDirectory || !isScannedResource(candidate.name)) continue
+                        try {
+                            val crc = CRC32()
+                            val size = jar.getInputStream(candidate).use { stream ->
+                                drain(stream, buffer, crc)
+                            }
+                            if (size != candidate.size || crc.value != candidate.crc) {
+                                throw IOException("entry size or CRC mismatch")
+                            }
+                        } catch (e: IOException) {
+                            throw IOException("${candidate.name}: ${e.message}", e)
+                        }
                     }
+                }
             }
             null
         } catch (e: IOException) {
-            "not a readable archive: ${e.message ?: e.javaClass.simpleName}"
+            "not readable: ${e.message ?: e.javaClass.simpleName}"
+        } catch (e: SecurityException) {
+            "access or archive verification failed: ${e.message ?: e.javaClass.simpleName}"
         }
     }
 
-    /**
-     * Mirrors the entry filter in upstream `ClasspathScanningLoader.addYamlResourcesFromJar`,
-     * which reads exactly these entries eagerly to discover declarative recipes.
-     */
-    private fun isRecipeDefinition(entry: JarEntry): Boolean = !entry.isDirectory &&
-        entry.name.startsWith(RECIPE_RESOURCE_PREFIX) &&
-        (entry.name.endsWith(".yml") || entry.name.endsWith(".yaml"))
+    private fun verifyDirectory(root: Path, buffer: ByteArray) {
+        Files.walkFileTree(
+            root,
+            object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    val relative = root.relativize(file).joinToString("/")
+                    if (isScannedResource(relative)) {
+                        if (!file.isRegularFile()) throw IOException("not a regular file: $file")
+                        Files.newInputStream(file).use { drain(it, buffer) }
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+            }
+        )
+    }
+
+    private fun drain(stream: InputStream, buffer: ByteArray, crc: CRC32? = null): Long {
+        var size = 0L
+        while (true) {
+            val count = stream.read(buffer)
+            if (count < 0) return size
+            crc?.update(buffer, 0, count)
+            size += count
+        }
+    }
+
+    private fun isScannedResource(name: String): Boolean = name.endsWith(".class") ||
+        (
+            name.startsWith(RECIPE_RESOURCE_PREFIX) &&
+                (name.endsWith(".yml") || name.endsWith(".yaml"))
+            )
 
     private fun buildAndActivate(
         recipeJars: List<Path>,

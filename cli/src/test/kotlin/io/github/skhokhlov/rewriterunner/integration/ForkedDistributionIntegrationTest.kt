@@ -4,6 +4,8 @@ import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
@@ -36,6 +38,75 @@ class ForkedDistributionIntegrationTest :
         }
 
         afterEach { projectDir.toFile().deleteRecursively() }
+
+        test("fat JAR reports a corrupt cached recipe through the forked worker") {
+            val cache = projectDir.resolve("cache")
+            val artifactDir = Files.createDirectories(
+                cache.resolve("repository/com/example/recipes/1.0")
+            )
+            artifactDir.resolve("recipes-1.0.pom").writeText(
+                """
+                <project><modelVersion>4.0.0</modelVersion>
+                <groupId>com.example</groupId><artifactId>recipes</artifactId>
+                <version>1.0</version></project>
+                """.trimIndent()
+            )
+            val jar = artifactDir.resolve("recipes-1.0.jar")
+            JarOutputStream(Files.newOutputStream(jar)).use { out ->
+                out.putNextEntry(JarEntry("META-INF/rewrite/recipes.yml"))
+                out.write(projectDir.resolve("rewrite.yaml").readText().toByteArray())
+                out.closeEntry()
+            }
+            Files.delete(projectDir.resolve("rewrite.yaml"))
+            val javaName = if (System.getProperty(
+                    "os.name"
+                ).contains("win", true)
+            ) {
+                "java.exe"
+            } else {
+                "java"
+            }
+            val java = Path.of(System.getProperty("java.home"), "bin", javaName)
+            val fatJar = Path.of(System.getProperty("rewriterunner.test.fatJar"))
+
+            fun runCli(logName: String): Pair<Int, String> {
+                val log = projectDir.resolve(logName)
+                val process = ProcessBuilder(
+                    java.toString(), "-jar", fatJar.toString(),
+                    "--project-dir=$projectDir",
+                    "--active-recipe=com.example.ReplaceOld",
+                    "--recipe-artifact=com.example:recipes:1.0",
+                    "--cache-dir=$cache",
+                    "--no-maven-central",
+                    "--skip-plugin-run",
+                    "--execution-mode=forked",
+                    "--lst-worker-timeout=30s",
+                    "--dry-run",
+                    "--plain-text-masks=**/*.txt"
+                ).redirectErrorStream(true).redirectOutput(log.toFile()).start()
+                try {
+                    assertTrue(process.waitFor(60, TimeUnit.SECONDS), "CLI timed out")
+                    return process.exitValue() to log.readText()
+                } finally {
+                    if (process.isAlive) {
+                        process.descendants().forEach { it.destroyForcibly() }
+                        process.destroyForcibly()
+                        process.waitFor(5, TimeUnit.SECONDS)
+                    }
+                }
+            }
+
+            val (goodExit, goodOutput) = runCli("good.log")
+            assertEquals(0, goodExit, goodOutput)
+            assertTrue(goodOutput.contains("+new"), goodOutput)
+            Files.write(jar, Files.readAllBytes(jar).copyOf(64))
+            val (badExit, badOutput) = runCli("bad.log")
+            assertTrue(badExit != 0, badOutput)
+            assertTrue(badOutput.contains("Recipe classpath entry is unusable"), badOutput)
+            assertTrue(badOutput.contains("recipes-1.0.jar"), badOutput)
+            assertFalse(badOutput.contains("Recipe 'com.example.ReplaceOld' not found"), badOutput)
+            assertEquals("old\n", projectDir.resolve("sample.txt").readText())
+        }
 
         test("fat JAR starts a separate worker and reports its observed heap") {
             val fatJar = Path.of(System.getProperty("rewriterunner.test.fatJar"))

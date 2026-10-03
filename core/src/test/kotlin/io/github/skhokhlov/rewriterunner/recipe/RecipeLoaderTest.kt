@@ -9,7 +9,10 @@ import java.nio.file.StandardOpenOption
 import java.util.jar.JarEntry
 import java.util.jar.JarFile
 import java.util.jar.JarOutputStream
+import java.util.zip.CRC32
+import java.util.zip.ZipEntry
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import org.openrewrite.ExecutionContext
@@ -392,6 +395,131 @@ class RecipeLoaderTest :
                 (ex.message ?: "").contains("damaged-entry.jar"),
                 "Failure must name the damaged JAR; got: ${ex.message}"
             )
+        }
+
+        test("load activates an imperative recipe from a readable class entry") {
+            val name = "org.openrewrite.FindSourceFiles"
+            val resource = name.replace('.', '/') + ".class"
+            val jar = tempDir.resolve("imperative.jar")
+            JarOutputStream(Files.newOutputStream(jar)).use { out ->
+                out.putNextEntry(JarEntry(resource))
+                javaClass.classLoader.getResourceAsStream(resource)!!.use { it.copyTo(out) }
+                out.closeEntry()
+            }
+            RecipeLoader(NoOpRunnerLogger).use { loader ->
+                assertEquals(name, loader.load(listOf(jar), name, null as Path?).name)
+            }
+        }
+
+        test("load rejects corrupt class data before activating an otherwise valid recipe") {
+            val jar = tempDir.resolve("damaged-class.jar")
+            JarOutputStream(Files.newOutputStream(jar)).use { out ->
+                out.putNextEntry(JarEntry("example/Unused.class"))
+                out.write(ByteArray(256) { it.toByte() })
+                out.closeEntry()
+            }
+            corruptEntryData(jar)
+            val good = writeRecipeJar(tempDir.resolve("good.jar"))
+            val ex = assertFailsWith<IllegalArgumentException> {
+                RecipeLoader(NoOpRunnerLogger).use { loader ->
+                    loader.load(listOf(good, jar), jarRecipeName, null as Path?)
+                }
+            }
+            assertTrue(ex.message.orEmpty().contains("damaged-class.jar"))
+            assertTrue(ex.message.orEmpty().contains("example/Unused.class"))
+        }
+
+        test("load rejects a recipe definition with a CRC mismatch even when it reads cleanly") {
+            val jar = tempDir.resolve("bad-crc.jar")
+            val content = recipeYaml(jarRecipeName).toByteArray()
+            JarOutputStream(Files.newOutputStream(jar)).use { out ->
+                val entry = JarEntry("META-INF/rewrite/test-recipes.yml").apply {
+                    method = ZipEntry.STORED
+                    size = content.size.toLong()
+                    crc = CRC32().apply { update(content) }.value
+                }
+                out.putNextEntry(entry)
+                out.write(content)
+                out.closeEntry()
+            }
+            RecipeLoader(NoOpRunnerLogger).use { loader ->
+                assertEquals(
+                    jarRecipeName,
+                    loader.load(listOf(jar), jarRecipeName, null as Path?).name
+                )
+            }
+            val bytes = Files.readAllBytes(jar)
+            val original = "Declarative recipe".toByteArray()
+            val at = bytes.indices.first { index ->
+                index + original.size <= bytes.size &&
+                    original.indices.all { bytes[index + it] == original[it] }
+            }
+            bytes[at] = 'd'.code.toByte()
+            Files.write(jar, bytes)
+            JarFile(jar.toFile()).use { opened ->
+                opened.getInputStream(opened.entries().nextElement()).use {
+                    assertEquals(content.size, it.readBytes().size)
+                }
+            }
+            val ex = assertFailsWith<IllegalArgumentException> {
+                RecipeLoader(NoOpRunnerLogger).use { loader ->
+                    loader.load(listOf(jar), jarRecipeName, null as Path?)
+                }
+            }
+            assertTrue(ex.message.orEmpty().contains("bad-crc.jar"))
+            assertTrue(ex.message.orEmpty().contains("CRC"))
+        }
+
+        test("load rejects an unreadable nested recipe directory")
+            .config(enabled = unreadablePathsAreEnforceable) {
+                val root = tempDir.resolve("exploded")
+                val nested = Files.createDirectories(root.resolve("META-INF/rewrite"))
+                Files.writeString(nested.resolve("recipe.yml"), recipeYaml(jarRecipeName))
+                nested.toFile().setReadable(false, false)
+                try {
+                    val ex = assertFailsWith<IllegalArgumentException> {
+                        RecipeLoader(NoOpRunnerLogger).use { loader ->
+                            loader.load(listOf(root), jarRecipeName, null as Path?)
+                        }
+                    }
+                    assertTrue(ex.message.orEmpty().contains(root.toString()))
+                    assertTrue(ex.message.orEmpty().contains("Recipe classpath entry is unusable"))
+                } finally {
+                    nested.toFile().setReadable(true, false)
+                }
+            }
+
+        test("load checks recipe files beneath a symbolic link classpath root")
+            .config(enabled = unreadablePathsAreEnforceable) {
+                val root = Files.createDirectories(tempDir.resolve("real-root/META-INF/rewrite"))
+                val yaml = root.resolve("recipe.yml")
+                Files.writeString(yaml, recipeYaml(jarRecipeName))
+                val link = Files.createSymbolicLink(
+                    tempDir.resolve("linked-root"),
+                    root.parent.parent
+                )
+                yaml.toFile().setReadable(false, false)
+                try {
+                    val ex = assertFailsWith<IllegalArgumentException> {
+                        RecipeLoader(NoOpRunnerLogger).use { loader ->
+                            loader.load(listOf(link), jarRecipeName, null as Path?)
+                        }
+                    }
+                    assertTrue(ex.message.orEmpty().contains("Recipe classpath entry is unusable"))
+                    assertTrue(ex.message.orEmpty().contains("linked-root"))
+                } finally {
+                    yaml.toFile().setReadable(true, false)
+                }
+            }
+
+        test("unusable caller supplied paths do not receive unconditional deletion advice") {
+            val missing = tempDir.resolve("caller-owned")
+            val ex = assertFailsWith<IllegalArgumentException> {
+                RecipeLoader(NoOpRunnerLogger).use { loader ->
+                    loader.load(listOf(missing), jarRecipeName, null as Path?)
+                }
+            }
+            assertTrue(ex.message.orEmpty().contains("Check the path and permissions"))
         }
 
         test("load fails and names the file when a recipe JAR path does not exist") {
