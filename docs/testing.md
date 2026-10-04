@@ -143,6 +143,12 @@ shape, a distinct child PID, worker-observed explicit `-Xmx`, disk application, 
 custom change writer in forked mode. Unit tests also cover automatic heap boundaries and configuration
 precedence. Worker failures must not retry the same work in-process.
 
+`WorkerClasspathTest` covers platform separators, mixed absolute/relative entries, empty entries,
+wildcards, and paths with spaces. The protocol suite also launches a coordinator with relative class
+directories and verifies the structured command override. `ForkedDistributionIntegrationTest`
+launches the release fat JAR by a relative path containing spaces against a different project directory,
+runs a local recipe without Maven Central, and verifies the separate default worker and file change.
+
 ## LST fallback type-attribution tests
 
 `FallbackTypeAttributionIntegrationTest` proves that the Stage 1 and Stage 2 classpaths affect

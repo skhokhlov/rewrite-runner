@@ -39,6 +39,59 @@ class ForkedDistributionIntegrationTest :
 
         afterEach { projectDir.toFile().deleteRecursively() }
 
+        test("relative fat JAR starts the default worker in a different project directory") {
+            val launchDir = Files.createTempDirectory("forked-distribution-launch with spaces-")
+            try {
+                val relativeJar = Path.of("lib with spaces", "runner with spaces.jar")
+                val jar = launchDir.resolve(relativeJar)
+                Files.createDirectories(jar.parent)
+                Files.copy(Path.of(System.getProperty("rewriterunner.test.fatJar")), jar)
+                val java = Path.of(
+                    System.getProperty("java.home"),
+                    "bin",
+                    if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"
+                )
+                val log = launchDir.resolve("cli.log")
+                val process = ProcessBuilder(
+                    java.toString(), "-jar", relativeJar.toString(),
+                    "--project-dir=$projectDir",
+                    "--active-recipe=com.example.ReplaceOld",
+                    "--skip-plugin-run",
+                    "--no-maven-central",
+                    "--cache-dir=${projectDir.resolve("cache")}",
+                    "--plain-text-masks=**/*.txt",
+                    "--lst-worker-jvm-arg=-Xmx128m",
+                    "--lst-worker-timeout=30s",
+                    "--output=report"
+                ).directory(launchDir.toFile())
+                    .redirectErrorStream(true)
+                    .redirectOutput(log.toFile())
+                    .start()
+                try {
+                    assertTrue(process.waitFor(60, TimeUnit.SECONDS), "CLI timed out")
+                    assertEquals(0, process.exitValue(), log.readText())
+                    assertEquals("new\n", projectDir.resolve("sample.txt").readText())
+                    val report = projectDir.resolve("openrewrite-report.json").readText()
+                    val worker = Regex("""(?s)\{[^{}]*"executor"\s*:\s*"LST_WORKER"[^{}]*}""")
+                        .find(report)
+                        ?.value
+                    assertNotNull(worker, report)
+                    val workerPid = numberField(worker, "processId")
+                    assertTrue(workerPid > 0)
+                    assertTrue(workerPid != process.pid())
+                    assertFalse(ProcessHandle.of(workerPid).map { it.isAlive }.orElse(false))
+                } finally {
+                    if (process.isAlive) {
+                        process.descendants().forEach { it.destroyForcibly() }
+                        process.destroyForcibly()
+                        process.waitFor(5, TimeUnit.SECONDS)
+                    }
+                }
+            } finally {
+                launchDir.toFile().deleteRecursively()
+            }
+        }
+
         test("fat JAR reports a corrupt cached recipe through the forked worker") {
             val cache = projectDir.resolve("cache")
             val artifactDir = Files.createDirectories(

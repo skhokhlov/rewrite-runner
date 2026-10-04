@@ -16,6 +16,7 @@ fun interface WorkerCommandFactory {
 /** Structured inputs for [WorkerCommandFactory]. */
 data class WorkerCommandRequest(
     val javaExecutable: Path,
+    /** Coordinator classpath with relative and empty entries resolved before the directory change. */
     val classpath: String,
     val mainClass: String,
     val requestDirectory: Path,

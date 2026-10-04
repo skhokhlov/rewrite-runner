@@ -10,6 +10,7 @@ import io.github.skhokhlov.rewriterunner.WorkerCommand
 import io.github.skhokhlov.rewriterunner.WorkerCommandFactory
 import io.github.skhokhlov.rewriterunner.WorkerCommandRequest
 import io.kotest.core.spec.style.FunSpec
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -40,6 +41,59 @@ class ForkedWorkerProtocolLifecycleTest :
         afterEach {
             projectDir.toFile().deleteRecursively()
             cacheDir.toFile().deleteRecursively()
+        }
+
+        test("a custom launcher receives absolute mixed JAR and relative class-directory entries") {
+            val launchDir = Files.createTempDirectory(
+                Path.of("").toAbsolutePath(),
+                "worker launch with spaces-"
+            )
+            try {
+                val classpath = System.getProperty("java.class.path")
+                    .split(File.pathSeparatorChar)
+                    .joinToString(File.pathSeparator) { entry ->
+                        val path = Path.of(entry).toAbsolutePath()
+                        if (Files.isDirectory(
+                                path
+                            )
+                        ) {
+                            launchDir.relativize(path).toString()
+                        } else {
+                            entry
+                        }
+                    }
+                val java = Path.of(
+                    System.getProperty("java.home"),
+                    "bin",
+                    if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"
+                )
+                val log = launchDir.resolve("coordinator.log")
+                val process = ProcessBuilder(
+                    java.toString(),
+                    "-cp",
+                    classpath,
+                    ForkedWorkerFixture::class.java.name,
+                    "relative-coordinator",
+                    projectDir.toString(),
+                    cacheDir.toString()
+                ).directory(launchDir.toFile())
+                    .redirectErrorStream(true)
+                    .redirectOutput(log.toFile())
+                    .start()
+                try {
+                    assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Coordinator timed out")
+                    assertEquals(0, process.exitValue(), Files.readString(log))
+                    assertEquals("unchanged\n", Files.readString(projectDir.resolve("sample.txt")))
+                } finally {
+                    if (process.isAlive) {
+                        process.descendants().forEach { it.destroyForcibly() }
+                        process.destroyForcibly()
+                        process.waitFor(5, TimeUnit.SECONDS)
+                    }
+                }
+            } finally {
+                launchDir.toFile().deleteRecursively()
+            }
         }
 
         test("an incompatible worker handshake is terminal and never retries work in process") {
@@ -357,6 +411,40 @@ object ForkedWorkerFixture {
     @JvmStatic
     fun main(args: Array<String>) {
         when (args.firstOrNull()) {
+            "relative-coordinator" -> {
+                val inheritedClasspath = System.getProperty("java.class.path")
+                    .split(File.pathSeparatorChar)
+                check(inheritedClasspath.any { !Path.of(it).isAbsolute })
+                check(inheritedClasspath.any { Path.of(it).isAbsolute })
+                val expectedClasspath = inheritedClasspath.joinToString(File.pathSeparator) {
+                    Path.of(it).toAbsolutePath().toString()
+                }
+                val factory = WorkerCommandFactory { request ->
+                    check(request.classpath == expectedClasspath) {
+                        "WorkerCommandFactory received unresolved classpath: ${request.classpath}"
+                    }
+                    fixtureCommand("classpath-response", AtomicReference()) {
+                        listOf(it.requestFile.toString(), it.responseFile.toString())
+                    }.create(request).copy(environment = mapOf("WORKER_CLASSPATH_PROBE" to "kept"))
+                }
+                val result = runner(
+                    Path.of(args[1]),
+                    Path.of(args[2]),
+                    factory,
+                    timeout = Duration.ofSeconds(10)
+                ).run()
+                check(
+                    result.executionDiagnostics.executorAttempts.single().outcome ==
+                        ExecutorOutcome.NO_CHANGES
+                )
+            }
+
+            "classpath-response" -> {
+                check(System.getenv("WORKER_CLASSPATH_PROBE") == "kept")
+                emitHandshake()
+                writeSuccessfulResponse(Path.of(args[1]), Path.of(args[2]))
+            }
+
             "incompatible" -> {
                 emitHandshake(protocolVersion = WORKER_PROTOCOL_VERSION + 1)
                 Thread.sleep(Duration.ofMinutes(1).toMillis())

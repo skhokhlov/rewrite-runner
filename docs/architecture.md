@@ -26,6 +26,11 @@ Coordinator JVM
 The fair coordinator gate serializes heavy runner-owned execution. Nested project-owned classpath
 builds remain descendants of the active worker; rewrite-runner does not change their JVM policy.
 
+The LST worker starts in the target project's directory. Before constructing its command, the
+coordinator resolves relative and empty `java.class.path` entries against its own working directory,
+preserving entry order and wildcard semantics. `WorkerCommandFactory` receives this resolved
+classpath too, so a relative CLI JAR or class-directory launch works across the directory change.
+
 | Step | Owner | Description |
 |------|-------|-------------|
 | 0 | Coordinator | Resolve YAML/programmatic/CLI configuration and record the memory plan |
