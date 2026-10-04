@@ -51,6 +51,17 @@ class DependencyResolutionStageTest :
             NoOpRunnerLogger
         )
 
+        // Stage 2 needs build-tool metadata even when every artifact is already local.
+        fun stageWithMavenTree(
+            output: String,
+            context: AetherContext = AetherContext.build(
+                cacheDir.resolve("repository"),
+                logger = NoOpRunnerLogger
+            )
+        ) = object : DependencyResolutionStage(context, NoOpRunnerLogger) {
+            override fun runMavenDependencyTreeOutput(projectDir: Path): String = output
+        }
+
         fun staticParser() = StaticBuildFileParser(NoOpRunnerLogger)
 
         test("resolve honors configured process timeout") {
@@ -935,7 +946,10 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val resolved = assertNotNull(stage().resolve(projectDir, mutableListOf()))
+            val resolved = assertNotNull(
+                stageWithMavenTree("[INFO] +- $group:$artifact:jar:$version:compile")
+                    .resolve(projectDir, mutableListOf())
+            )
             assertTrue(
                 resolved.classpath.any { it.fileName.toString() == "$artifact-$version.jar" },
                 "Should resolve the local artifact; resolved: ${resolved.classpath}"
@@ -1042,9 +1056,10 @@ class DependencyResolutionStageTest :
             val ctx = AetherContext(system, session, fakeRemoteRepo)
 
             val resolved = assertNotNull(
-                DependencyResolutionStage(
-                    ctx,
-                    NoOpRunnerLogger
+                stageWithMavenTree(
+                    "[INFO] +- $group:dep-alpha:jar:1.0:compile\n" +
+                        "[INFO] +- $group:dep-beta:jar:1.0:compile",
+                    ctx
                 ).resolve(projectDir, mutableListOf())
             )
 
@@ -1233,7 +1248,10 @@ class DependencyResolutionStageTest :
                 """.trimIndent()
             )
 
-            val result = assertNotNull(stage().resolve(projectDir, mutableListOf()))
+            val result = assertNotNull(
+                stageWithMavenTree("[INFO] +- $group:$artifact:jar:$version:compile")
+                    .resolve(projectDir, mutableListOf())
+            )
             assertTrue(
                 result.classpath.any { it.fileName.toString() == "$artifact-$version.jar" },
                 "Classpath should contain the resolved JAR"

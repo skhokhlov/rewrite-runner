@@ -46,7 +46,7 @@ jobs:
 
       - name: Forked worker protocol, path, and distribution tests
         run: |
-          .\gradlew.bat --no-daemon :core:test --tests io.github.skhokhlov.rewriterunner.ForkedExecutionTest --tests io.github.skhokhlov.rewriterunner.execution.ForkedWorkerProtocolLifecycleTest --tests io.github.skhokhlov.rewriterunner.plugin.PluginTempFilesTest
+          .\gradlew.bat --no-daemon :core:test --tests io.github.skhokhlov.rewriterunner.ForkedExecutionTest --tests io.github.skhokhlov.rewriterunner.execution.ForkedWorkerProtocolLifecycleTest --tests io.github.skhokhlov.rewriterunner.execution.WorkerClasspathTest --tests io.github.skhokhlov.rewriterunner.plugin.PluginTempFilesTest
           .\gradlew.bat --no-daemon :cli:testIntegration --tests io.github.skhokhlov.rewriterunner.integration.ForkedDistributionIntegrationTest
 
   plugin-real:

@@ -22,6 +22,7 @@ import io.github.skhokhlov.rewriterunner.plugin.createPrivateTempDirectory
 import io.github.skhokhlov.rewriterunner.plugin.createPrivateTempFile
 import io.github.skhokhlov.rewriterunner.plugin.deleteRecursively
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStream
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -553,7 +554,10 @@ internal class ForkedLstExecutor(
         val request =
             WorkerCommandRequest(
                 javaExecutable = javaExecutable,
-                classpath = System.getProperty("java.class.path"),
+                classpath = resolveWorkerClasspath(
+                    System.getProperty("java.class.path"),
+                    Path.of("").toAbsolutePath()
+                ),
                 mainClass = WorkerMain::class.java.name,
                 requestDirectory = directory,
                 requestFile = requestFile,
@@ -623,6 +627,22 @@ internal class ForkedLstExecutor(
         }
     }
 }
+
+/** Resolves launcher entries before the worker changes directory, retaining JVM wildcard syntax. */
+internal fun resolveWorkerClasspath(classpath: String, coordinatorDirectory: Path): String =
+    classpath.split(File.pathSeparatorChar).joinToString(File.pathSeparator) { entry ->
+        // Strip the wildcard before creating a Path: '*' is not a valid Windows path character.
+        val wildcard = entry == "*" || entry.endsWith("/*") || entry.endsWith("${File.separator}*")
+        val path = Path.of(if (wildcard) entry.dropLast(1) else entry)
+        if (path.isAbsolute) {
+            entry
+        } else {
+            // Empty entries mean the coordinator's current directory. Avoid normalization so
+            // '..' retains its meaning when a classpath traverses a symbolic link.
+            val absolute = coordinatorDirectory.resolve(path).toAbsolutePath().toString()
+            if (wildcard) "$absolute${File.separator}*" else absolute
+        }
+    }
 
 private fun ResolvedExecutionRequest.toWire(): WorkerRequestPayload = WorkerRequestPayload(
     requestId = requestId,
