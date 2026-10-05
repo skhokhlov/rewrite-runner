@@ -137,7 +137,9 @@ using the test JVM's `kotest.tags` property; class names and workflow class list
 Root `check` runs untagged tests and lint. `productionCheck` runs all five lanes and builds
 the release fat JAR. Offline integration includes fake wrappers, per-language coverage, and real
 nested-Gradle fallback attribution; it reuses the current Gradle distribution without downloads.
-Worker tests include core protocol/path coverage and the CLI fat-JAR distribution scenarios.
+Worker tests include core protocol/path and disk-application coverage plus the CLI fat-JAR
+distribution scenarios. Windows-only DOS attribute coverage uses `Assumptions.assumeTrue` inside
+the test, so it is reported as skipped on other systems; OS selection does not use class tags.
 The live-plugin and container lanes require their external prerequisites: missing network,
 toolchain, Docker, or image prerequisites fail the task. Tag publication runs `productionCheck`.
 

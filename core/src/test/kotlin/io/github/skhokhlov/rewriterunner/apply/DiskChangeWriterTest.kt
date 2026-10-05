@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.apply
 
 import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -13,7 +14,9 @@ import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
 
+@Tags("worker")
 class DiskChangeWriterTest :
     FunSpec({
         var projectDir: Path = Path.of("")
@@ -116,40 +119,42 @@ class DiskChangeWriterTest :
             }
         }
 
-        if (System.getProperty("os.name", "").lowercase().contains("windows")) {
-            test("DOS read-only sources publish updated content before reporting removal failure") {
-                val original = projectDir.resolve("old.txt")
-                val target = projectDir.resolve("new.txt")
-                original.writeText("old\n")
-                val originalView = Files.getFileAttributeView(
-                    original,
-                    DosFileAttributeView::class.java
+        test("DOS read-only sources publish updated content before reporting removal failure") {
+            assumeTrue(
+                System.getProperty("os.name", "").lowercase().contains("windows"),
+                "Requires Windows DOS read-only file semantics"
+            )
+            val original = projectDir.resolve("old.txt")
+            val target = projectDir.resolve("new.txt")
+            original.writeText("old\n")
+            val originalView = Files.getFileAttributeView(
+                original,
+                DosFileAttributeView::class.java
+            )
+            originalView.setReadOnly(true)
+            try {
+                val result = rewriteResult("old.txt", "old\n", "new\n", "new.txt")
+
+                val outcome = DiskChangeWriter(
+                    projectDir,
+                    NoOpRunnerLogger
+                ).apply(listOf(result))
+
+                assertEquals("new\n", target.readText())
+                assertTrue(
+                    Files.getFileAttributeView(target, DosFileAttributeView::class.java)
+                        .readAttributes().isReadOnly
                 )
-                originalView.setReadOnly(true)
-                try {
-                    val result = rewriteResult("old.txt", "old\n", "new\n", "new.txt")
-
-                    val outcome = DiskChangeWriter(
-                        projectDir,
-                        NoOpRunnerLogger
-                    ).apply(listOf(result))
-
-                    assertEquals("new\n", target.readText())
-                    assertTrue(
-                        Files.getFileAttributeView(target, DosFileAttributeView::class.java)
-                            .readAttributes().isReadOnly
-                    )
-                    assertEquals("old\n", original.readText())
-                    assertTrue(originalView.readAttributes().isReadOnly)
-                    assertTrue(outcome.successes.isEmpty())
-                    assertEquals(1, outcome.failures.size)
-                    assertEquals("new.txt", outcome.failures.single().path)
-                } finally {
-                    originalView.setReadOnly(false)
-                    if (target.exists()) {
-                        Files.getFileAttributeView(target, DosFileAttributeView::class.java)
-                            .setReadOnly(false)
-                    }
+                assertEquals("old\n", original.readText())
+                assertTrue(originalView.readAttributes().isReadOnly)
+                assertTrue(outcome.successes.isEmpty())
+                assertEquals(1, outcome.failures.size)
+                assertEquals("new.txt", outcome.failures.single().path)
+            } finally {
+                originalView.setReadOnly(false)
+                if (target.exists()) {
+                    Files.getFileAttributeView(target, DosFileAttributeView::class.java)
+                        .setReadOnly(false)
                 }
             }
         }
