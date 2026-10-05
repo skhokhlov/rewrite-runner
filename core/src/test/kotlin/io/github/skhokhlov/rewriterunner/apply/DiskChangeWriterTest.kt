@@ -4,6 +4,7 @@ import io.github.skhokhlov.rewriterunner.NoOpRunnerLogger
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.DosFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -87,6 +88,69 @@ class DiskChangeWriterTest :
                     permissions,
                     Files.getPosixFilePermissions(projectDir.resolve("new.txt"))
                 )
+            }
+        }
+
+        if (projectDir.fileSystem.supportedFileAttributeViews().contains("posix")) {
+            for (mode in listOf("r--r--r--", "r-xr-xr-x")) {
+                test("renames write new content before restoring non-writable permissions $mode") {
+                    val original = projectDir.resolve("old.txt")
+                    original.writeText("old\n")
+                    val permissions = PosixFilePermissions.fromString(mode)
+                    Files.setPosixFilePermissions(original, permissions)
+                    val result = rewriteResult("old.txt", "old\n", "new\n", "new.txt")
+
+                    val outcome = DiskChangeWriter(
+                        projectDir,
+                        NoOpRunnerLogger
+                    ).apply(listOf(result))
+
+                    assertTrue(outcome.failures.isEmpty())
+                    assertFalse(original.exists())
+                    assertEquals("new\n", projectDir.resolve("new.txt").readText())
+                    assertEquals(
+                        permissions,
+                        Files.getPosixFilePermissions(projectDir.resolve("new.txt"))
+                    )
+                }
+            }
+        }
+
+        if (System.getProperty("os.name", "").lowercase().contains("windows")) {
+            test("DOS read-only sources publish updated content before reporting removal failure") {
+                val original = projectDir.resolve("old.txt")
+                val target = projectDir.resolve("new.txt")
+                original.writeText("old\n")
+                val originalView = Files.getFileAttributeView(
+                    original,
+                    DosFileAttributeView::class.java
+                )
+                originalView.setReadOnly(true)
+                try {
+                    val result = rewriteResult("old.txt", "old\n", "new\n", "new.txt")
+
+                    val outcome = DiskChangeWriter(
+                        projectDir,
+                        NoOpRunnerLogger
+                    ).apply(listOf(result))
+
+                    assertEquals("new\n", target.readText())
+                    assertTrue(
+                        Files.getFileAttributeView(target, DosFileAttributeView::class.java)
+                            .readAttributes().isReadOnly
+                    )
+                    assertEquals("old\n", original.readText())
+                    assertTrue(originalView.readAttributes().isReadOnly)
+                    assertTrue(outcome.successes.isEmpty())
+                    assertEquals(1, outcome.failures.size)
+                    assertEquals("new.txt", outcome.failures.single().path)
+                } finally {
+                    originalView.setReadOnly(false)
+                    if (target.exists()) {
+                        Files.getFileAttributeView(target, DosFileAttributeView::class.java)
+                            .setReadOnly(false)
+                    }
+                }
             }
         }
 

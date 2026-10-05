@@ -130,9 +130,12 @@ and any apply failures.
 
 Results whose before and after paths differ are applied as renames and reported as `MODIFIED`
 at the destination path. The destination content is staged and published without replacing an
-existing file before the original is removed. Regular-file attributes (including executable
-permissions) are copied from the original during staging. An occupied destination (including a directory or
-symlink) is an apply failure and preserves both paths. Case-only moves are rejected on every
+existing file before the original is removed. POSIX permissions (including executable
+bits) and DOS flags are restored from regular-file originals after writing staged content. A read-only
+source therefore does not prevent destination staging. If the filesystem refuses to delete the
+original (for example, a Windows read-only file), it remains intact and removal is reported as an apply
+failure. An occupied destination (including a directory or symlink) is an apply failure and preserves
+both paths. Case-only moves are rejected on every
 filesystem to avoid deleting the destination through an alias on case-insensitive filesystems;
 use an intermediate name in a separate run if needed. Equivalent normalized paths are ordinary
 modifications.
