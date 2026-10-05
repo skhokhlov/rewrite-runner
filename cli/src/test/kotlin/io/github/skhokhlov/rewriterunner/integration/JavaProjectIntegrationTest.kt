@@ -1,6 +1,7 @@
 package io.github.skhokhlov.rewriterunner.integration
 
 import io.github.skhokhlov.rewriterunner.RewriteRunner
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,6 +21,7 @@ import kotlin.test.assertTrue
  * runs the CLI, and asserts on the transformed output — analogous to OpenRewrite's
  * rewriteRun(java("before", "after")) pattern but exercised end-to-end via the CLI.
  */
+@Tags("integration")
 class JavaProjectIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")

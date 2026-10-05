@@ -9,6 +9,7 @@ import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.WorkerCommand
 import io.github.skhokhlov.rewriterunner.WorkerCommandFactory
 import io.github.skhokhlov.rewriterunner.WorkerCommandRequest
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.io.File
 import java.nio.file.Files
@@ -27,6 +28,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** Exercises actual child JVM lifecycle and framing failures through the public builder seam. */
+@Tags("worker")
 class ForkedWorkerProtocolLifecycleTest :
     FunSpec({
         var projectDir: Path = Path.of("")

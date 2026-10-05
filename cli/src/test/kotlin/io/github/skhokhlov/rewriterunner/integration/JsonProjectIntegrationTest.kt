@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -14,6 +15,7 @@ import kotlin.test.assertTrue
  * Verifies that .json files are parsed and modified via the CLI, using
  * text-level (FindAndReplace) and structured JSON recipes (AddKeyValue, ChangeValue).
  */
+@Tags("integration")
 class JsonProjectIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")

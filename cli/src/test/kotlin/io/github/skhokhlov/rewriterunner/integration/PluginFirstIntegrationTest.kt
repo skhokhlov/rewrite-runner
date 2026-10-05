@@ -6,6 +6,7 @@ import io.github.skhokhlov.rewriterunner.LogicalExecutor
 import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.lst.SpecializedOwnership
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -17,6 +18,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
+@Tags("integration")
 class PluginFirstIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")

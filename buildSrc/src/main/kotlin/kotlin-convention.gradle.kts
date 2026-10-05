@@ -21,6 +21,21 @@ tasks.withType<Test> {
     jvmArgs("-Xmx2g")
 }
 
+// The default lane runs untagged tests. Kotest owns tag selection (these are Kotest
+// specs, not Jupiter tests); task-local properties keep aggregate runs independent.
+tasks.named<Test>("test") {
+    systemProperty("kotest.tags", "!integration & !worker & !real-plugin & !container")
+}
+
+tasks.register<Test>("testWorker") {
+    group = "verification"
+    description = "Runs tests tagged worker, including cross-platform forked execution."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    systemProperty("kotest.tags", "worker")
+    shouldRunAfter(tasks.named("test"))
+}
+
 // Resolve ktlint CLI locally in each subproject to avoid cross-project configuration resolution
 // (required for Gradle 9 project isolation / configuration cache compatibility).
 val ktlintCli by configurations.creating {

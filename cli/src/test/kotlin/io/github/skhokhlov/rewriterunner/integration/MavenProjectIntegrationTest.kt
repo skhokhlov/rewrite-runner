@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -18,6 +19,7 @@ import kotlin.test.assertTrue
  *
  * All tests use `--include-extensions .xml` to exercise the MavenParser routing path.
  */
+@Tags("integration")
 class MavenProjectIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")

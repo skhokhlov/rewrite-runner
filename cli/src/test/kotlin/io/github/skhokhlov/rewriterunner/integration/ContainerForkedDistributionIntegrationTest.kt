@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,6 +17,7 @@ import kotlin.test.assertTrue
  * from the offline integration suite: Docker and the Java 21 runtime image are prerequisites and
  * an unavailable prerequisite is a failure, not a skip.
  */
+@Tags("container")
 class ContainerForkedDistributionIntegrationTest :
     FunSpec({
         var root: Path = Path.of("")

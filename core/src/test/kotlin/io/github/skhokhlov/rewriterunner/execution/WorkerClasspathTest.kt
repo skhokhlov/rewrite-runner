@@ -1,10 +1,12 @@
 package io.github.skhokhlov.rewriterunner.execution
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.io.File
 import java.nio.file.Path
 import kotlin.test.assertEquals
 
+@Tags("worker")
 class WorkerClasspathTest :
     FunSpec({
         val coordinator = Path.of("").toAbsolutePath().resolve("coordinator with spaces")

@@ -63,20 +63,8 @@ afterEvaluate {
         .withVariantsFromConfiguration(configurations["shadowRuntimeElements"]) { skip() }
 }
 
-// Test partitioning. All test code lives in one source set (shares BaseIntegrationTest helpers
-// and `ToolchainCache`); the four lanes are split by Gradle `Test.filter` class-name patterns
-// rather than by Kotest tags. The split mirrors the CI jobs:
-//
-//   :cli:test           → unit-only (RunCommandTest et al.; excludes *IntegrationTest)
-//   :cli:testIntegration → offline integration suite; no network or toolchain downloads
-//   :cli:testRealPlugin → real OpenRewrite Maven/Gradle plugins from Maven Central
-//   :cli:testContainer  → release fat JAR in a real Docker cgroup
-//
-// Integration tests follow the `*IntegrationTest` class-name convention (enforced by the
-// `failOnNoMatchingTests` flags below — a typo would surface immediately).
-private val integrationClassPattern = "*IntegrationTest"
-private val realPluginClassPattern = "*PluginRealExecutionIntegrationTest"
-private val containerIntegrationClassPattern = "*ContainerForkedDistributionIntegrationTest"
+// Test classes declare their CI lane with Kotest @Tags. Untagged classes run in `test`.
+// All lanes share one source set so fixtures and ToolchainCache remain reusable.
 
 // Pin the Gradle distribution used by real-plugin tests to the same version the repo itself
 // uses (see gradle/wrapper/gradle-wrapper.properties). Read eagerly at configuration time so a
@@ -102,12 +90,14 @@ private val currentGradleExecutable: String = requireNotNull(gradle.gradleHomeDi
     })
     .absolutePath
 
-// `:cli:test` runs unit tests only. Integration suites are dedicated tasks so CI can select
-// offline, real-plugin, and container evidence independently.
-tasks.named<Test>("test") {
-    filter {
-        excludeTestsMatching(integrationClassPattern)
-        isFailOnNoMatchingTests = false
+// The shared convention selects untagged tests by default and registers testWorker.
+tasks.named<Test>("testWorker") {
+    dependsOn(tasks.shadowJar)
+    doFirst {
+        systemProperty(
+            "rewriterunner.test.fatJar",
+            tasks.shadowJar.get().archiveFile.get().asFile.absolutePath
+        )
     }
 }
 
@@ -120,21 +110,9 @@ tasks.register<Test>("testIntegration") {
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     useJUnitPlatform()
-    filter {
-        includeTestsMatching(integrationClassPattern)
-        excludeTestsMatching(realPluginClassPattern)
-        excludeTestsMatching(containerIntegrationClassPattern)
-        isFailOnNoMatchingTests = true
-    }
-    shouldRunAfter(tasks.named("test"))
-    dependsOn(tasks.shadowJar)
-    doFirst {
-        systemProperty(
-            "rewriterunner.test.fatJar",
-            tasks.shadowJar.get().archiveFile.get().asFile.absolutePath
-        )
-        systemProperty("rewriterunner.test.gradleExecutable", currentGradleExecutable)
-    }
+    systemProperty("kotest.tags", "integration")
+    shouldRunAfter(tasks.named("testWorker"))
+    systemProperty("rewriterunner.test.gradleExecutable", currentGradleExecutable)
 }
 
 // Real-plugin integration tests: download Maven/Gradle distributions on first run and execute
@@ -146,10 +124,7 @@ tasks.register<Test>("testRealPlugin") {
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     useJUnitPlatform()
-    filter {
-        includeTestsMatching(realPluginClassPattern)
-        isFailOnNoMatchingTests = true
-    }
+    systemProperty("kotest.tags", "real-plugin")
     // Bridge the Gradle version from the wrapper into the test JVM so ToolchainCache picks it up.
     systemProperty("rewriterunner.test.gradleVersion", realPluginGradleVersion)
     timeout.set(Duration.ofMinutes(20))
@@ -165,10 +140,7 @@ tasks.register<Test>("testContainer") {
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     useJUnitPlatform()
-    filter {
-        includeTestsMatching(containerIntegrationClassPattern)
-        isFailOnNoMatchingTests = true
-    }
+    systemProperty("kotest.tags", "container")
     dependsOn(tasks.shadowJar)
     doFirst {
         systemProperty(

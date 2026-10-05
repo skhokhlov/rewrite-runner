@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -14,6 +15,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** Exercises the release-shaped fat JAR rather than an in-process Picocli helper. */
+@Tags("worker")
 class ForkedDistributionIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")

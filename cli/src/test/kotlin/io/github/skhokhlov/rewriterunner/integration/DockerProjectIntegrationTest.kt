@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,6 +17,7 @@ import kotlin.test.assertTrue
  * (`.dockerfile`, `.containerfile`) and by filename prefix (`Dockerfile*`,
  * `Containerfile*`) when `.dockerfile` is in the effective extension set.
  */
+@Tags("integration")
 class DockerProjectIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")
