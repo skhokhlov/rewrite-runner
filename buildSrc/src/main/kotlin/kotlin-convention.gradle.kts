@@ -1,4 +1,5 @@
 import org.gradle.api.attributes.Bundling
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
@@ -19,6 +20,7 @@ kotlin {
 tasks.withType<Test> {
     useJUnitPlatform()
     jvmArgs("-Xmx2g")
+    testLogging.exceptionFormat = TestExceptionFormat.FULL
 }
 
 // The default lane runs untagged tests. Kotest owns tag selection (these are Kotest
