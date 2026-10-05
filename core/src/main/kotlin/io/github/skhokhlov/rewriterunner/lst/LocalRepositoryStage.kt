@@ -45,14 +45,22 @@ import kotlin.io.path.exists
  * @param projectDir Root directory of the project, used to locate project-local
  *   cache roots (`.m2/repository`, `.gradle/caches`).
  */
-open class LocalRepositoryStage(private val projectDir: Path, val logger: RunnerLogger) {
+open class LocalRepositoryStage internal constructor(
+    private val projectDir: Path,
+    val logger: RunnerLogger,
+    userHome: Path
+) {
+    /** Uses the standard global and project-local Maven/Gradle cache roots. */
+    constructor(projectDir: Path, logger: RunnerLogger) :
+        this(projectDir, logger, Paths.get(System.getProperty("user.home")))
+
     private val m2Roots: List<Path> = listOf(
-        Paths.get(System.getProperty("user.home"), ".m2", "repository"),
+        userHome.resolve(".m2/repository"),
         projectDir.resolve(".m2").resolve("repository")
     )
 
     private val gradleCacheRoots: List<Path> = listOf(
-        Paths.get(System.getProperty("user.home"), ".gradle", "caches"),
+        userHome.resolve(".gradle/caches"),
         projectDir.resolve(".gradle").resolve("caches")
     )
 
@@ -75,7 +83,7 @@ open class LocalRepositoryStage(private val projectDir: Path, val logger: Runner
      *   `JavaType.Unknown` in the LST.
      */
     open fun findAvailableJars(declaredCoordinates: List<String>): List<Path> {
-        val found = mutableListOf<Path>()
+        val found = linkedSetOf<Path>()
         val notFound = mutableListOf<String>()
 
         for (coord in declaredCoordinates) {
@@ -96,7 +104,7 @@ open class LocalRepositoryStage(private val projectDir: Path, val logger: Runner
         }
 
         logger.info("Stage 3 — using ${found.size} locally cached JAR(s)")
-        return found
+        return found.toList()
     }
 
     // ─── ~/.m2 + projectDir/.m2 ───────────────────────────────────────────────

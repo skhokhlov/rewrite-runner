@@ -77,8 +77,11 @@ private val JVM_SOURCE_EXTENSIONS = setOf(".java", ".kt", ".kts", ".groovy", ".g
  * **Maven POM parsing** — `pom.xml` files are routed to [org.openrewrite.maven.MavenParser],
  * producing `Xml.Document` nodes annotated with [org.openrewrite.maven.tree.MavenResolutionResult]
  * and related Maven markers. All other `*.xml` files use [org.openrewrite.xml.XmlParser].
+ *
+ * @param localRepositoryStageFactory Creates Stage 4 for the current project directory, only
+ *   when stages 1–3 do not resolve a classpath. Defaults to local Maven/Gradle cache lookup.
  */
-open class LstBuilder(
+open class LstBuilder @JvmOverloads constructor(
     private val logger: RunnerLogger,
     private val cacheDir: Path,
     private val toolConfig: ToolConfig,
@@ -103,7 +106,10 @@ open class LstBuilder(
     private val buildFileParseStage: BuildFileParseStage = BuildFileParseStage(
         aetherContext,
         logger
-    )
+    ),
+    private val localRepositoryStageFactory: (Path) -> LocalRepositoryStage = { dir ->
+        LocalRepositoryStage(dir, logger)
+    }
 ) {
     private val fileCollector = FileCollector()
     private val versionDetector = VersionDetector(logger)
@@ -726,9 +732,9 @@ open class LstBuilder(
         .buildscriptClasspath(gradleDslClasspath)
         .build()
 
-    /** Creates the [LocalRepositoryStage] used for Stage 4. Overrideable in tests. */
+    /** Creates Stage 4 through the injected factory. Retained for subclass compatibility. */
     protected open fun createLocalRepositoryStage(projectDir: Path): LocalRepositoryStage =
-        LocalRepositoryStage(projectDir, logger)
+        localRepositoryStageFactory(projectDir)
 
     /** Creates the [MavenParser] used for `pom.xml` files. Overrideable in tests. */
     protected open fun buildMavenParser(): MavenParser = MavenParser.builder().build()

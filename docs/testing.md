@@ -64,6 +64,12 @@ class MyProjectBuildStage : ProjectBuildStage(NoOpRunnerLogger) {
 }
 ```
 
+Stage 4 can be substituted through `LstBuilder(localRepositoryStageFactory = { projectDir -> ... })`
+without subclassing the builder. Cache lookup tests use a temporary home directory through the
+internal `LocalRepositoryStage` constructor and seed both roots when asserting precedence.
+Builder tests seed a real dependency JAR and assert Java type attribution to distinguish a cache
+hit from an empty fallback.
+
 ### Capturing log output in tests
 
 ```kotlin

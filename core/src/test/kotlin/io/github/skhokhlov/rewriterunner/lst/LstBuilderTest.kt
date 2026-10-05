@@ -23,6 +23,8 @@ import org.openrewrite.ParseExceptionResult
 import org.openrewrite.Parser
 import org.openrewrite.SourceFile
 import org.openrewrite.java.internal.JavaTypeCache
+import org.openrewrite.java.tree.J
+import org.openrewrite.java.tree.JavaType
 import org.openrewrite.marker.Markers
 import org.openrewrite.marker.OperatingSystemProvenance
 import org.openrewrite.maven.MavenParser
@@ -54,7 +56,10 @@ class LstBuilderTest :
 
         fun lstBuilder(
             buildTool: ProjectBuildStage = failingBuildTool,
-            logger: RunnerLogger = NoOpRunnerLogger
+            logger: RunnerLogger = NoOpRunnerLogger,
+            localRepositoryStageFactory: (Path) -> LocalRepositoryStage = { dir ->
+                LocalRepositoryStage(dir, logger, projectDir.resolve("isolated-home"))
+            }
         ): LstBuilder {
             val noOpDepStage =
                 object : DependencyResolutionStage(
@@ -88,8 +93,53 @@ class LstBuilderTest :
                 toolConfig = toolConfig,
                 projectBuildStage = buildTool,
                 depResolutionStage = noOpDepStage,
-                buildFileParseStage = noOpBuildFileStage
+                buildFileParseStage = noOpBuildFileStage,
+                localRepositoryStageFactory = localRepositoryStageFactory
             )
+        }
+
+        fun seedDependencyJar(jar: Path) {
+            val fixtureDir = Files.createTempDirectory("stage4-dependency-")
+            try {
+                val source = fixtureDir.resolve("CachedType.java")
+                source.writeText("package fixture; public class CachedType {}")
+                val compiler = assertNotNull(javax.tools.ToolProvider.getSystemJavaCompiler())
+                assertEquals(
+                    0,
+                    compiler.run(null, null, null, "-d", fixtureDir.toString(), source.toString())
+                )
+                java.util.jar.JarOutputStream(Files.newOutputStream(jar)).use { output ->
+                    output.putNextEntry(java.util.jar.JarEntry("fixture/CachedType.class"))
+                    Files.copy(fixtureDir.resolve("fixture/CachedType.class"), output)
+                    output.closeEntry()
+                }
+            } finally {
+                fixtureDir.toFile().deleteRecursively()
+            }
+        }
+
+        fun assertCachedTypeResolved(result: LstBuildResult) {
+            val source = result.sourceFiles.single() as J.CompilationUnit
+            val field = source.classes.single().body.statements.single() as J.VariableDeclarations
+            assertEquals(
+                "fixture.CachedType",
+                (field.type as JavaType.FullyQualified).fullyQualifiedName
+            )
+        }
+
+        test("does not create Stage 4 when an earlier stage resolves the classpath") {
+            val jar = projectDir.resolve("cached.jar")
+            seedDependencyJar(jar)
+            val buildTool = object : ProjectBuildStage(NoOpRunnerLogger) {
+                override fun extractClasspath(projectDir: Path): List<Path> = listOf(jar)
+            }
+            projectDir.resolve("Hello.java").writeText("class Hello { fixture.CachedType value; }")
+            val result = lstBuilder(
+                buildTool = buildTool,
+                localRepositoryStageFactory = { error("Stage 4 should not be created") }
+            ).build(projectDir)
+            assertEquals(UsedExecutionStage.BUILD_TOOL, result.executionDiagnostics.stageUsed)
+            assertCachedTypeResolved(result)
         }
 
         // ─── Path-glob exclusion (integration smoke tests) ────────────────────────
@@ -1327,26 +1377,22 @@ class LstBuilderTest :
                     }
                 }
             val builder =
-                object : LstBuilder(
+                LstBuilder(
                     logger = capturingLogger,
                     cacheDir = projectDir.resolve("cache"),
                     toolConfig = toolConfig,
                     projectBuildStage = trackingBuildTool,
                     depResolutionStage = trackingDepStage,
-                    buildFileParseStage = trackingBuildFileStage
-                ) {
-                    override fun createLocalRepositoryStage(
-                        projectDir: Path
-                    ): LocalRepositoryStage =
+                    buildFileParseStage = trackingBuildFileStage,
+                    localRepositoryStageFactory = {
+                        stage4Calls++
                         object : LocalRepositoryStage(projectDir, NoOpRunnerLogger) {
                             override fun findAvailableJars(
                                 declaredCoordinates: List<String>
-                            ): List<Path> {
-                                stage4Calls++
-                                return emptyList()
-                            }
+                            ): List<Path> = emptyList()
                         }
-                }
+                    }
+                )
 
             builder.build(projectDir = projectDir)
 
@@ -1641,7 +1687,7 @@ class LstBuilderTest :
         }
 
         test("executionDiagnostics stageUsed is LOCAL_REPOSITORY when only stage 4 finds JARs") {
-            val fakeJar = projectDir.resolve("cached.jar").also { it.writeText("") }
+            val fakeJar = projectDir.resolve("cached.jar").also { seedDependencyJar(it) }
             val noOpDepStage =
                 object : DependencyResolutionStage(
                     AetherContext.build(
@@ -1669,30 +1715,30 @@ class LstBuilderTest :
                     ): ClasspathResolutionResult? = null
                 }
             val builderWithFakeStage4 =
-                object : LstBuilder(
+                LstBuilder(
                     logger = NoOpRunnerLogger,
                     cacheDir = projectDir.resolve("cache"),
                     toolConfig = toolConfig,
                     projectBuildStage = failingBuildTool,
                     depResolutionStage = noOpDepStage,
-                    buildFileParseStage = noOpBuildFileStage
-                ) {
-                    override fun createLocalRepositoryStage(
-                        projectDir: Path
-                    ): LocalRepositoryStage =
+                    buildFileParseStage = noOpBuildFileStage,
+                    localRepositoryStageFactory = { dir ->
+                        assertEquals(projectDir, dir)
                         object : LocalRepositoryStage(projectDir, NoOpRunnerLogger) {
                             override fun findAvailableJars(
                                 declaredCoordinates: List<String>
                             ): List<Path> = listOf(fakeJar)
                         }
-                }
+                    }
+                )
 
-            projectDir.resolve("Hello.java").writeText("class Hello {}")
+            projectDir.resolve("Hello.java").writeText("class Hello { fixture.CachedType value; }")
             val lstBuildResult =
                 builderWithFakeStage4.build(
                     projectDir = projectDir
                 )
 
+            assertCachedTypeResolved(lstBuildResult)
             assertEquals(
                 UsedExecutionStage.LOCAL_REPOSITORY,
                 lstBuildResult.executionDiagnostics.stageUsed,
@@ -2182,5 +2228,50 @@ class LstBuilderTest :
             assertTrue(
                 coordFailures.any { it.path == "com.example:also bad:2.0" }
             )
+        }
+        test("default Stage 4 factory selects a seeded project-local cache") {
+            val group = "fixture.${java.util.UUID.randomUUID()}"
+            val jarDir = projectDir.resolve(".m2/repository/${group.replace('.', '/')}/lib/1.0")
+                .also { it.createDirectories() }
+            val jar = jarDir.resolve("lib-1.0.jar")
+            seedDependencyJar(jar)
+            projectDir.resolve("build.gradle").writeText(
+                "dependencies { implementation '$group:lib:1.0' }"
+            )
+            projectDir.resolve("Hello.java").writeText("class Hello { fixture.CachedType value; }")
+
+            // Deliberately omit the factory parameter to exercise the production default
+            // through both Kotlin default arguments and the existing Java constructor.
+            val builders = listOf(
+                LstBuilder(
+                    logger = NoOpRunnerLogger,
+                    cacheDir = projectDir.resolve("cache"),
+                    toolConfig = toolConfig,
+                    projectBuildStage = failingBuildTool,
+                    depResolutionStage = noOpDepStage(),
+                    buildFileParseStage = noOpBuildFileStage()
+                ),
+                JavaLstBuilderFixture.create(
+                    NoOpRunnerLogger,
+                    projectDir.resolve("cache"),
+                    toolConfig,
+                    AetherContext.build(
+                        projectDir.resolve("cache/repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    failingBuildTool,
+                    noOpDepStage(),
+                    noOpBuildFileStage()
+                )
+            )
+            for (builder in builders) {
+                val result = builder.build(projectDir, excludePaths = listOf("build.gradle"))
+                assertCachedTypeResolved(result)
+                assertEquals(
+                    UsedExecutionStage.LOCAL_REPOSITORY,
+                    result.executionDiagnostics.stageUsed
+                )
+                assertEquals(1, result.executionDiagnostics.resolvedJarCount)
+            }
         }
     })
