@@ -123,10 +123,28 @@ data class WriteOutcome(
 
 ### Write outcomes
 
-On the in-process LST path, rewrite-runner attempts every create, modify, and delete result and
+On the forked and in-process LST paths, rewrite-runner attempts every create, modify, and delete result and
 collects failures instead of failing fast or silently swallowing them. `changedFiles` contains only
 successfully applied non-delete paths; inspect `executionDiagnostics.writeOutcome` for deleted files
 and any apply failures.
+
+Results whose before and after paths differ are applied as renames and reported as `MODIFIED`
+at the destination path. The destination content is staged and published without replacing an
+existing file before the original is removed. POSIX permissions (including executable
+bits) and DOS flags are restored from regular-file originals after writing staged content. A read-only
+source therefore does not prevent destination staging. If the filesystem refuses to delete the
+original (for example, a Windows read-only file), it remains intact and removal is reported as an apply
+failure. An occupied destination (including a directory or symlink) is an apply failure and preserves
+both paths. Case-only moves are rejected on every
+filesystem to avoid deleting the destination through an alias on case-insensitive filesystems;
+use an intermediate name in a separate run if needed. Equivalent normalized paths are ordinary
+modifications.
+
+A destination write failure preserves the original. If removal of the original fails after publication,
+the destination remains on disk and the result is reported as an apply failure, so it is excluded
+from `changedFiles`. Renames are per-file operations, not a transaction across the whole result list;
+rename chains and swaps with occupied destinations fail rather than overwriting another source.
+Dry-run leaves both paths untouched. Official plugin application uses the plugin's own behavior.
 
 The CLI exits `1` when `writeOutcome.failed` is true and prints a concise stderr summary before
 returning. Library callers should make the same check when partial disk application must fail their
