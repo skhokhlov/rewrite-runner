@@ -81,7 +81,7 @@ private val JVM_SOURCE_EXTENSIONS = setOf(".java", ".kt", ".kts", ".groovy", ".g
  * @param localRepositoryStageFactory Creates Stage 4 for the current project directory, only
  *   when stages 1–3 do not resolve a classpath. Defaults to local Maven/Gradle cache lookup.
  */
-open class LstBuilder(
+open class LstBuilder @JvmOverloads constructor(
     private val logger: RunnerLogger,
     private val cacheDir: Path,
     private val toolConfig: ToolConfig,

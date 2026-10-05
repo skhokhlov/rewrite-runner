@@ -2240,17 +2240,38 @@ class LstBuilderTest :
             )
             projectDir.resolve("Hello.java").writeText("class Hello { fixture.CachedType value; }")
 
-            // Deliberately omit the factory parameter to exercise the production default.
-            val result = LstBuilder(
-                logger = NoOpRunnerLogger,
-                cacheDir = projectDir.resolve("cache"),
-                toolConfig = toolConfig,
-                projectBuildStage = failingBuildTool,
-                depResolutionStage = noOpDepStage(),
-                buildFileParseStage = noOpBuildFileStage()
-            ).build(projectDir, excludePaths = listOf("build.gradle"))
-            assertCachedTypeResolved(result)
-            assertEquals(UsedExecutionStage.LOCAL_REPOSITORY, result.executionDiagnostics.stageUsed)
-            assertEquals(1, result.executionDiagnostics.resolvedJarCount)
+            // Deliberately omit the factory parameter to exercise the production default
+            // through both Kotlin default arguments and the existing Java constructor.
+            val builders = listOf(
+                LstBuilder(
+                    logger = NoOpRunnerLogger,
+                    cacheDir = projectDir.resolve("cache"),
+                    toolConfig = toolConfig,
+                    projectBuildStage = failingBuildTool,
+                    depResolutionStage = noOpDepStage(),
+                    buildFileParseStage = noOpBuildFileStage()
+                ),
+                JavaLstBuilderFixture.create(
+                    NoOpRunnerLogger,
+                    projectDir.resolve("cache"),
+                    toolConfig,
+                    AetherContext.build(
+                        projectDir.resolve("cache/repository"),
+                        logger = NoOpRunnerLogger
+                    ),
+                    failingBuildTool,
+                    noOpDepStage(),
+                    noOpBuildFileStage()
+                )
+            )
+            for (builder in builders) {
+                val result = builder.build(projectDir, excludePaths = listOf("build.gradle"))
+                assertCachedTypeResolved(result)
+                assertEquals(
+                    UsedExecutionStage.LOCAL_REPOSITORY,
+                    result.executionDiagnostics.stageUsed
+                )
+                assertEquals(1, result.executionDiagnostics.resolvedJarCount)
+            }
         }
     })
