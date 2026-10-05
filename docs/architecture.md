@@ -144,7 +144,9 @@ project directory plus the parse-failure accumulator and returns either a
 - **Stage 1** (`ProjectBuildStage`): Runs the project's own build tool to extract the exact compile classpath. It iterates discovered build units, so root-less monorepos with module-local build files can still use build-tool classpaths. On success, it also attempts compilation when no project class dirs exist yet and collects Gradle project data for markers.
 - **Stage 2** (`DependencyResolutionStage`): Runs `mvn dependency:tree` / `gradle dependencies` subprocesses per discovered build unit and resolves downloaded JARs directly via Aether. Supports Maven-only, Gradle-only, mixed, and root-less projects. Falls through when subprocesses fail or resolve no JARs.
 - **Stage 3** (`BuildFileParseStage`): Parses `pom.xml` and `build.gradle(.kts)` statically (no subprocess) for all discovered modules, then resolves via full Maven Resolver POM traversal to obtain transitive dependencies. Falls through when no build files exist or resolution fails.
-- **Stage 4** (`LocalRepositoryStage` adapter): Scans `~/.m2` and `~/.gradle/caches` for already-cached JARs matching Stage 3's declared coordinates. Falls through when no cached JARs are found, leaving the orchestrator to produce the single empty result.
+- **Stage 4** (`LocalRepositoryStage` adapter): Created lazily for the current project through
+  the `LstBuilder` constructor parameter `localRepositoryStageFactory`, which callers can substitute
+  without subclassing the builder. The default scans `~/.m2` and `~/.gradle/caches` for already-cached JARs matching Stage 3's declared coordinates. Falls through when no cached JARs are found, leaving the orchestrator to produce the single empty result.
 
 Stages 1 and 2 use the build-unit model recorded in
 [`docs/adr/0001-build-unit-classpath-resolution.md`](adr/0001-build-unit-classpath-resolution.md).

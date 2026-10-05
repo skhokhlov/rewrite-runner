@@ -26,32 +26,45 @@ private class CapturingLogger : RunnerLogger {
 class LocalRepositoryStageTest :
     FunSpec({
         var projectDir: Path = Path.of("")
+        var userHome: Path = Path.of("")
 
-        beforeEach { projectDir = Files.createTempDirectory("dpst-") }
+        beforeEach {
+            projectDir = Files.createTempDirectory("lrst-")
+            userHome = Files.createTempDirectory("lrst-home-")
+        }
 
-        afterEach { projectDir.toFile().deleteRecursively() }
+        afterEach {
+            projectDir.toFile().deleteRecursively()
+            userHome.toFile().deleteRecursively()
+        }
+
+        fun seedJar(root: Path, relativePath: String): Path {
+            val jar = root.resolve(relativePath)
+            Files.createDirectories(jar.parent)
+            Files.write(jar, ByteArray(0))
+            return jar
+        }
 
         test("returns empty list when no coordinates provided") {
-            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
+            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
             val result = stage.findAvailableJars(emptyList())
             assertEquals(0, result.size)
         }
 
         test("returns empty list when no local JARs match") {
-            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
-            // Use a coordinate that certainly won't be in any local cache
+            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
             val result =
                 stage.findAvailableJars(listOf("com.example.nonexistent:ultra-rare-lib:99.99.99"))
             assertEquals(0, result.size, "Should return empty when JAR is not locally cached")
         }
 
         test("only returns paths that actually exist on disk") {
-            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
-            val result =
-                stage.findAvailableJars(
-                    listOf("com.example:ghost-lib:1.0", "org.phantom:unknown:2.0")
-                )
-            // Every returned path must exist
+            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
+            val jar = seedJar(projectDir, ".m2/repository/com/example/lib/1.0/lib-1.0.jar")
+            val result = stage.findAvailableJars(
+                listOf("com.example:lib:1.0", "org.phantom:unknown:2.0")
+            )
+            assertEquals(listOf(jar), result)
             result.forEach { path ->
                 assertTrue(path.toFile().exists(), "Returned path $path must exist on disk")
             }
@@ -59,7 +72,7 @@ class LocalRepositoryStageTest :
 
         test("logs warning for each unresolved coordinate") {
             val log = CapturingLogger()
-            val stage = LocalRepositoryStage(projectDir, log)
+            val stage = LocalRepositoryStage(projectDir, log, userHome)
             stage.findAvailableJars(listOf("com.example:missing:9.9.9"))
             val warnings = log.entries.filter { it.level == "WARN" }
             assertTrue(
@@ -73,7 +86,7 @@ class LocalRepositoryStageTest :
         }
 
         test("handles malformed coordinates gracefully") {
-            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
+            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
             // Coordinates with fewer than 3 parts should be silently skipped
             val result = stage.findAvailableJars(listOf("com.example:lib", "groupOnly"))
             assertEquals(
@@ -84,7 +97,7 @@ class LocalRepositoryStageTest :
         }
 
         test("ignores coordinates with empty segments") {
-            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
+            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
             // Coordinates that have the right number of colons but blank fields
             // (e.g. a typo like "com.example::1.0") must be rejected, not silently
             // passed through as Coord("com.example", "", "1.0") which produces a
@@ -113,7 +126,7 @@ class LocalRepositoryStageTest :
             // polluting that warning with it gives users a misleading signal that they need
             // to populate their cache for a dependency that was never declared correctly.
             val log = CapturingLogger()
-            LocalRepositoryStage(projectDir, log).findAvailableJars(
+            LocalRepositoryStage(projectDir, log, userHome).findAvailableJars(
                 listOf(
                     "com.example::1.0", // empty artifactId
                     ":artifact:1.0", // empty groupId
@@ -133,30 +146,18 @@ class LocalRepositoryStageTest :
         }
 
         test("result list contains no duplicates") {
-            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
-            // Even if two coordinates could hypothetically resolve to the same JAR, no duplicates
+            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
+            val jar = seedJar(projectDir, ".m2/repository/com/example/lib/1.0/lib-1.0.jar")
             val result =
                 stage.findAvailableJars(listOf("com.example:lib:1.0", "com.example:lib:1.0"))
-            val paths = result.map { it.toString() }
-            assertEquals(
-                paths.distinct(),
-                paths,
-                "findAvailableJars should not return duplicate paths"
-            )
+            assertEquals(listOf(jar), result)
         }
 
-        test("commonly cached JARs are found when present in local m2") {
-            // This test verifies Stage 3 works for real — if commons-lang3 happens to be in
-            // the local Maven cache (which is likely on a developer machine), it should be found.
-            val stage = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
-            val result =
-                stage.findAvailableJars(listOf("org.apache.commons:commons-lang3:3.12.0"))
-
-            // We can't guarantee the JAR is cached, but if it is found it must be a real file
-            result.forEach { path ->
-                assertTrue(path.toFile().exists(), "Found path $path must exist on disk")
-                assertTrue(path.toString().endsWith(".jar"), "Found path should be a JAR")
-            }
+        test("finds JAR seeded in global m2") {
+            val jar = seedJar(userHome, ".m2/repository/com/example/lib/1.0/lib-1.0.jar")
+            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
+                .findAvailableJars(listOf("com.example:lib:1.0"))
+            assertEquals(listOf(jar), result)
         }
 
         // ─── Project-local cache discovery ───────────────────────────────────────
@@ -171,7 +172,7 @@ class LocalRepositoryStageTest :
             val jar = artifactDir.resolve("$artifact-$version.jar").toFile()
                 .also { it.writeBytes(ByteArray(0)) }
 
-            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
+            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
                 .findAvailableJars(listOf("$group:$artifact:$version"))
 
             assertTrue(result.any { it == jar.toPath() }, "Should find JAR in projectDir/.m2")
@@ -188,7 +189,7 @@ class LocalRepositoryStageTest :
             val jar = artifactDir.resolve("$artifact-$version.jar").toFile()
                 .also { it.writeBytes(ByteArray(0)) }
 
-            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
+            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
                 .findAvailableJars(listOf("$group:$artifact:$version"))
 
             assertTrue(
@@ -200,20 +201,32 @@ class LocalRepositoryStageTest :
         }
 
         test("prefers global m2 over project-local m2 for same coordinate") {
-            // Both roots contain the JAR; whichever is checked first (global) is returned.
-            // This test seeds only the project-local root and verifies a match is still found.
-            val group = "com.example"
-            val artifact = "prefer-test"
-            val version = "3.0"
-            val localDir = projectDir
-                .resolve(".m2/repository/${group.replace('.', '/')}/$artifact/$version")
-            localDir.toFile().mkdirs()
-            val localJar = localDir.resolve("$artifact-$version.jar").toFile()
-                .also { it.writeBytes(ByteArray(0)) }
+            val relativePath = ".m2/repository/com/example/lib/1.0/lib-1.0.jar"
+            val globalJar = seedJar(userHome, relativePath)
+            seedJar(projectDir, relativePath)
+            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
+                .findAvailableJars(listOf("com.example:lib:1.0"))
+            assertEquals(listOf(globalJar), result)
+        }
 
-            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger)
-                .findAvailableJars(listOf("$group:$artifact:$version"))
+        test("prefers project-local m2 over global Gradle cache") {
+            val mavenJar = seedJar(projectDir, ".m2/repository/com/example/lib/1.0/lib-1.0.jar")
+            seedJar(
+                userHome,
+                ".gradle/caches/modules-2/files-2.1/com.example/lib/1.0/hash/lib-1.0.jar"
+            )
+            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
+                .findAvailableJars(listOf("com.example:lib:1.0"))
+            assertEquals(listOf(mavenJar), result)
+        }
 
-            assertTrue(result.any { it == localJar.toPath() }, "Project-local JAR should be found")
+        test("prefers global Gradle cache over project-local Gradle cache") {
+            val relativePath =
+                ".gradle/caches/modules-2/files-2.1/com.example/lib/1.0/hash/lib-1.0.jar"
+            val globalJar = seedJar(userHome, relativePath)
+            seedJar(projectDir, relativePath)
+            val result = LocalRepositoryStage(projectDir, NoOpRunnerLogger, userHome)
+                .findAvailableJars(listOf("com.example:lib:1.0"))
+            assertEquals(listOf(globalJar), result)
         }
     })
