@@ -32,3 +32,8 @@ still applied.
 
 `RunResult.changedFiles` remains the list of successfully applied non-delete paths for compatibility.
 Callers that need the full apply story should read `RunResult.executionDiagnostics.writeOutcome`.
+
+Renamed LST sources retain the `MODIFIED` outcome kind and destination path. Disk application
+stages the destination content, publishes it without replacement, then deletes the original.
+Publication or removal errors are apply failures. Existing destinations and case-only moves are
+rejected; a removal failure can leave both paths present and is never reported as success.

@@ -17,8 +17,13 @@ internal fun plainText(path: String, text: String): SourceFile = PlainTextParser
     }.toList()
     .single()
 
-internal fun rewriteResult(path: String, before: String?, after: String?): Result = Result(
+internal fun rewriteResult(
+    path: String,
+    before: String?,
+    after: String?,
+    afterPath: String = path
+): Result = Result(
     before?.let { plainText(path, it) },
-    after?.let { plainText(path, it) },
+    after?.let { plainText(afterPath, it) },
     emptyList<List<Recipe>>()
 )

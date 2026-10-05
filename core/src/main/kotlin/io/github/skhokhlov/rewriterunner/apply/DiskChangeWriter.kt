@@ -1,8 +1,12 @@
 package io.github.skhokhlov.rewriterunner.apply
 
 import io.github.skhokhlov.rewriterunner.RunnerLogger
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption.COPY_ATTRIBUTES
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import kotlin.io.path.writeText
 import org.openrewrite.Result
 
@@ -55,11 +59,41 @@ internal class DiskChangeWriter(private val projectDir: Path, private val logger
                 val after = checkNotNull(result.after) {
                     "Result after source is missing for $kind change"
                 }
-                val target = projectDir.resolve(after.sourcePath)
-                target.parent?.let { Files.createDirectories(it) }
-                target.writeText(after.printAll(), Charsets.UTF_8)
+                val target = projectDir.resolve(after.sourcePath).toAbsolutePath().normalize()
+                val original = result.before?.sourcePath
+                    ?.let { projectDir.resolve(it).toAbsolutePath().normalize() }
+                // Windows Path.equals ignores case; compare spelling to detect case-only moves.
+                if (original != null && original.toString() != target.toString()) {
+                    applyRename(original, target, after.printAll())
+                } else {
+                    target.parent?.let { Files.createDirectories(it) }
+                    target.writeText(after.printAll(), Charsets.UTF_8)
+                }
                 logger.info("      Wrote ${after.sourcePath}")
             }
         }
+    }
+
+    private fun applyRename(original: Path, target: Path, content: String) {
+        require(!original.toString().equals(target.toString(), ignoreCase = true)) {
+            "Case-only renames are not supported: $original -> $target"
+        }
+        if (Files.exists(target, NOFOLLOW_LINKS)) {
+            throw FileAlreadyExistsException(target.toString())
+        }
+        Files.createDirectories(target.parent)
+        val staged = Files.createTempFile(target.parent, ".rewrite-runner-", ".tmp")
+        try {
+            if (Files.isRegularFile(original)) {
+                Files.copy(original, staged, REPLACE_EXISTING, COPY_ATTRIBUTES)
+            }
+            staged.writeText(content, Charsets.UTF_8)
+            // No REPLACE_EXISTING: a collision must preserve both files, including symlinks.
+            Files.move(staged, target)
+        } finally {
+            Files.deleteIfExists(staged)
+        }
+        // A removal failure leaves the published destination in place and is an ApplyFailure.
+        Files.delete(original)
     }
 }
