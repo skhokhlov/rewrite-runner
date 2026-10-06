@@ -61,7 +61,8 @@ class ForkedWorkerProtocolLifecycleTest :
                         ) {
                             launchDir.relativize(path).toString()
                         } else {
-                            entry
+                            // Valid redundant separators prove absolute entries retain their spelling.
+                            entry.replace(File.separator, File.separator + File.separator)
                         }
                     }
                 val java = Path.of(
@@ -418,8 +419,11 @@ object ForkedWorkerFixture {
                     .split(File.pathSeparatorChar)
                 check(inheritedClasspath.any { !Path.of(it).isAbsolute })
                 check(inheritedClasspath.any { Path.of(it).isAbsolute })
-                val expectedClasspath = inheritedClasspath.joinToString(File.pathSeparator) {
-                    Path.of(it).toAbsolutePath().toString()
+                val expectedClasspath = inheritedClasspath.joinToString(
+                    File.pathSeparator
+                ) { entry ->
+                    val path = Path.of(entry)
+                    if (path.isAbsolute) entry else path.toAbsolutePath().toString()
                 }
                 val factory = WorkerCommandFactory { request ->
                     check(request.classpath == expectedClasspath) {

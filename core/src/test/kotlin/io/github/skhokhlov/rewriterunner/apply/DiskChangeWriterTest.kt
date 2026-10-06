@@ -64,7 +64,7 @@ class DiskChangeWriterTest :
             assertFalse(projectDir.resolve("old.txt").exists())
             assertEquals("new\n", projectDir.resolve("nested/new.txt").readText())
             assertEquals(
-                listOf(AppliedChange(ChangeKind.MODIFIED, "nested/new.txt")),
+                listOf(AppliedChange(ChangeKind.MODIFIED, Path.of("nested", "new.txt").toString())),
                 outcome.successes
             )
             assertTrue(outcome.failures.isEmpty())
@@ -174,7 +174,10 @@ class DiskChangeWriterTest :
             assertEquals(listOf(AppliedChange(ChangeKind.CREATED, "ok.txt")), outcome.successes)
             assertEquals(1, outcome.failures.size)
             assertEquals(ChangeKind.MODIFIED, outcome.failures.single().kind)
-            assertEquals("blocked-parent/new.txt", outcome.failures.single().path)
+            assertEquals(
+                Path.of("blocked-parent", "new.txt").toString(),
+                outcome.failures.single().path
+            )
             assertTrue(outcome.failed)
         }
 
@@ -286,7 +289,7 @@ class DiskChangeWriterTest :
             assertEquals(listOf(AppliedChange(ChangeKind.CREATED, "ok.txt")), outcome.successes)
             assertEquals(2, outcome.failures.size)
             assertEquals(ChangeKind.CREATED, outcome.failures[0].kind)
-            assertEquals("blocked-parent/new.txt", outcome.failures[0].path)
+            assertEquals(Path.of("blocked-parent", "new.txt").toString(), outcome.failures[0].path)
             assertTrue(outcome.failures[0].cause.isNotBlank())
             assertEquals(ChangeKind.DELETED, outcome.failures[1].kind)
             assertEquals("non-empty-dir", outcome.failures[1].path)
