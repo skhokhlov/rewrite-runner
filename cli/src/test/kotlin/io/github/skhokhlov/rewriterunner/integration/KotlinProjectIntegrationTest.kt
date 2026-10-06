@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -15,6 +16,7 @@ import kotlin.test.assertTrue
  * Uses [org.openrewrite.kotlin.format.AutoFormat] to verify that .kt files are
  * parsed by the Kotlin OpenRewrite parser and that formatting changes are applied.
  */
+@Tags("integration")
 class KotlinProjectIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")

@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,6 +21,7 @@ import kotlin.test.assertTrue
  * In addition, `.gradle` files receive the Gradle DSL classpath on top of the project
  * classpath, enabling Gradle API types to resolve in build scripts.
  */
+@Tags("integration")
 class GroovyProjectIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")

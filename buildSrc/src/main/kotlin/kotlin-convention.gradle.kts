@@ -1,4 +1,5 @@
 import org.gradle.api.attributes.Bundling
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.gradle.testing.jacoco.tasks.JacocoReport
 
 plugins {
@@ -16,9 +17,30 @@ kotlin {
     jvmToolchain(21)
 }
 
+val sharedTestSources = rootProject.layout.projectDirectory.dir("test-support/src/main/kotlin")
+kotlin.sourceSets["test"].kotlin.srcDir(sharedTestSources)
+
 tasks.withType<Test> {
     useJUnitPlatform()
+    systemProperty("rewriterunner.test.classes", sourceSets["test"].output.classesDirs.asPath)
+    systemProperty("rewriterunner.test.lanes", "worker")
     jvmArgs("-Xmx2g")
+    testLogging.exceptionFormat = TestExceptionFormat.FULL
+}
+
+// The default lane runs untagged tests. Kotest owns tag selection (these are Kotest
+// specs, not Jupiter tests); task-local properties keep aggregate runs independent.
+tasks.named<Test>("test") {
+    systemProperty("kotest.tags", "!integration & !worker & !real-plugin & !container")
+}
+
+tasks.register<Test>("testWorker") {
+    group = "verification"
+    description = "Runs tests tagged worker, including cross-platform forked execution."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    systemProperty("kotest.tags", "worker")
+    shouldRunAfter(tasks.named("test"))
 }
 
 // Resolve ktlint CLI locally in each subproject to avoid cross-project configuration resolution
@@ -41,7 +63,7 @@ tasks.register<JavaExec>("ktlintCheck") {
     description = "Check Kotlin code style with ktlint (Google Android code style)."
     classpath = ktlintCli
     mainClass.set("com.pinterest.ktlint.Main")
-    args("--reporter=plain", "src/**/*.kt")
+    args("--reporter=plain", "src/**/*.kt", "${sharedTestSources.asFile}/**/*.kt")
     workingDir = projectDir
 }
 
@@ -52,7 +74,7 @@ tasks.register<JavaExec>("ktlintFormat") {
     classpath = ktlintCli
     mainClass.set("com.pinterest.ktlint.Main")
     jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
-    args("--format", "src/**/*.kt")
+    args("--format", "src/**/*.kt", "${sharedTestSources.asFile}/**/*.kt")
     workingDir = projectDir
 }
 

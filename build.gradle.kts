@@ -42,16 +42,18 @@ dependencies {
     dokka(project(":cli"))
 }
 
-// `check` remains the offline release signal: it includes unit tests plus the integration suite,
-// whose coordinator/worker boundary and fallback-attribution Gradle builds use real processes.
-// The live plugin lane stays explicit for local development but is part of the aggregate
-// production gate.
+// `check` is the default untagged lane. The production gate explicitly adds every
+// tagged lane so release verification covers the entire suite.
+// A dependency on root `check` does not implicitly select the subprojects' checks.
 tasks.named("check") {
-    dependsOn(":cli:testIntegration")
+    dependsOn(":core:check", ":cli:check")
 }
 
 tasks.register("productionCheck") {
     group = "verification"
     description = "Runs every configured production verification lane and builds the release fat JAR."
-    dependsOn("check", ":cli:testRealPlugin", ":cli:testContainer", ":cli:shadowJar")
+    dependsOn(
+        "check", ":core:testWorker", ":cli:testWorker", ":cli:testIntegration",
+        ":cli:testRealPlugin", ":cli:testContainer", ":cli:shadowJar"
+    )
 }

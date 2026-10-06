@@ -45,6 +45,7 @@ dependencies {
     // Tests
     testImplementation(libs.logback.classic)
     testImplementation(libs.kotest.runner.junit5)
+    testImplementation(libs.junit.jupiter.api)
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

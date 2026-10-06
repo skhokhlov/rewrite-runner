@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.plugin
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.FileSystems
 import java.nio.file.Files
@@ -15,6 +16,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** Runs in the Windows worker job as well as on POSIX, where the two permission mechanisms differ. */
+@Tags("worker")
 class PluginTempFilesTest :
     FunSpec({
         test("private transport directories and files are owner-only") {

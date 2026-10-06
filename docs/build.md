@@ -45,8 +45,9 @@ Chosen for **Gradle 9.x + JDK 25 compatibility**:
 
 ```bash
 ./gradlew shadowJar          # Build fat JAR → cli/build/libs/cli-1.0-SNAPSHOT-all.jar
-./gradlew test               # Run all tests
-./gradlew check              # Run tests + ktlintCheck
+./gradlew test               # Run untagged tests
+./gradlew productionCheck    # Run every test lane + lint + release fat JAR
+./gradlew check              # Run untagged tests + ktlintCheck
 ./gradlew ktlintCheck        # Lint only
 ./gradlew ktlintFormat       # Auto-fix lint issues
 ./gradlew jacocoTestReport   # Generate coverage report (auto-runs after test)
@@ -56,32 +57,36 @@ Chosen for **Gradle 9.x + JDK 25 compatibility**:
 ## CI/CD
 
 ### Build workflow (`.github/workflows/build.yml`)
-Triggers on push/PR to `main`/`master`. Offline checks gate the Windows worker and live-plugin
-jobs; container acceptance follows the live-plugin lane.
+Triggers on push/PR to `main`/`master`. The first stage runs untagged tests and lint;
+subsequent stages select class tags through dedicated Gradle tasks. No workflow enumerates tests.
 
-**`unit` job** (offline checks):
+**`unit` job** (default checks):
 1. Set up JDK 21 (Temurin)
-2. `./gradlew check shadowJar` — unit tests and lint plus `:cli:testIntegration`. The integration
-   task includes per-language tests, fake-wrapper Stage 0 coverage, and the real nested-Gradle
-   fallback-attribution fixture. Nested Gradle reuses the current distribution and runs offline.
-3. Fat JAR is produced as a build artifact of the same command
+2. `./gradlew check shadowJar` — untagged tests, lint, and the release fat JAR
 
-**`windows-worker` job** (needs `unit`):
+**`integration` job** (needs `unit`):
 1. Set up JDK 21 (Temurin)
-2. Run the focused core worker protocol/path tests and the fat-JAR distribution test on Windows.
+2. `./gradlew :cli:testIntegration` — selects the `integration` tag. Includes per-language tests,
+   fake-wrapper Stage 0 coverage, and nested-Gradle fallback attribution using the current
+   distribution offline.
 
-**`plugin-real` job** (real-plugin lane, needs `unit`):
+**`windows-worker` job** (Linux/Windows matrix, needs `unit`):
 1. Set up JDK 21 (Temurin)
-2. Cache `~/.m2/repository` and `cli/build/test-cache/toolchains/` (the toolchain cache key embeds `hashFiles('gradle/wrapper/gradle-wrapper.properties')` so bumping the wrapper auto-evicts the stale Gradle distribution)
-3. `./gradlew :cli:testRealPlugin --info` — runs only `PluginRealExecutionIntegrationTest` against the live OpenRewrite Maven/Gradle plugins
-4. Timeout: 25 minutes (covers first-run downloads from Maven Central)
+2. `./gradlew :core:testWorker :cli:testWorker` — selects the `worker` tag on both platforms.
+
+**`plugin-real` job** (needs `integration` and `windows-worker`):
+1. Set up JDK 21 (Temurin)
+2. Cache `~/.m2/repository` and `cli/build/test-cache/toolchains/` (the cache key includes the wrapper hash)
+3. `./gradlew :cli:testRealPlugin --info` — selects `real-plugin` against live OpenRewrite plugins
+4. Timeout: 25 minutes (covers first-run downloads)
 
 **`container` job** (needs `plugin-real`):
 1. Set up JDK 21 (Temurin)
-2. Run the release fat JAR under a real 2 GiB Docker cgroup.
+2. `./gradlew :cli:testContainer --info` — selects `container` and runs the release fat JAR
+   under a real 2 GiB Docker cgroup.
 
-Because the external-environment jobs depend on earlier evidence, an offline regression never
-spends CI minutes downloading plugin toolchains or starting container acceptance.
+`./gradlew productionCheck` runs all lanes on the current platform. External-environment jobs
+depend on earlier evidence, so offline regressions stop the expensive plugin and container stages.
 
 ### Publish workflow (`.github/workflows/publish.yml`)
 Triggers on `v*` tags. Publishes `core` and the `cli` thin JAR (with sources, javadoc, and

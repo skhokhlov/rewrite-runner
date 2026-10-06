@@ -7,6 +7,7 @@ import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.RunResult
 import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -29,6 +30,7 @@ import org.openrewrite.internal.InMemoryLargeSourceSet
 import org.openrewrite.java.ChangeType
 import org.openrewrite.java.JavaParser
 
+@Tags("integration")
 class FallbackTypeAttributionIntegrationTest :
     FunSpec({
         test("ChangeType requires the external type to be attributed") {

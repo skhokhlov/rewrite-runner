@@ -9,6 +9,7 @@ import io.github.skhokhlov.rewriterunner.RunnerLogger
 import io.github.skhokhlov.rewriterunner.WorkerCommand
 import io.github.skhokhlov.rewriterunner.WorkerCommandFactory
 import io.github.skhokhlov.rewriterunner.WorkerCommandRequest
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.io.File
 import java.nio.file.Files
@@ -27,6 +28,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** Exercises actual child JVM lifecycle and framing failures through the public builder seam. */
+@Tags("worker")
 class ForkedWorkerProtocolLifecycleTest :
     FunSpec({
         var projectDir: Path = Path.of("")
@@ -59,7 +61,8 @@ class ForkedWorkerProtocolLifecycleTest :
                         ) {
                             launchDir.relativize(path).toString()
                         } else {
-                            entry
+                            // Valid redundant separators prove absolute entries retain their spelling.
+                            entry.replace(File.separator, File.separator + File.separator)
                         }
                     }
                 val java = Path.of(
@@ -416,8 +419,11 @@ object ForkedWorkerFixture {
                     .split(File.pathSeparatorChar)
                 check(inheritedClasspath.any { !Path.of(it).isAbsolute })
                 check(inheritedClasspath.any { Path.of(it).isAbsolute })
-                val expectedClasspath = inheritedClasspath.joinToString(File.pathSeparator) {
-                    Path.of(it).toAbsolutePath().toString()
+                val expectedClasspath = inheritedClasspath.joinToString(
+                    File.pathSeparator
+                ) { entry ->
+                    val path = Path.of(entry)
+                    if (path.isAbsolute) entry else path.toAbsolutePath().toString()
                 }
                 val factory = WorkerCommandFactory { request ->
                     check(request.classpath == expectedClasspath) {

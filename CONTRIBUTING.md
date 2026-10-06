@@ -171,28 +171,19 @@ Run `ktlintFormat` before committing to avoid CI failures. The `ktlintCheck` tas
 
 ### Test lanes
 
-Tests are split into three lanes by Gradle `Test.filter` class-name pattern (no Kotest tags). All test code lives in one source set; the filter decides which classes run in each task. CI runs the three lanes as sequential jobs so a failure surfaces at the right stage.
+Tests use class-level Kotest `@Tags` annotations. The first build stage runs untagged tests by default; each later stage selects its own tag. Class names do not select a lane.
 
-| Lane | Task | What it runs | Network |
-|------|------|--------------|---------|
-| Unit | `./gradlew test` | `core` module + `RunCommandTest`; **excludes** `*IntegrationTest`. Wired into `check`. | None |
-| Integration (fake wrappers) | `./gradlew :cli:testIntegration` | All `*IntegrationTest` classes **except** `PluginRealExecutionIntegrationTest` — per-language LST coverage plus Stage 0 orchestration driven by fake `gradlew`/`mvnw` shell scripts. | None (offline-safe) |
-| Integration (real plugins) | `./gradlew :cli:testRealPlugin` | `PluginRealExecutionIntegrationTest` only — exercises the real OpenRewrite Maven/Gradle plugins. `ToolchainCache` downloads the Maven/Gradle distributions on first run (cached under `cli/build/test-cache/toolchains/`) and the plugin artifacts come from Maven Central. | Maven Central + distribution mirrors |
+| Lane | Class tag | Task | Requirements |
+|------|-----------|------|--------------|
+| Default | None | `./gradlew check` | Untagged tests and lint |
+| Offline integration | `integration` | `./gradlew :cli:testIntegration` | Fake wrappers and nested Gradle fallback |
+| Worker | `worker` | `./gradlew :core:testWorker :cli:testWorker` | Native JVM/process and filesystem contracts on Linux and Windows |
+| Real plugins | `real-plugin` | `./gradlew :cli:testRealPlugin` | Network access and downloaded toolchains |
+| Container | `container` | `./gradlew :cli:testContainer` | Docker |
 
-`check` runs **only** the unit lane (plus `ktlintCheck`); it does **not** depend on the two integration tasks. Run them explicitly:
+Run `./gradlew productionCheck` for all lanes and the release fat JAR. Run `./gradlew check :cli:testIntegration` for default and offline integration verification.
 
-```bash
-# Fast offline verification before pushing:
-./gradlew check :cli:testIntegration
-
-# Full pass including the live-plugin lane (~5 min warm, <15 min cold):
-./gradlew :cli:testRealPlugin
-
-# Single real-plugin scenario, for iteration:
-./gradlew :cli:testRealPlugin --tests "*maven multi-module*"
-```
-
-The real-plugin lane skips itself (JUnit assumption, not a failure) when Maven Central is unreachable or on Windows.
+Gradle validates every compiled spec before filtering tests: unknown tags, tags without a task in the module, multiple lane tags, and untagged specs in the integration package fail verification. Default specs remain untagged. External prerequisites must be available for the corresponding lanes; Windows-only cases use JUnit assumptions inside the test body to skip on other systems.
 
 ### Stage 0 plugin coverage
 
@@ -203,10 +194,11 @@ Stage 0 (plugin-first execution) is covered by two complementary tiers that shar
 
 ### Conventions
 
-- New integration test classes must end in `IntegrationTest` (enforced by `failOnNoMatchingTests = true` on the integration tasks — a typo surfaces immediately).
+- Put integration specs in `io.github.skhokhlov.rewriterunner.integration` and annotate the class with exactly one of `@Tags("integration")`, `@Tags("worker")`, `@Tags("real-plugin")`, or `@Tags("container")`. Leave ordinary default specs untagged.
+- Use Kotest class annotations, not test-body tags or OS tags. The `IntegrationTest` suffix is a naming convention only.
 - Use `@TempDir` (JUnit 5) for temporary directories.
 - Use `kotlin.test` assertions (`assertEquals`, `assertTrue`, etc.).
-- Integration tests should use `BaseIntegrationTest.runCli()` to exercise the full CLI.
+- Integration tests should use the top-level `runCli()` helper to exercise the full CLI.
 - Where environment variability exists (e.g., Maven not installed in CI), tests should accept both the success path and the expected fallback.
 
 See [`docs/testing.md`](docs/testing.md) for the full test file map and patterns.

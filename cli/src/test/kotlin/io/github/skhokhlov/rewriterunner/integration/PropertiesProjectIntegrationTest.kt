@@ -1,5 +1,6 @@
 package io.github.skhokhlov.rewriterunner.integration
 
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.nio.file.Files
 import java.nio.file.Path
@@ -15,6 +16,7 @@ import kotlin.test.assertTrue
  * the Properties OpenRewrite parser is wired correctly and produces precise
  * key-targeted changes.
  */
+@Tags("integration")
 class PropertiesProjectIntegrationTest :
     FunSpec({
         var projectDir: Path = Path.of("")

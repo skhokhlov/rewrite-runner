@@ -5,6 +5,7 @@ picocli = "4.7.7"
 ktlint-cli = "1.8.0"
 logback-classic = "1.6.4"
 kotest-runner-junit5 = "6.2.5"
+junit = "5.13.4"
 rewrite-recipe-bom = "3.35.0"
 rewrite-gradle = "8.90.4"
 maven-model = "3.10.0"
@@ -21,6 +22,7 @@ rewrite-maven-plugin = "6.46.1"
 picocli = { group = "info.picocli", name = "picocli", version.ref = "picocli" }
 picocli-codegen = { group = "info.picocli", name = "picocli-codegen", version.ref = "picocli" }
 logback-classic = { group = "ch.qos.logback", name = "logback-classic", version.ref = "logback-classic" }
+junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
 kotest-runner-junit5 = { group = "io.kotest", name = "kotest-runner-junit5", version.ref = "kotest-runner-junit5" }
 ktlint-cli = { group = "com.pinterest.ktlint", name = "ktlint-cli", version.ref = "ktlint-cli" }
 kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }

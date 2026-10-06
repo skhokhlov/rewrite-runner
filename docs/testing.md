@@ -18,24 +18,29 @@ This applies at all layers: unit tests in `core/`, integration tests in `cli/`.
 
 ## Integration Tests
 
-`BaseIntegrationTest.runCli()` is useful for CLI parsing and formatting, but it is not proof of
+The top-level `runCli()` helper is useful for CLI parsing and formatting, but it is not proof of
 forked execution. Worker acceptance tests launch a real child JVM and assert its PID, handshake, and
 observed maximum heap.
 
 ```kotlin
-class MyIntegrationTest : BaseIntegrationTest() {
-    @Test
-    fun `some behavior`(@TempDir projectDir: Path) {
-        // set up project files in projectDir
-        val result = runCli(
-            "--project-dir", projectDir.toString(),
-            "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-            "--dry-run"
-        )
-        assertEquals(0, result.exitCode)
-        assertTrue(result.stdout.contains("..."))
+@Tags("integration")
+class MyIntegrationTest : FunSpec({
+    test("some behavior") {
+        val projectDir = Files.createTempDirectory("my-integration-test-")
+        try {
+            // Set up project files in projectDir.
+            val result = runCli(
+                "--project-dir", projectDir.toString(),
+                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
+                "--dry-run"
+            )
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("..."))
+        } finally {
+            projectDir.toFile().deleteRecursively()
+        }
     }
-}
+})
 ```
 
 ## Unit Test Patterns
@@ -123,24 +128,36 @@ cli/src/test/kotlin/.../
 
 ## Test Lanes
 
-Tests are split into four lanes by Gradle `Test.filter` class-name pattern. The offline lanes run
-under root `check`; live-plugin and container evidence use explicit CI jobs.
+Tests declare their lane on the class with Kotest `@Tags`. Gradle tasks select a tag
+using the test JVM's `kotest.tags` property; class names and workflow class lists do not select lanes.
 
-| Lane | Gradle task | Scope | When |
-|------|-------------|-------|------|
-| Unit + forked acceptance | `:core:test`, `:cli:test` | Configuration, protocol, diagnostics, and real core worker JVM tests; excludes `*IntegrationTest` | Root `check` |
-| Integration (offline) | `:cli:testIntegration` | Ordinary `*IntegrationTest` classes: fake wrappers, per-language coverage, and real nested-Gradle fallback attribution; no network or toolchain download | Root `check` |
-| Integration (real plugins) | `:cli:testRealPlugin` | `PluginRealExecutionIntegrationTest` only; downloads Maven/Gradle distributions and pulls live plugin artifacts from Maven Central | `plugin-real` CI job |
-| Container acceptance | `:cli:testContainer` | Built CLI fat JAR running under a real Docker `--memory=2g --memory-swap=2g` cgroup | `container` CI job |
+| Lane | Class tag | Gradle task | When |
+|------|-----------|-------------|------|
+| Default | None | `:core:test`, `:cli:test` | Root `check`, first CI stage |
+| Integration (offline) | `integration` | `:cli:testIntegration` | `integration` CI job |
+| Forked worker | `worker` | `:core:testWorker`, `:cli:testWorker` | Linux and Windows CI; current platform in `productionCheck` |
+| Integration (real plugins) | `real-plugin` | `:cli:testRealPlugin` | `plugin-real` CI job |
+| Container acceptance | `container` | `:cli:testContainer` | `container` CI job |
 
-Root `check` includes the offline integration lane. `productionCheck` additionally runs
-the real-plugin and container lanes and builds the release fat JAR. Both external-environment lanes
-are authoritative once selected: missing network, toolchain, Docker, or image prerequisites fail the
-task rather than producing a green skip. Tag publication runs `productionCheck` before publication.
+Root `check` runs untagged tests and lint. `productionCheck` runs all five lanes and builds
+the release fat JAR. Offline integration includes fake wrappers, per-language coverage, and real
+nested-Gradle fallback attribution; it reuses the current Gradle distribution without downloads.
+Worker tests include core protocol/path and disk-application coverage plus the CLI fat-JAR
+distribution scenarios. Windows-only DOS attribute coverage uses `Assumptions.assumeTrue` inside
+the test, so it is reported as skipped on other systems; OS selection does not use class tags.
+The live-plugin and container lanes require their external prerequisites: missing network,
+toolchain, Docker, or image prerequisites fail the task. Tag publication runs `productionCheck`.
 
-Class-name conventions:
-- Every integration test class name ends with `IntegrationTest` (enforced by `failOnNoMatchingTests = true` on all dedicated integration tasks).
-- Add a new offline integration test by simply creating an `*IntegrationTest` class under `cli/src/test/kotlin/.../integration/`.
+To add a test, leave a default test class untagged or annotate the class with one lane, for example
+`@Tags("integration")` (import `io.kotest.core.annotation.Tags`). Every test in the class inherits
+that tag. Before tag filtering, both modules validate every compiled spec: unknown tags and
+multiple lane tags and tags without a task in the module fail, and specs in `io.github.skhokhlov.rewriterunner.integration` must declare
+a lane tag. Default specs outside that package remain untagged. A lane selecting no test bodies
+also fails. Renaming a class does not change its lane. New lane names must be allowed in
+`test-support/src/main/kotlin/io/kotest/provided/TestLaneClassification.kt`, excluded
+in the shared convention's default tag expression, exposed in each participating module's
+`rewriterunner.test.lanes` property, and added to `productionCheck` and CI.
+Task-local tag properties also take precedence over an external `KOTEST_TAGS` environment variable.
 
 ## Forked worker tests
 
@@ -205,7 +222,7 @@ marker fails Stage 0 too, but is reported as a validation failure rather than an
 
 **Scenario shape** — both tiers consume `PluginScenario` objects from `PluginScenarios.kt`. Each scenario defines the project layout, recipe, and expected outcomes so a layout change is a one-place edit.
 
-**Task partitioning** — all three test tasks share one source set; Gradle `Test.filter` selects which class runs in each lane (see the Test Lanes table above). There is no Kotest tag involved.
+**Task partitioning** — the CLI lanes share one source set; class-level Kotest tags select the tests in each lane (see the Test Lanes table above).
 
 **Running locally:**
 
@@ -214,7 +231,7 @@ marker fails Stage 0 too, but is reported as a validation failure rather than an
 ./gradlew :cli:test
 
 # Full offline verification (unit + offline integration):
-./gradlew check :cli:testIntegration
+./gradlew check :core:testWorker :cli:testWorker :cli:testIntegration
 
 # Real-plugin lane (downloads toolchains + plugins on first run; ~5 min warm):
 ./gradlew :cli:testRealPlugin

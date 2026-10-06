@@ -655,8 +655,11 @@ Use `parse.excludePaths` in `rewriterunner.yml`, `--exclude-paths` on the CLI, o
 ## Development
 
 ```bash
-# Run all tests
-./gradlew test
+# Run default (untagged) tests and lint
+./gradlew check
+
+# Run every tagged lane too (requires network/toolchains and Docker)
+./gradlew productionCheck
 
 # Run a specific test class
 ./gradlew test --tests "io.github.skhokhlov.rewriterunner.output.ResultFormatterTest"

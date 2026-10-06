@@ -4,6 +4,7 @@ import io.github.skhokhlov.rewriterunner.RewriteRunner
 import io.github.skhokhlov.rewriterunner.RunResult
 import io.github.skhokhlov.rewriterunner.UsedExecutionStage
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
+import io.kotest.core.annotation.Tags
 import io.kotest.core.spec.style.FunSpec
 import java.net.HttpURLConnection
 import java.net.URL
@@ -24,8 +25,8 @@ import kotlin.test.assertTrue
 /**
  * Stage 0 integration tests that exercise the REAL OpenRewrite Gradle/Maven plugins.
  *
- * Selected by Gradle test class-name filter (`./gradlew :cli:testRealPlugin`); excluded from the
- * default `:cli:test` lane via the same filter. There is no Kotest tag.
+ * Selected by the `real-plugin` class tag (`./gradlew :cli:testRealPlugin`); excluded from the
+ * default untagged test lane.
  *
  * Each scenario:
  * 1. Lays out a project on disk via [PluginScenario.setUpProject].
@@ -40,6 +41,7 @@ import kotlin.test.assertTrue
  * The Linux CI lane treats Maven Central and wrapper toolchains as required prerequisites. The
  * POSIX wrapper fixture is not selected on Windows.
  */
+@Tags("real-plugin")
 class PluginRealExecutionIntegrationTest :
     FunSpec({
         listOf(
