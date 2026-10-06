@@ -30,8 +30,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 ./gradlew shadowJar              # Build fat JAR → cli/build/libs/cli-1.0-SNAPSHOT-all.jar
-./gradlew test                   # UNIT tests only (excludes *IntegrationTest)
-./gradlew check                  # unit tests + ktlintCheck + offline integration
+./gradlew test                   # Default untagged tests only
+./gradlew check                  # Default untagged tests + ktlintCheck
 ./gradlew :cli:testIntegration   # Offline integration (fake wrappers + real fallback Gradle)
 ./gradlew :cli:testRealPlugin    # Real-plugin integration tests (downloads Maven/Gradle)
 ./gradlew :cli:testContainer     # Fat JAR in a Docker 2 GiB cgroup
@@ -156,12 +156,11 @@ cli/src/
 - `LstBuilder.parseGradleVersionFromWrapper` and `LstBuilder.resolveGradleDslClasspath` are `internal` thin delegations to `VersionDetector` / `GradleDslClasspathResolver` preserved for test backward compatibility.
 - Parsers requiring external runtimes (Python via RPC, JavaScript/TypeScript via Node.js, C# via .NET) are **not** included — they need out-of-process services
 - Upstream `rewrite-gradle-plugin` and `rewrite-maven-plugin` versions live in `gradle/libs.versions.toml` (`rewrite-gradle-plugin`, `rewrite-maven-plugin` keys). The `generatePluginVersions` task in `core/build.gradle.kts` emits a generated `BuildPluginVersions` object that `ToolConfigDefaults.REWRITE_*_PLUGIN_VERSION` reads from. Bump in the TOML — never edit the generated file.
-- Tests are split into three lanes by Gradle `Test.filter` class-name pattern (no Kotest tags):
-  - `:cli:test` — unit tests only, excludes `*IntegrationTest`. Wired into `check`.
-  - `:cli:testIntegration` — offline integration suite: per-language tests, fake-wrapper Stage 0 coverage, and real nested-Gradle fallback attribution using the current distribution. Includes `*IntegrationTest`, excludes `PluginRealExecutionIntegrationTest`.
-  - `:cli:testRealPlugin` — real OpenRewrite Maven/Gradle plugins (downloads distributions, hits Maven Central). The Gradle distribution under test tracks the project's own `gradle-wrapper.properties` (forwarded via `-Drewriterunner.test.gradleVersion`).
+- Tests use class-level Kotest `@Tags`. Default specs remain untagged and run in `check`; later tasks select `integration`, `worker`, `real-plugin`, and `container`. Class names do not select a lane.
+- Shared `test-support` code validates all compiled specs before filtering: unknown or multiple lane tags fail, and specs in the integration package require a class tag. Windows-only tests use assumptions inside their bodies.
+- `productionCheck` runs all lanes and builds the release fat JAR. The real-plugin Gradle distribution tracks `gradle-wrapper.properties` (forwarded via `-Drewriterunner.test.gradleVersion`).
 - Stage 0 plugin execution is covered both by fake-wrapper tests (`PluginFirstIntegrationTest`, in the `testIntegration` lane) and real-wrapper tests (`PluginRealExecutionIntegrationTest`, in the `testRealPlugin` lane). The real-wrapper suite calls `RewriteRunner` directly and asserts `executionDiagnostics.stageUsed == UsedExecutionStage.PLUGIN`, and non-dry-run real plugin scenarios assert positive `estimatedTimeSaved`, so an accidental LST-fallback success or plugin-output drift cannot mask a Stage 0 regression.
-- CI runs offline checks first; Windows worker and real-plugin jobs follow, then container acceptance follows the real-plugin lane. See [`docs/testing.md`](docs/testing.md) and [`docs/build.md`](docs/build.md).
+- CI runs default checks first, then offline integration and Linux/Windows worker jobs; real-plugin and container jobs follow. See [`docs/testing.md`](docs/testing.md) and [`docs/build.md`](docs/build.md).
 
 ## Logging
 

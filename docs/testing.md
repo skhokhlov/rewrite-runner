@@ -18,24 +18,29 @@ This applies at all layers: unit tests in `core/`, integration tests in `cli/`.
 
 ## Integration Tests
 
-`BaseIntegrationTest.runCli()` is useful for CLI parsing and formatting, but it is not proof of
+The top-level `runCli()` helper is useful for CLI parsing and formatting, but it is not proof of
 forked execution. Worker acceptance tests launch a real child JVM and assert its PID, handshake, and
 observed maximum heap.
 
 ```kotlin
-class MyIntegrationTest : BaseIntegrationTest() {
-    @Test
-    fun `some behavior`(@TempDir projectDir: Path) {
-        // set up project files in projectDir
-        val result = runCli(
-            "--project-dir", projectDir.toString(),
-            "--active-recipe", "org.openrewrite.java.format.AutoFormat",
-            "--dry-run"
-        )
-        assertEquals(0, result.exitCode)
-        assertTrue(result.stdout.contains("..."))
+@Tags("integration")
+class MyIntegrationTest : FunSpec({
+    test("some behavior") {
+        val projectDir = Files.createTempDirectory("my-integration-test-")
+        try {
+            // Set up project files in projectDir.
+            val result = runCli(
+                "--project-dir", projectDir.toString(),
+                "--active-recipe", "org.openrewrite.java.format.AutoFormat",
+                "--dry-run"
+            )
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("..."))
+        } finally {
+            projectDir.toFile().deleteRecursively()
+        }
     }
-}
+})
 ```
 
 ## Unit Test Patterns
@@ -145,8 +150,11 @@ toolchain, Docker, or image prerequisites fail the task. Tag publication runs `p
 
 To add a test, leave a default test class untagged or annotate the class with one lane, for example
 `@Tags("integration")` (import `io.kotest.core.annotation.Tags`). Every test in the class inherits
-that tag. Both modules fail an empty suite, so a missing or misspelled lane tag cannot pass silently.
-Renaming or moving a class does not change its lane. New lane names must also be excluded
+that tag. Before tag filtering, both modules validate every compiled spec: unknown tags and
+multiple lane tags fail, and specs in `io.github.skhokhlov.rewriterunner.integration` must declare
+a lane tag. Default specs outside that package remain untagged. A lane selecting no test bodies
+also fails. Renaming a class does not change its lane. New lane names must be allowed in
+`test-support/src/main/kotlin/io/kotest/provided/TestLaneClassification.kt`, excluded
 in the shared convention's default tag expression and added to `productionCheck` and CI.
 Task-local tag properties also take precedence over an external `KOTEST_TAGS` environment variable.
 

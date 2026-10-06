@@ -17,8 +17,12 @@ kotlin {
     jvmToolchain(21)
 }
 
+val sharedTestSources = rootProject.layout.projectDirectory.dir("test-support/src/main/kotlin")
+kotlin.sourceSets["test"].kotlin.srcDir(sharedTestSources)
+
 tasks.withType<Test> {
     useJUnitPlatform()
+    systemProperty("rewriterunner.test.classes", sourceSets["test"].output.classesDirs.asPath)
     jvmArgs("-Xmx2g")
     testLogging.exceptionFormat = TestExceptionFormat.FULL
 }
@@ -58,7 +62,7 @@ tasks.register<JavaExec>("ktlintCheck") {
     description = "Check Kotlin code style with ktlint (Google Android code style)."
     classpath = ktlintCli
     mainClass.set("com.pinterest.ktlint.Main")
-    args("--reporter=plain", "src/**/*.kt")
+    args("--reporter=plain", "src/**/*.kt", "${sharedTestSources.asFile}/**/*.kt")
     workingDir = projectDir
 }
 
@@ -69,7 +73,7 @@ tasks.register<JavaExec>("ktlintFormat") {
     classpath = ktlintCli
     mainClass.set("com.pinterest.ktlint.Main")
     jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
-    args("--format", "src/**/*.kt")
+    args("--format", "src/**/*.kt", "${sharedTestSources.asFile}/**/*.kt")
     workingDir = projectDir
 }
 

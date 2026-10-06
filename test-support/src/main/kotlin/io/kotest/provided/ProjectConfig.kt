@@ -6,7 +6,7 @@ import io.kotest.core.listeners.BeforeEachListener
 import io.kotest.core.test.TestCase
 import java.util.concurrent.atomic.AtomicInteger
 
-/** A missing or misspelled lane tag must fail verification rather than pass a skipped suite. */
+/** Enforce spec classification and reject lanes that select no test bodies. */
 class ProjectConfig : AbstractProjectConfig() {
     private val startedTests = AtomicInteger()
 
@@ -21,6 +21,7 @@ class ProjectConfig : AbstractProjectConfig() {
         )
 
     override suspend fun beforeProject() {
+        validateCompiledSpecs()
         startedTests.set(0)
     }
 
