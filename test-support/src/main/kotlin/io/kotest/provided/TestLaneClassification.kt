@@ -7,9 +7,16 @@ import java.lang.reflect.Modifier
 
 private val lanes = setOf("integration", "worker", "real-plugin", "container")
 
-internal fun validateLaneClassification(className: String, tags: List<String>) {
+internal fun validateLaneClassification(
+    className: String,
+    tags: List<String>,
+    availableLanes: Set<String> = lanes
+) {
     check(tags.all { it in lanes }) {
         "$className has unsupported lane tags $tags; use exactly one of $lanes or no tag for default tests"
+    }
+    check(tags.all { it in availableLanes }) {
+        "$className uses a lane without a task in this module; available lanes: $availableLanes"
     }
     check(tags.size <= 1) { "$className must belong to exactly one lane; found $tags" }
     check(
@@ -24,6 +31,10 @@ internal fun validateCompiledSpecs() {
     // Gradle supplies the complete test output even when --tests selects only one spec.
     // IDE runners do not supply this property; Gradle check remains the verification gate.
     val directories = System.getProperty("rewriterunner.test.classes") ?: return
+    val availableLanes =
+        checkNotNull(System.getProperty("rewriterunner.test.lanes")) {
+            "Missing module lane configuration"
+        }.split(',').toSet()
     directories.split(File.pathSeparator).map(::File).filter { it.isDirectory }.forEach { root ->
         root.walkTopDown().filter { it.isFile && it.extension == "class" }.forEach { file ->
             val name = file.relativeTo(
@@ -33,7 +44,8 @@ internal fun validateCompiledSpecs() {
             if (Spec::class.java.isAssignableFrom(type) && !Modifier.isAbstract(type.modifiers)) {
                 validateLaneClassification(
                     name,
-                    type.getAnnotation(Tags::class.java)?.values?.toList().orEmpty()
+                    type.getAnnotation(Tags::class.java)?.values?.toList().orEmpty(),
+                    availableLanes
                 )
             }
         }

@@ -37,6 +37,13 @@ class TestLaneClassificationTest :
                 listOf("worker")
             )
         }
+        test("a spec cannot use a lane absent from its module") {
+            assertFailsWith<IllegalStateException> {
+                validateLaneClassification("example.Spec", listOf("integration"), setOf("worker"))
+            }
+            validateLaneClassification("example.Spec", listOf("worker"), setOf("worker"))
+            validateLaneClassification("example.Spec", emptyList(), setOf("worker"))
+        }
         test("integration class names do not choose a lane") {
             validateLaneClassification("example.NewIntegrationTest", emptyList())
         }

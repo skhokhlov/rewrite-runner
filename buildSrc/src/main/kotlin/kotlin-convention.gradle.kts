@@ -23,6 +23,7 @@ kotlin.sourceSets["test"].kotlin.srcDir(sharedTestSources)
 tasks.withType<Test> {
     useJUnitPlatform()
     systemProperty("rewriterunner.test.classes", sourceSets["test"].output.classesDirs.asPath)
+    systemProperty("rewriterunner.test.lanes", "worker")
     jvmArgs("-Xmx2g")
     testLogging.exceptionFormat = TestExceptionFormat.FULL
 }

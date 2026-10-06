@@ -183,7 +183,7 @@ Tests use class-level Kotest `@Tags` annotations. The first build stage runs unt
 
 Run `./gradlew productionCheck` for all lanes and the release fat JAR. Run `./gradlew check :cli:testIntegration` for default and offline integration verification.
 
-Gradle validates every compiled spec before filtering tests: unknown tags, multiple lane tags, and untagged specs in the integration package fail verification. Default specs remain untagged. External prerequisites must be available for the corresponding lanes; Windows-only cases use JUnit assumptions inside the test body to skip on other systems.
+Gradle validates every compiled spec before filtering tests: unknown tags, tags without a task in the module, multiple lane tags, and untagged specs in the integration package fail verification. Default specs remain untagged. External prerequisites must be available for the corresponding lanes; Windows-only cases use JUnit assumptions inside the test body to skip on other systems.
 
 ### Stage 0 plugin coverage
 

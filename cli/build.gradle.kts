@@ -101,6 +101,10 @@ tasks.named<Test>("testWorker") {
     }
 }
 
+tasks.withType<Test>().configureEach {
+    systemProperty("rewriterunner.test.lanes", "integration,worker,real-plugin,container")
+}
+
 // Offline integration tests: per-language LST coverage, fake-wrapper Stage 0 orchestration, and
 // real nested-Gradle fallback attribution using this build's distribution. No network or toolchain
 // download is required.

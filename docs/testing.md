@@ -151,11 +151,12 @@ toolchain, Docker, or image prerequisites fail the task. Tag publication runs `p
 To add a test, leave a default test class untagged or annotate the class with one lane, for example
 `@Tags("integration")` (import `io.kotest.core.annotation.Tags`). Every test in the class inherits
 that tag. Before tag filtering, both modules validate every compiled spec: unknown tags and
-multiple lane tags fail, and specs in `io.github.skhokhlov.rewriterunner.integration` must declare
+multiple lane tags and tags without a task in the module fail, and specs in `io.github.skhokhlov.rewriterunner.integration` must declare
 a lane tag. Default specs outside that package remain untagged. A lane selecting no test bodies
 also fails. Renaming a class does not change its lane. New lane names must be allowed in
 `test-support/src/main/kotlin/io/kotest/provided/TestLaneClassification.kt`, excluded
-in the shared convention's default tag expression and added to `productionCheck` and CI.
+in the shared convention's default tag expression, exposed in each participating module's
+`rewriterunner.test.lanes` property, and added to `productionCheck` and CI.
 Task-local tag properties also take precedence over an external `KOTEST_TAGS` environment variable.
 
 ## Forked worker tests
