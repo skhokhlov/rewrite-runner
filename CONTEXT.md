@@ -56,6 +56,11 @@
   rewrite-runner resolves them itself into its own recipe cache, while on
   [[#stage-0-plugin-first-execution]] the target project's own build tool resolves them from whatever
   repositories that build can see. _Avoid_: using "recipe discovery" for this step.
+- **Latest recipe release (`LATEST`)**: A request for the latest release of a recipe artifact,
+  using the resolving stage's native release eligibility rules without additional prerelease
+  filtering; omitting the version from `group:artifact` expresses the same request.
+  Each stage resolves independently from its available repositories and cached
+  metadata, so concrete versions may differ across stages within a run.
 - **Recipe discovery**: Finding a named recipe among JARs that are already present, by scanning them
   for recipe classes and `META-INF/rewrite/*.yml` definitions. Distinct from **recipe artifact
   resolution**: a recipe is undiscoverable both when its artifact was never fetched and when the

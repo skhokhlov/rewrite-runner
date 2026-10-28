@@ -156,7 +156,8 @@ internal open class GradlePluginStrategy(
                 if (recipeArtifacts.isNotEmpty()) {
                     appendLine("    dependencies {")
                     recipeArtifacts.forEach {
-                        appendLine("        add(\"rewrite\", \"${it.groovyString()}\")")
+                        val coordinate = gradleRecipeCoordinate(it).groovyString()
+                        appendLine("        add(\"rewrite\", \"$coordinate\")")
                     }
                     appendLine("    }")
                 }
@@ -169,6 +170,18 @@ internal open class GradlePluginStrategy(
             }
         initScript.toFile().writeText(text, Charsets.UTF_8)
         return initScript
+    }
+
+    private fun gradleRecipeCoordinate(coordinate: String): String {
+        val parts = coordinate.split(':')
+        return when {
+            parts.size == 2 -> "$coordinate:latest.release"
+
+            parts.size == 3 && parts[2].equals("LATEST", ignoreCase = true) ->
+                "${parts[0]}:${parts[1]}:latest.release"
+
+            else -> coordinate
+        }
     }
 
     private fun StringBuilder.appendRepositoryDeclarations(

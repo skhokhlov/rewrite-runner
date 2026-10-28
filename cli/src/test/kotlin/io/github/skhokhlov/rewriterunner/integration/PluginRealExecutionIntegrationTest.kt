@@ -136,6 +136,50 @@ class PluginRealExecutionIntegrationTest :
             runRealPluginScenario(PluginScenarios.mavenSingleFile, dryRun = true)
         }
 
+        listOf("LATEST", "versionless").forEach { selector ->
+            test("real plugin: Gradle resolves $selector recipe artifact")
+                .config(enabled = !isWindows) {
+                    requireMavenCentralReachable()
+                    val repository = Files.createTempDirectory("real-plugin-latest-repository-")
+                    val projectDir = Files.createTempDirectory("real-plugin-latest-project-")
+                    val cacheDir = Files.createTempDirectory("real-plugin-latest-cache-")
+                    try {
+                        val published = publishExecutorProbeArtifact(repository)
+                        val module = published.substringBeforeLast(':')
+                        val coordinate = if (selector == "LATEST") "$module:LATEST" else module
+                        val probeOutput = projectDir.resolve("executor-probe.csv")
+                        setUpProbeProject(
+                            projectDir,
+                            ProbeBuildTool.GRADLE,
+                            repository,
+                            probeOutput
+                        )
+                        installRealWrapper(projectDir)
+                        val result = RewriteRunner.builder()
+                            .projectDir(projectDir)
+                            .activeRecipe("com.example.ExecutorProbe")
+                            .recipeArtifact(coordinate)
+                            .artifactRepository(
+                                RepositoryConfig(url = repository.toUri().toString())
+                            )
+                            .cacheDir(cacheDir)
+                            .rewriteConfig(projectDir.resolve("rewrite.yaml"))
+                            .build()
+                            .run()
+
+                        assertEquals(
+                            UsedExecutionStage.PLUGIN,
+                            result.executionDiagnostics.stageUsed
+                        )
+                        assertTrue(readProbeRows(probeOutput).isNotEmpty())
+                    } finally {
+                        projectDir.toFile().deleteRecursively()
+                        cacheDir.toFile().deleteRecursively()
+                        repository.toFile().deleteRecursively()
+                    }
+                }
+        }
+
         test(
             "real plugin: Gradle and Maven recipe JVMs observe configured executor heap"
         ).config(enabled = !isWindows) {
@@ -438,6 +482,20 @@ private fun publishExecutorProbeArtifact(repository: Path): String {
           <artifactId>$EXECUTOR_PROBE_ARTIFACT</artifactId>
           <version>$EXECUTOR_PROBE_VERSION</version>
         </project>
+        """.trimIndent()
+    )
+    artifactDirectory.parent.resolve("maven-metadata.xml").writeText(
+        """
+        <metadata>
+          <groupId>$EXECUTOR_PROBE_GROUP</groupId>
+          <artifactId>$EXECUTOR_PROBE_ARTIFACT</artifactId>
+          <versioning>
+            <latest>$EXECUTOR_PROBE_VERSION</latest>
+            <release>$EXECUTOR_PROBE_VERSION</release>
+            <versions><version>$EXECUTOR_PROBE_VERSION</version></versions>
+            <lastUpdated>20261028000000</lastUpdated>
+          </versioning>
+        </metadata>
         """.trimIndent()
     )
     return "$EXECUTOR_PROBE_GROUP:$EXECUTOR_PROBE_ARTIFACT:$EXECUTOR_PROBE_VERSION"

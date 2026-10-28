@@ -6,6 +6,20 @@ Two independent dependency resolution flows run per `RewriteRunner.run()` invoca
 
 ## Recipe artifact resolution
 
+### Gradle Stage 0 version selectors
+
+For recipe artifacts, Gradle Stage 0 translates `groupId:artifactId:LATEST` (case-insensitive
+`LATEST`) and the versionless shorthand `groupId:artifactId` to
+`groupId:artifactId:latest.release`. Gradle owns release selection, repository access, and
+caching; rewrite-runner adds no prerelease filtering. Explicit versions and native Gradle
+selectors pass through unchanged.
+
+Stages resolve independently, so repository visibility and cached metadata can yield different
+concrete versions within one run. This translation is specific to Gradle Stage 0; Maven Stage 0
+and the LST resolver retain their own resolution behavior.
+
+### LST recipe resolution
+
 **Code:** `RecipeArtifactResolver` · `RewriteRunner` lines ~87–108
 
 ### Why

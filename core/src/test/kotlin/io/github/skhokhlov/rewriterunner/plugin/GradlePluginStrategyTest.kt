@@ -64,6 +64,50 @@ class GradlePluginStrategyTest :
             assertTrue(!text.contains("gradlePluginPortal()"))
         }
 
+        listOf(
+            "com.example:recipes:LATEST" to "com.example:recipes:latest.release",
+            "com.example:recipes:latest" to "com.example:recipes:latest.release",
+            "com.example:recipes:LaTeSt" to "com.example:recipes:latest.release",
+            "com.example:recipes" to "com.example:recipes:latest.release",
+            "com.example:recipes:1.0.0" to "com.example:recipes:1.0.0",
+            "com.example:recipes:1.1-SNAPSHOT" to "com.example:recipes:1.1-SNAPSHOT",
+            "com.example:recipes:latest.release" to "com.example:recipes:latest.release",
+            "com.example:recipes:1.+" to "com.example:recipes:1.+",
+            "com.example:recipes:[1.0,2.0)" to "com.example:recipes:[1.0,2.0)",
+            "com.example:LATEST:1.0" to "com.example:LATEST:1.0",
+            "com.example:recipes:1.0:tests@jar" to "com.example:recipes:1.0:tests@jar"
+        ).forEach { (input, expected) ->
+            test("generateInitScript renders recipe coordinate $input") {
+                val strategy = GradlePluginStrategy(
+                    NoOpRunnerLogger,
+                    ToolConfigDefaults.PLUGIN_RUN_TIMEOUT,
+                    ToolConfigDefaults.REWRITE_GRADLE_PLUGIN_VERSION
+                )
+                val initScript = strategy.generateInitScript(
+                    activeRecipe = "com.example.Recipe",
+                    recipeArtifacts = listOf(input, "com.example:other:2.0"),
+                    rewriteConfig = null,
+                    includeMavenCentral = false,
+                    repositories = emptyList()
+                )
+                try {
+                    val declarations = initScript.readText().lineSequence()
+                        .map { it.trim() }
+                        .filter { it.startsWith("add(\"rewrite\",") }
+                        .toList()
+                    assertEquals(
+                        listOf(
+                            "add(\"rewrite\", \"$expected\")",
+                            "add(\"rewrite\", \"com.example:other:2.0\")"
+                        ),
+                        declarations
+                    )
+                } finally {
+                    Files.deleteIfExists(initScript)
+                }
+            }
+        }
+
         test("generateInitScript uses configured rewrite Gradle plugin version") {
             val strategy =
                 GradlePluginStrategy(
