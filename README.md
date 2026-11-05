@@ -182,6 +182,13 @@ dependencies {
 }
 ```
 
+### Custom parsers
+
+Library callers can register their own OpenRewrite parser providers and assign files or override
+built-in assignments through `Builder.configure(...)`. Custom parsers follow the existing
+specialized pass after Stage 0 and participate in full fallback in both execution modes.
+See [parser extensibility](docs/parser-extensibility.md#usage) for the provider contract and examples.
+
 ### Kotlin usage
 
 ```kotlin

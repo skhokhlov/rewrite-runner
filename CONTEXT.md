@@ -2,6 +2,14 @@
 
 ## Glossary
 
+- **LST parser**: A language- or format-specific parser that turns project files into the lossless
+  semantic trees used by recipes. It may be supplied by rewrite-runner or by a library user.
+- **Parser provider**: The supplier of an LST parser and its language-specific configuration,
+  whether supplied by rewrite-runner or by a library user.
+- **Parser registration**: The association of a parser provider with rules selecting the project
+  files assigned to it.
+- **Parser override**: An explicit assignment of selected project files to a different LST parser
+  than would otherwise handle them, declaring precedence over another parser registration.
 - **Build unit**: A directory where rewrite-runner invokes Maven or Gradle for classpath resolution,
   paired with the build tool used there. Build units are non-exclusive: a root with both Maven and
   Gradle descriptors can produce one unit for each tool.
@@ -87,9 +95,11 @@
   `settings.gradle(.kts)` / `build.gradle(.kts)` for Gradle.
 - **Root-less monorepo**: A repository whose project root has no build descriptor for a tool, but one
   or more subdirectories do.
-- **Specialized ownership**: The Docker/HCL/protobuf file types rewrite-runner parses with its own
-  classpath-free specialized parsers, partitioned out of Stage 0 by exclusion. A file type belongs
-  here only when Stage 0 structurally cannot handle it and it is safe to parse in isolation.
+- **Specialized ownership**: The assignment of project files to runner-managed parsers instead of
+  the official build plugin. It covers the built-in Docker/HCL/protobuf formats and files
+  assigned to user-provided parsers or explicit parser overrides.
+- **Specialized parser pass**: Recipe execution over files under specialized ownership, separate
+  from the files processed by Stage 0.
 - **Top-most discovery**: Build-unit discovery rule that selects the first descriptor directory found
   on a path and does not descend into that directory's children.
 - **Write outcome**: The per-file result of the apply step: successful created/modified/deleted

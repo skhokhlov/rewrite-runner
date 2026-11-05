@@ -2,10 +2,15 @@ package io.github.skhokhlov.rewriterunner
 
 import io.github.skhokhlov.rewriterunner.apply.ChangeWriter
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
+import io.github.skhokhlov.rewriterunner.lst.BuiltinParserProviders
+import io.github.skhokhlov.rewriterunner.lst.ParserRegistration
+import io.github.skhokhlov.rewriterunner.lst.ParserRegistry
+import io.github.skhokhlov.rewriterunner.lst.RunnerConfiguration
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.time.Duration
+import java.util.function.Consumer
 
 /**
  * Programmatic entry point for running OpenRewrite recipes against a project directory.
@@ -15,8 +20,10 @@ import java.time.Duration
  * a caller needs rich OpenRewrite Results or an in-memory/custom [ChangeWriter].
  */
 class RewriteRunner private constructor(private val config: Builder) {
+    private val parsers = config.parserRegistrations.map(ParserRegistration::snapshot)
+
     /** Execute the configured recipe and return diffs, write outcomes, and executor diagnostics. */
-    fun run(): RunResult = RunCoordinator(config).run()
+    fun run(): RunResult = RunCoordinator(config, parsers).run()
 
     /** Builder for [RewriteRunner]. */
     class Builder {
@@ -72,6 +79,18 @@ class RewriteRunner private constructor(private val config: Builder) {
             private set
         internal var changeWriter: ChangeWriter? = null
             private set
+
+        internal var parserRegistrations: List<ParserRegistration> =
+            BuiltinParserProviders.registrations()
+            private set
+
+        /** Inspect and edit parser registrations. Repeated calls see previous changes. */
+        fun configure(configurator: Consumer<RunnerConfiguration>): Builder = apply {
+            val configuration =
+                RunnerConfiguration(parserRegistrations.map(ParserRegistration::snapshot))
+            configurator.accept(configuration)
+            parserRegistrations = ParserRegistry(configuration.parsers).registrations
+        }
 
         /** Root directory of the project to analyse. Defaults to the current directory. */
         fun projectDir(path: Path): Builder = apply { projectDir = path }

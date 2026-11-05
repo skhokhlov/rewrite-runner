@@ -56,3 +56,13 @@ artifacts / `rewrite.yaml`. If recipe resolution, loading, or execution throws d
 pass, the runner logs a warning and returns the plugin-only result rather than failing the run. The
 recipe `URLClassLoader` is also kept open until recipe execution completes, since OpenRewrite loads
 visitor inner-classes lazily at run time.
+
+## Extension for library-provided parsers
+
+[Parser extensibility](../parser-extensibility.md) extends the fixed ownership set for library
+callers. Built-in and user-provided parsers now share registrations, file selection, and explicit
+overrides. Changed or added registrations join the specialized pass after Stage 0; their selected
+files are excluded from the plugin. Full fallback uses all eligible registrations. The default
+Docker/HCL/protobuf ownership, plugin-first execution, separate recipe source sets, and preservation
+of successful plugin results on specialized-pass failure remain in place. Only selected providers
+requesting the JVM classpath trigger classpath resolution; the CLI does not expose registrations.
