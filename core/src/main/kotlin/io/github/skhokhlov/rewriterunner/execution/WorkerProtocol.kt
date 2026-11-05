@@ -18,6 +18,8 @@ import io.github.skhokhlov.rewriterunner.apply.WriteOutcome
 import io.github.skhokhlov.rewriterunner.config.ParseConfig
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.lst.BuiltinParserProviders
+import io.github.skhokhlov.rewriterunner.lst.ParserRegistration
 import io.github.skhokhlov.rewriterunner.plugin.createPrivateTempDirectory
 import io.github.skhokhlov.rewriterunner.plugin.createPrivateTempFile
 import io.github.skhokhlov.rewriterunner.plugin.deleteRecursively
@@ -35,7 +37,7 @@ import kotlin.concurrent.thread
 import tools.jackson.databind.json.JsonMapper
 import tools.jackson.module.kotlin.KotlinModule
 
-internal const val WORKER_PROTOCOL_VERSION = 1
+internal const val WORKER_PROTOCOL_VERSION = 2
 internal const val WORKER_EVENT_PREFIX = "@@rewrite-runner-worker@@"
 
 internal data class WorkerRequestEnvelope(
@@ -62,7 +64,8 @@ internal data class WorkerRequestPayload(
     val subprocessRunTimeoutMillis: Long,
     val pluginRunTimeoutMillis: Long,
     val resolverConnectTimeoutMillis: Long,
-    val resolverRequestTimeoutMillis: Long
+    val resolverRequestTimeoutMillis: Long,
+    val parserRegistrations: List<ParserRegistration> = BuiltinParserProviders.registrations()
 )
 
 internal data class WorkerResponseEnvelope(
@@ -265,7 +268,8 @@ private fun WorkerRequestPayload.toResolvedRequest(): ResolvedExecutionRequest {
         includeMavenCentral = includeMavenCentral,
         downloadThreads = downloadThreads,
         resolverConnectTimeout = resolverConnectTimeout,
-        resolverRequestTimeout = resolverRequestTimeout
+        resolverRequestTimeout = resolverRequestTimeout,
+        parserRegistrations = parserRegistrations
     )
 }
 
@@ -663,7 +667,8 @@ private fun ResolvedExecutionRequest.toWire(): WorkerRequestPayload = WorkerRequ
     subprocessRunTimeoutMillis = toolConfig.subprocessRunTimeout.toMillis(),
     pluginRunTimeoutMillis = toolConfig.pluginRunTimeout.toMillis(),
     resolverConnectTimeoutMillis = resolverConnectTimeout.toMillis(),
-    resolverRequestTimeoutMillis = resolverRequestTimeout.toMillis()
+    resolverRequestTimeoutMillis = resolverRequestTimeout.toMillis(),
+    parserRegistrations = parserRegistrations
 )
 
 internal fun phaseFor(scope: WorkerScope): ExecutorPhase = when (scope) {

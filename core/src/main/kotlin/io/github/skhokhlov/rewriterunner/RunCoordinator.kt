@@ -14,7 +14,10 @@ import io.github.skhokhlov.rewriterunner.execution.PostPluginExecutionOutcome
 import io.github.skhokhlov.rewriterunner.execution.PostPluginExecutor
 import io.github.skhokhlov.rewriterunner.execution.ResolvedExecutionRequest
 import io.github.skhokhlov.rewriterunner.execution.WorkerScope
+import io.github.skhokhlov.rewriterunner.lst.ParserRegistration
+import io.github.skhokhlov.rewriterunner.lst.ParserRegistry
 import io.github.skhokhlov.rewriterunner.lst.SpecializedOwnership
+import io.github.skhokhlov.rewriterunner.lst.literalExclusion
 import io.github.skhokhlov.rewriterunner.lst.utils.FileCollector
 import io.github.skhokhlov.rewriterunner.lst.utils.hasBuildGradle
 import io.github.skhokhlov.rewriterunner.plugin.PluginProcessAttempt
@@ -39,7 +42,11 @@ import kotlin.io.path.exists
  * plugin attempt and any subsequent LST execution run, so runner-owned heavy sequences never
  * overlap inside one coordinator JVM.
  */
-internal class RunCoordinator(private val config: RewriteRunner.Builder) {
+internal class RunCoordinator(
+    private val config: RewriteRunner.Builder,
+    parserRegistrations: List<ParserRegistration> = config.parserRegistrations
+) {
+    private val parserRegistry = ParserRegistry(parserRegistrations)
     fun run(): RunResult = executionGate.withLock {
         require(config.projectDir.toFile().isDirectory) {
             "projectDir does not exist or is not a directory: ${config.projectDir}"
@@ -51,8 +58,32 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
         }
         logger.lifecycle(memoryPlan(effective))
 
+        // Validate ownership before recipes can modify files, including during Stage 0.
+        val additionalSpecializedExclusions = if (parserRegistry.customized &&
+            !config.skipPluginRun
+        ) {
+            parserRegistry.collect(
+                config.projectDir.toAbsolutePath().normalize(),
+                effective.excludePaths,
+                effective.plainTextMasks,
+                specializedOnly = true
+            )
+                .values.flatten()
+                .map {
+                    literalExclusion(config.projectDir.toAbsolutePath().normalize().relativize(it))
+                }
+        } else {
+            emptyList()
+        }
         val attempts = mutableListOf<ExecutorAttempt>()
         if (config.skipPluginRun) {
+            return@withLock runFullFallback(effective, null, attempts)
+        }
+        if (additionalSpecializedExclusions.any { ',' in it }) {
+            logger.warn(
+                "Stage 0 cannot safely encode specialized parser exclusions containing commas; " +
+                    "using the full LST fallback."
+            )
             return@withLock runFullFallback(effective, null, attempts)
         }
 
@@ -82,7 +113,9 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
                 dryRun = config.dryRun,
                 includeMavenCentral = effective.includeMavenCentral,
                 artifactRepositories = effective.repositories,
-                excludePaths = effective.excludePaths + SpecializedOwnership.stage0ExcludeGlobs,
+                excludePaths =
+                    effective.excludePaths + SpecializedOwnership.stage0ExcludeGlobs +
+                        additionalSpecializedExclusions,
                 plainTextMasks = effective.plainTextMasks
             )
         attempts += pluginProcessAttempts.map { pluginAttempt(it, pluginPolicy) }
@@ -149,7 +182,7 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
         pluginResult: PluginRunResult,
         attempts: MutableList<ExecutorAttempt>
     ): RunResult {
-        if (!hasSpecializedCandidate(effective.excludePaths)) {
+        if (!hasSpecializedCandidate(effective.excludePaths, effective.plainTextMasks)) {
             return pluginOnlyResult(pluginResult, attempts)
         }
         val request = effective.request(WorkerScope.SPECIALIZED_ONLY)
@@ -349,7 +382,8 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
         downloadThreads = downloadThreads,
         resolverConnectTimeout = resolverConnectTimeout,
         resolverRequestTimeout = resolverRequestTimeout,
-        changeWriter = config.changeWriter
+        changeWriter = config.changeWriter,
+        parserRegistrations = parserRegistry.registrations
     )
 
     private fun memoryPlan(effective: EffectiveConfiguration): String {
@@ -378,7 +412,7 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
 
     private fun loggerSpecializedFailure(message: String?) {
         config.logger.warn(
-            "Specialized non-JVM parser pass failed after a successful plugin run; " +
+            "Specialized parser pass failed after a successful plugin run; " +
                 "preserving plugin results. Cause: ${message ?: "unknown failure"}"
         )
     }
@@ -389,58 +423,74 @@ internal class RunCoordinator(private val config: RewriteRunner.Builder) {
      * directory is pruned, while reaching the depth limit returns true so an uncertain scan never
      * suppresses a potentially required specialized pass.
      */
-    private fun hasSpecializedCandidate(excludePaths: List<String>): Boolean = try {
-        val projectDir = config.projectDir.toAbsolutePath().normalize()
-        val excludeMatchers = excludePaths.map {
-            FileSystems.getDefault().getPathMatcher("glob:$it")
-        }
-        var found = false
-        var depthLimitReached = false
-        Files.walkFileTree(
-            projectDir,
-            emptySet(),
-            SPECIALIZED_CANDIDATE_WALK_MAX_DEPTH,
-            object : SimpleFileVisitor<Path>() {
-                override fun preVisitDirectory(
-                    directory: Path,
-                    attrs: BasicFileAttributes
-                ): FileVisitResult {
-                    if (directory == projectDir) return FileVisitResult.CONTINUE
-                    val relative = projectDir.relativize(directory)
-                    if (relative.any { it.toString() in FileCollector.DEFAULT_EXCLUDED_DIRS } ||
-                        matchesExcluded(relative, excludeMatchers)
-                    ) {
-                        return FileVisitResult.SKIP_SUBTREE
-                    }
-                    if (relative.nameCount >= SPECIALIZED_CANDIDATE_WALK_MAX_DEPTH) {
-                        depthLimitReached = true
-                    }
-                    return FileVisitResult.CONTINUE
-                }
-
-                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
-                    val relative = projectDir.relativize(file)
-                    if (!attrs.isRegularFile || matchesExcluded(relative, excludeMatchers)) {
+    private fun hasSpecializedCandidate(
+        excludePaths: List<String>,
+        plainTextMasks: List<String>
+    ): Boolean {
+        return try {
+            val projectDir = config.projectDir.toAbsolutePath().normalize()
+            if (parserRegistry.customized) {
+                return parserRegistry.collect(
+                    projectDir,
+                    excludePaths,
+                    plainTextMasks,
+                    specializedOnly = true
+                ).isNotEmpty()
+            }
+            val excludeMatchers = excludePaths.map {
+                FileSystems.getDefault().getPathMatcher("glob:$it")
+            }
+            var found = false
+            var depthLimitReached = false
+            Files.walkFileTree(
+                projectDir,
+                emptySet(),
+                SPECIALIZED_CANDIDATE_WALK_MAX_DEPTH,
+                object : SimpleFileVisitor<Path>() {
+                    override fun preVisitDirectory(
+                        directory: Path,
+                        attrs: BasicFileAttributes
+                    ): FileVisitResult {
+                        if (directory == projectDir) return FileVisitResult.CONTINUE
+                        val relative = projectDir.relativize(directory)
+                        if (relative.any { it.toString() in FileCollector.DEFAULT_EXCLUDED_DIRS } ||
+                            matchesExcluded(relative, excludeMatchers)
+                        ) {
+                            return FileVisitResult.SKIP_SUBTREE
+                        }
+                        if (relative.nameCount >= SPECIALIZED_CANDIDATE_WALK_MAX_DEPTH) {
+                            depthLimitReached = true
+                        }
                         return FileVisitResult.CONTINUE
                     }
-                    val name = file.fileName.toString()
-                    if (name.startsWith("Dockerfile") ||
-                        name.startsWith("Containerfile") ||
-                        SpecializedOwnership.extensions.any { extension ->
-                            name.endsWith(extension)
+
+                    override fun visitFile(
+                        file: Path,
+                        attrs: BasicFileAttributes
+                    ): FileVisitResult {
+                        val relative = projectDir.relativize(file)
+                        if (!attrs.isRegularFile || matchesExcluded(relative, excludeMatchers)) {
+                            return FileVisitResult.CONTINUE
                         }
-                    ) {
-                        found = true
-                        return FileVisitResult.TERMINATE
+                        val name = file.fileName.toString()
+                        if (name.startsWith("Dockerfile") ||
+                            name.startsWith("Containerfile") ||
+                            SpecializedOwnership.extensions.any { extension ->
+                                name.endsWith(extension)
+                            }
+                        ) {
+                            found = true
+                            return FileVisitResult.TERMINATE
+                        }
+                        return FileVisitResult.CONTINUE
                     }
-                    return FileVisitResult.CONTINUE
                 }
-            }
-        )
-        found || depthLimitReached
-    } catch (_: Exception) {
-        // A failed preflight must not suppress the owned-set execution path.
-        true
+            )
+            found || depthLimitReached
+        } catch (_: Exception) {
+            // A failed preflight must not suppress the owned-set execution path.
+            true
+        }
     }
 
     private data class EffectiveConfiguration(

@@ -42,6 +42,7 @@ val result = RewriteRunner.builder()
 | `lstWorkerTimeout(Duration?)` | `Duration?` | YAML / unlimited | Whole-worker timeout; inner build-tool timeouts remain separate. |
 | `workerCommandFactory(WorkerCommandFactory)` | `WorkerCommandFactory` | default Java/classpath launch | Advanced structured launcher seam for nonstandard packaging. |
 | `excludePaths(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) to skip during parsing; overrides `parse.excludePaths` from config file. Forwarded both to Stage 0 (Maven `-Drewrite.exclusions=…` / Gradle `exclusion(...)` DSL) and to the LST fallback pipeline. |
+| `configure(Consumer<RunnerConfiguration>)` | callback | built-in registrations | Inspect or edit parser registrations; register custom providers. See [custom parsers](parser-extensibility.md#usage). |
 | `plainTextMasks(List<String>)` | `List` | `[]` | Glob patterns (relative to project root) for otherwise-unhandled files to parse as plain text; overrides `parse.plainTextMasks` from config file. Both empty falls back to the upstream OpenRewrite default mask list. Forwarded both to Stage 0 (Maven `-Drewrite.plainTextMasks=…` / Gradle `plainTextMask(...)` DSL) and to the LST fallback pipeline. |
 | `includeMavenCentral(Boolean)` | `Boolean?` | from config / `true` | Add Maven Central to runner repositories. Maven Stage 0 retains project/settings repositories even when `false`. |
 | `repository(RepositoryConfig)` | — | — | Add one extra Maven repository; accumulated, combined with config file repos |
@@ -66,6 +67,17 @@ val result = RewriteRunner.builder()
   - a requested declarative recipe names a recipe in its `recipeList` that cannot be resolved
     (running only the entries that did resolve would report success for an incomplete migration).
 - `IllegalStateException` — `activeRecipe` not set when `build()` is called
+
+### Custom parsers
+
+Use `Builder.configure { config -> config.registerParser("my-language", MyParserProvider::class.java) }`
+to register your own `ParserProvider`. Built-ins and custom providers share `ParserRegistration`,
+file selection, explicit override precedence and parse diagnostics. User providers and changed
+built-in registrations follow the specialized pass after Stage 0; full fallback uses all eligible
+registrations. Providers and their dependencies must be available on the executor runtime classpath.
+
+See [parser extensibility](parser-extensibility.md) for Kotlin and Java examples, provider settings,
+JVM classpath context, overlap handling, and worker packaging requirements.
 
 ### Resource management
 

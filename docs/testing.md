@@ -97,6 +97,8 @@ core/src/test/kotlin/.../
 ├── config/ToolConfigTest.kt
 ├── lst/
 │   ├── LstBuilderTest.kt           ← parser routing, 4-stage pipeline, compile-on-demand, Gradle DSL classpath
+│   ├── ParserRegistryTest.kt       ← ownership, explicit precedence, default selection compatibility
+│   ├── CustomParserTest.kt         ← provider SPI, batching, context, diagnostics, Java API
 │   ├── ProjectBuildStageTest.kt
 │   ├── ProjectBuildStageBranchTest.kt
 │   ├── DependencyResolutionStageTest.kt
@@ -111,12 +113,15 @@ core/src/test/kotlin/.../
 │   ├── MultiModuleJavaVersionTest.kt
 │   └── utils/
 │       └── FileCollectorTest.kt    ← extension filtering, directory exclusion, glob patterns
+├── execution/CustomParserWorkerTest.kt ← custom text and semantic parsers in real worker JVMs
 └── output/ResultFormatterTest.kt
 
 cli/src/test/kotlin/.../
 ├── cli/RunCommandTest.kt
 └── integration/
     ├── BaseIntegrationTest.kt
+    ├── CustomParserIntegrationTest.kt ← plugin/specialized routing, merge and failure contracts
+    ├── CustomParserRealPluginTest.kt  ← real multi-module exclusions, exactly-once recipe application
     ├── JavaProjectIntegrationTest.kt
     ├── KotlinProjectIntegrationTest.kt
     ├── YamlProjectIntegrationTest.kt

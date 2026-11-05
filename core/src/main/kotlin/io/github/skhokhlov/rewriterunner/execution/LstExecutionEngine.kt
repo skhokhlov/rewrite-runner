@@ -11,8 +11,9 @@ import io.github.skhokhlov.rewriterunner.apply.DiskChangeWriter
 import io.github.skhokhlov.rewriterunner.apply.WriteOutcome
 import io.github.skhokhlov.rewriterunner.config.RepositoryConfig
 import io.github.skhokhlov.rewriterunner.config.ToolConfig
+import io.github.skhokhlov.rewriterunner.lst.BuiltinParserProviders
 import io.github.skhokhlov.rewriterunner.lst.LstBuilder
-import io.github.skhokhlov.rewriterunner.lst.SpecializedOwnership
+import io.github.skhokhlov.rewriterunner.lst.ParserRegistration
 import io.github.skhokhlov.rewriterunner.recipe.RecipeArtifactResolver
 import io.github.skhokhlov.rewriterunner.recipe.RecipeLoader
 import io.github.skhokhlov.rewriterunner.recipe.RecipeRunner
@@ -45,7 +46,8 @@ internal data class ResolvedExecutionRequest(
     val downloadThreads: Int,
     val resolverConnectTimeout: Duration,
     val resolverRequestTimeout: Duration,
-    val changeWriter: ChangeWriter? = null
+    val changeWriter: ChangeWriter? = null,
+    val parserRegistrations: List<ParserRegistration> = BuiltinParserProviders.registrations()
 )
 
 /** Internal outcome retains Results only while it is safe to do so in the current JVM. */
@@ -93,7 +95,7 @@ internal class LstExecutionEngine(private val logger: RunnerLogger = NoOpRunnerL
                     cacheDir = request.cacheDir,
                     toolConfig = request.toolConfig,
                     aetherContext = projectAetherContext
-                ).build(
+                ).withParserRegistrations(request.parserRegistrations).build(
                     projectDir = request.projectDir,
                     excludePaths = request.excludePaths,
                     plainTextMasks = request.plainTextMasks
@@ -124,18 +126,17 @@ internal class LstExecutionEngine(private val logger: RunnerLogger = NoOpRunnerL
     }
 
     private fun executeSpecializedOnly(request: ResolvedExecutionRequest): LstExecutionOutcome {
-        logger.lifecycle("[0/7] Running specialized non-JVM parser pass (Docker/HCL/Proto)")
+        logger.lifecycle("[0/7] Running specialized parser pass")
         val lstBuildResult =
             LstBuilder(
                 logger = logger,
                 cacheDir = request.cacheDir,
                 toolConfig = request.toolConfig,
                 aetherContext = projectAetherContext(request)
-            ).build(
+            ).withParserRegistrations(request.parserRegistrations, specializedOnly = true).build(
                 projectDir = request.projectDir,
                 excludePaths = request.excludePaths,
-                plainTextMasks = emptyList(),
-                restrictToExtensions = SpecializedOwnership.extensions
+                plainTextMasks = request.plainTextMasks
             )
         if (lstBuildResult.sourceFiles.isEmpty()) {
             return LstExecutionOutcome(
